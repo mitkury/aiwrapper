@@ -263,10 +263,40 @@ function testDynamicProviderAccess() {
   }
 }
 
+async function testModelCentricAccess() {
+  console.log("\n=== Testing Model-Centric Access ===");
+
+  // Get a chat model from OpenAI
+  const model = Lang.models.fromProvider("openai").can("reason")[0];
+  console.log("✓ Found model:", model.id);
+
+  // Initialize provider using model info
+  const lang = Lang[model.providers[0]]({
+    apiKey: CONFIG.openai.options.apiKey,
+    model: model.id
+  });
+  console.log("✓ Provider initialized:", lang instanceof LanguageProvider);
+
+  // Test basic chat capability
+  const messages = [
+    { role: "user", content: "Hello!" }
+  ];
+
+  try {
+    const result = await lang.chat(messages, (res: { answer: string }) => {
+      console.log("Streaming response:", res.answer);
+    });
+    console.log("✓ Chat response received:", result.answer);
+  } catch (error) {
+    console.error("❌ Chat failed:", error instanceof Error ? error.message : String(error));
+  }
+}
+
 async function runAllTests() {
   try {
     testDynamicProviderAccess();
-    await testBasicChat();
+    testModelCentricAccess();
+    // await testBasicChat();
     // await testSystemPrompts();
     // await testStructuredOutput();
     // await testErrorHandling();
