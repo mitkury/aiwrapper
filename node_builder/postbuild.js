@@ -22,7 +22,7 @@ const addJsExtensionToBuild = () => {
     }
 
     let content = fs.readFileSync(filePath, 'utf-8');
-    content = content.replace(/from ['"](.+)(?<!\.js)['"]/g, (match, p1) => {
+    content = content.replace(/from ['"]([\.\/][^"']+)(?<!\.js)['"]/g, (match, p1) => {
       const importWithExtension = `from "${p1}.js"`;
       return importWithExtension;
     });

@@ -39,24 +39,28 @@ if (needsCustomProcessResponseStream) {
     }
     let rawData = "";
     const decoder = new TextDecoder("utf-8");
-    const dataPromise = new Promise((resolve, reject) => {
-      response.body.on('data', (chunk) => {
-        rawData += decoder.decode(chunk);
+    const reader = response.body.getReader();
+    
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        rawData += decoder.decode(value, { stream: true });
         // Process each complete message (messages are divided by newlines)
         let lastIndex = rawData.lastIndexOf("\n");
         if (lastIndex > -1) {
           processLinesFromStream(rawData.slice(0, lastIndex), onData);
           rawData = rawData.slice(lastIndex + 1);
         }
-      });
-      response.body.on('end', () => {
-        resolve();
-      });
-      response.body.on('error', (err) => {
-        reject(err);
-      });
-    });
-    await dataPromise;
+      }
+      // Process any remaining data
+      if (rawData.length > 0) {
+        processLinesFromStream(rawData, onData);
+      }
+    } finally {
+      reader.releaseLock();
+    }
   });
 }
 

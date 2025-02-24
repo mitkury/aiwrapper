@@ -38,9 +38,9 @@
     "prebuild": "node ./node_builder/prebuild.js",
     "build": "tsc",
     "postbuild": "node ./node_builder/postbuild.js",
-    "test": "deno run -A tests/integration/lang.test.ts",
-    "test:watch": "deno run --watch -A tests/integration/lang.test.ts",
-    "test:integration": "deno run -A tests/integration/lang.test.ts"
+    "test": "npm run test:deno && npm run test:node",
+    "test:deno": "deno run -A tests/deno/lang.test.ts",
+    "test:node": "npm run build && node tests/node/dist.test.js"
   },
   "dependencies": {
     "aimodels": "^0.3.8",
