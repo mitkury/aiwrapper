@@ -106,3 +106,8 @@ test.config.json
 /dist
 /temp_node_source
 /dev_tests
+
+# Playwright
+/test-results/
+/playwright-report/
+/playwright/.cache/
