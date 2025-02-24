@@ -9,7 +9,7 @@ import {
   LangResultWithString,
   LanguageProvider,
 } from "../language-provider.ts";
-import { models } from 'aimodels';
+import { models, Model } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
 
 export type CohereLangOptions = {
