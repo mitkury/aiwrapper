@@ -296,10 +296,10 @@ async function runAllTests() {
   try {
     testDynamicProviderAccess();
     testModelCentricAccess();
-    // await testBasicChat();
-    // await testSystemPrompts();
-    // await testStructuredOutput();
-    // await testErrorHandling();
+    await testBasicChat();
+    await testSystemPrompts();
+    await testStructuredOutput();
+    await testErrorHandling();
   } catch (error) {
     console.error("Test suite error:", error);
   }

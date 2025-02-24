@@ -1,5 +1,4 @@
 import { OpenAILikeLang } from "../openai-like/openai-like-lang.ts";
-import { models } from 'aimodels';
 
 export type MistralLangOptions = {
   apiKey: string;
