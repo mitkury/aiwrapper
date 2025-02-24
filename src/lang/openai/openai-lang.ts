@@ -54,4 +54,16 @@ export class OpenAILang extends OpenAILikeLang {
       return message;
     });
   }
+
+  protected override transformBody(body: Record<string, unknown>): Record<string, unknown> {
+    // OpenAI now uses max_completion_tokens instead of max_tokens
+    if (body.max_tokens) {
+      const { max_tokens, ...rest } = body;
+      return {
+        ...rest,
+        max_completion_tokens: max_tokens
+      };
+    }
+    return body;
+  }
 }

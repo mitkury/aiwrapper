@@ -60,35 +60,9 @@ export abstract class OpenAILikeLang extends LanguageProvider {
     return messages;
   }
 
-  // Rough estimate: 1 token ≈ 4 chars for English text
-  protected estimateTokens(text: string): number {
-    return Math.ceil(text.length / 4);
-  }
-
-  protected calculateMaxTokens(
-    messages: LangChatMessages,
-    modelContextTotal: number,
-    modelMaxOutput: number
-  ): number {
-    // If we don't have model info, use conservative defaults
-    const contextWindow = this.modelInfo?.context?.total || 4000;
-    const maxOutput = this.modelInfo?.context?.maxOutput || 1000;
-
-    // Calculate estimated tokens in messages
-    const estimatedInputTokens = messages.reduce((total, msg) => {
-      return total + this.estimateTokens(msg.content);
-    }, 0);
-
-    // Add some overhead for message formatting (roles, etc)
-    const overhead = messages.length * 4;
-
-    const availableTokens = contextWindow - estimatedInputTokens - overhead;
-
-    // Use either the model's maxOutput or the available tokens, whichever is smaller
-    return Math.min(
-      maxOutput,
-      availableTokens
-    );
+  protected transformBody(body: Record<string, unknown>): Record<string, unknown> {
+    // By default, no transformation
+    return body;
   }
 
   async chat(
@@ -130,6 +104,13 @@ export abstract class OpenAILikeLang extends LanguageProvider {
       }
     };
 
+    const body = this.transformBody({
+      model: this._config.name,
+      messages: transformedMessages,
+      stream: true,
+      max_tokens: requestMaxTokens,
+    });
+
     const response = await fetch(`${this._config.baseURL}/chat/completions`, {
       method: "POST",
       headers: {
@@ -137,12 +118,7 @@ export abstract class OpenAILikeLang extends LanguageProvider {
         "Authorization": `Bearer ${this._config.apiKey}`,
         ...this._config.headers,
       },
-      body: JSON.stringify({
-        model: this._config.name,
-        messages: transformedMessages,
-        stream: true,
-        max_tokens: requestMaxTokens,
-      }),
+      body: JSON.stringify(body),
       onNotOkResponse: async (
         res,
         decision,
