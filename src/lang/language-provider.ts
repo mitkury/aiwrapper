@@ -2,10 +2,10 @@ import { buildPromptForGettingJSON, PromptForObject } from "./prompt-for-json.ts
 import extractJSON from "./json/extract-json.ts";
 
 /**
- * LanguageModel is an abstract class that represents a language model and
+ * LanguageProvider is an abstract class that represents a language model and
  * its basic functionality.
  */
-export abstract class LanguageModel {
+export abstract class LanguageProvider {
   readonly name: string;
 
   constructor(name: string) {

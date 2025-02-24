@@ -2,8 +2,8 @@ import {
   LangChatMessages,
   LangResultWithMessages,
   LangResultWithString,
-  LanguageModel,
-} from "../language-model.ts";
+  LanguageProvider,
+} from "../language-provider.ts";
 import {
   DecisionOnNotOkResponse,
   httpRequestWithRetry as fetch,
@@ -21,7 +21,7 @@ export type OpenAILikeConfig = {
   headers?: Record<string, string>;
 };
 
-export abstract class OpenAILikeLang extends LanguageModel {
+export abstract class OpenAILikeLang extends LanguageProvider {
   protected _config: OpenAILikeConfig;
   protected modelInfo?: Model;
 

@@ -2,8 +2,8 @@ import {
   LangChatMessages,
   LangResultWithMessages,
   LangResultWithString,
-  LanguageModel,
-} from "../language-model.ts";
+  LanguageProvider,
+} from "../language-provider.ts";
 import {
   DecisionOnNotOkResponse,
   httpRequestWithRetry as fetch,
@@ -18,7 +18,7 @@ export type GoogleLangOptions = {
   maxTokens?: number;
 };
 
-export class GoogleLang extends LanguageModel {
+export class GoogleLang extends LanguageProvider {
   private _apiKey: string;
   private _model: string;
   private _systemPrompt: string;

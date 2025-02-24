@@ -7,8 +7,8 @@ import {
   LangChatMessages,
   LangResultWithMessages,
   LangResultWithString,
-  LanguageModel,
-} from "../language-model.ts";
+  LanguageProvider,
+} from "../language-provider.ts";
 import { models } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
 
@@ -19,7 +19,7 @@ export type CohereLangOptions = {
   maxTokens?: number;
 };
 
-export class CohereLang extends LanguageModel {
+export class CohereLang extends LanguageProvider {
   private _apiKey: string;
   private _model: string;
   private _systemPrompt: string;

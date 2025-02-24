@@ -1,4 +1,4 @@
-import { LangChatMessages, LangResultWithMessages, LangResultWithString, LanguageModel } from "../language-model.ts";
+import { LangChatMessages, LangResultWithMessages, LangResultWithString, LanguageProvider } from "../language-provider.ts";
 import { httpRequestWithRetry as fetch } from "../../http-request.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
 import { models } from 'aimodels';
@@ -18,7 +18,7 @@ export type OllamaLangConfig = {
   maxTokens?: number;
 };
 
-export class OllamaLang extends LanguageModel {
+export class OllamaLang extends LanguageProvider {
   _config: OllamaLangConfig;
 
   constructor(options: OllamaLangOptions) {

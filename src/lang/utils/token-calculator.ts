@@ -1,4 +1,4 @@
-import { LangChatMessages } from "../language-model.ts";
+import { LangChatMessages } from "../language-provider.ts";
 import { Model, ModelContext } from "aimodels";
 
 // Rough estimate: 1 token ≈ 4 chars for English text

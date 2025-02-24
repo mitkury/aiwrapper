@@ -1,3 +1,4 @@
+import { models } from 'aimodels';
 import { OpenAILang, OpenAILangOptions } from "./openai/openai-lang.ts";
 import { AnthropicLang, AnthropicLangOptions  } from "./anthropic/anthropic-lang.ts";
 import { OllamaLang, OllamaLangOptions } from "./ollama/ollama-lang.ts";
@@ -7,11 +8,17 @@ import { XAILang, XAILangOptions } from "./xai/xai-lang.ts";
 import { GoogleLang, GoogleLangOptions } from "./google/google-lang.ts";
 import { CohereLang, CohereLangOptions } from "./cohere/cohere-lang.ts";
 import { OpenRouterLang, OpenRouterLangOptions } from "./openrouter/openrouter-lang.ts";
+import { MistralLang, MistralLangOptions } from "./mistral/mistral-lang.ts";
+import { LanguageProvider } from "./language-provider.ts";
 
 /**
  * Lang is a factory class for using language models from different providers. 
  */
 export abstract class Lang {
+  // Expose aimodels' ModelCollection for rich filtering and discovery
+  static models = models;
+
+  // Provider access methods
   static openai(options: OpenAILangOptions): OpenAILang {
     return new OpenAILang(options);
   }
@@ -47,4 +54,22 @@ export abstract class Lang {
   static openrouter(options: OpenRouterLangOptions): OpenRouterLang {
     return new OpenRouterLang(options);
   }
+
+  static mistral(options: MistralLangOptions): MistralLang {
+    return new MistralLang(options);
+  }
+
+  // Dynamic provider access
+  static [Symbol.iterator]() {
+    const providers = models.providers.reduce((acc, providerId) => {
+      if (providerId in this) {
+        acc[providerId] = (this as any)[providerId];
+      }
+      return acc;
+    }, {} as Record<string, Function>);
+    return Object.values(providers)[Symbol.iterator]();
+  }
+
+  // Array-like access to providers
+  static [key: string]: any;
 }

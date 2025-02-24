@@ -2,7 +2,7 @@ import {
   LangChatMessages,
   LangResultWithMessages,
   LangResultWithString,
-} from "../language-model.ts";
+} from "../language-provider.ts";
 import { OpenAILikeLang } from "../openai-like/openai-like-lang.ts";
 import { models, Model } from 'aimodels';
 

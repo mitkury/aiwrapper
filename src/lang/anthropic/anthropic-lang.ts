@@ -7,8 +7,8 @@ import {
   LangChatMessages,
   LangResultWithMessages,
   LangResultWithString,
-  LanguageModel,
-} from "../language-model.ts";
+  LanguageProvider,
+} from "../language-provider.ts";
 import { models } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
 
@@ -26,7 +26,7 @@ export type AnthropicLangConfig = {
   maxTokens?: number;
 };
 
-export class AnthropicLang extends LanguageModel {
+export class AnthropicLang extends LanguageProvider {
   override readonly name: string;
   _config: AnthropicLangConfig;
 

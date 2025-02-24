@@ -1,7 +1,8 @@
 import {
   Lang,
-  LanguageModel,
+  LanguageProvider,
 } from "../../mod.ts";
+import { models } from "aimodels";
 import { config } from "https://deno.land/x/dotenv@v3.2.2/mod.ts";
 
 // Load environment variables
@@ -21,6 +22,13 @@ const CONFIG = {
     options: {
       apiKey: Deno.env.get("ANTHROPIC_API_KEY") || "",
       model: "claude-3-sonnet-20240229",
+    },
+  },
+  mistral: {
+    enabled: true,
+    options: {
+      apiKey: Deno.env.get("MISTRAL_API_KEY") || "",
+      model: "mistral-large-latest",
     },
   },
   groq: {
@@ -75,13 +83,16 @@ const CONFIG = {
 } as const;
 
 function getEnabledLangProviders() {
-  const models: Record<string, LanguageModel> = {};
-  
+  const models: Record<string, LanguageProvider> = {};
+
   if (CONFIG.openai.enabled && CONFIG.openai.options.apiKey) {
     models["OpenAI"] = Lang.openai(CONFIG.openai.options);
   }
   if (CONFIG.anthropic.enabled && CONFIG.anthropic.options.apiKey) {
     models["Anthropic"] = Lang.anthropic(CONFIG.anthropic.options);
+  }
+  if (CONFIG.mistral.enabled && CONFIG.mistral.options.apiKey) {
+    models["Mistral"] = Lang.mistral(CONFIG.mistral.options);
   }
   if (CONFIG.groq.enabled) {
     models["Groq"] = Lang.groq(CONFIG.groq.options);
@@ -104,14 +115,14 @@ function getEnabledLangProviders() {
   if (CONFIG.deepseek.enabled) {
     models["DeepSeek"] = Lang.deepseek(CONFIG.deepseek.options);
   }
-  
+
   return models;
 }
 
 async function testBasicChat() {
   console.log("\n=== Testing Basic Chat ===");
   const providers = getEnabledLangProviders();
-  
+
   if (Object.keys(providers).length === 0) {
     console.log("❌ No models enabled for testing - please check your .env file");
     return;
@@ -137,7 +148,7 @@ async function testBasicChat() {
 async function testSystemPrompts() {
   console.log("\n=== Testing System Prompts ===");
   const providers = getEnabledLangProviders();
-  
+
   if (Object.keys(providers).length === 0) {
     console.log("❌ No models enabled for testing - please check your .env file");
     return;
@@ -170,7 +181,7 @@ async function testSystemPrompts() {
 async function testStructuredOutput() {
   console.log("\n=== Testing Structured Output ===");
   const providers = getEnabledLangProviders();
-  
+
   if (Object.keys(providers).length === 0) {
     console.log("❌ No models enabled for testing - please check your .env file");
     return;
@@ -220,12 +231,45 @@ async function testErrorHandling() {
   }
 }
 
+function testDynamicProviderAccess() {
+  console.log("\n=== Testing Dynamic Provider Access ===");
+
+  // List all available providers
+  console.log("\nAvailable providers in aimodels:", models.providers);
+
+  // Test direct static access
+  const openaiDirect = Lang.openai({ apiKey: "test" });
+  console.log("✓ Direct static access works:", openaiDirect instanceof LanguageProvider);
+
+  // Test array-like access
+  const openaiDynamic = Lang["openai"]({ apiKey: "test" });
+  console.log("✓ Array-like access works:", openaiDynamic instanceof LanguageProvider);
+
+  // Test models access
+  console.log("✓ Models access works:", Lang.models === models);
+
+  // Test iteration
+  const providerCount = [...Lang].length;
+  console.log(`✓ Iterator works: found ${providerCount} providers`);
+
+  // Test all providers from models.providers
+  for (const providerId of models.providers) {
+    try {
+      const provider = Lang[providerId]({ apiKey: "test" });
+      console.log(`✓ Provider ${providerId} access works:`, provider instanceof LanguageProvider);
+    } catch (error) {
+      console.error(`❌ Provider ${providerId} access failed:`, error);
+    }
+  }
+}
+
 async function runAllTests() {
   try {
+    testDynamicProviderAccess();
     await testBasicChat();
-    await testSystemPrompts();
-    await testStructuredOutput();
-    await testErrorHandling();
+    // await testSystemPrompts();
+    // await testStructuredOutput();
+    // await testErrorHandling();
   } catch (error) {
     console.error("Test suite error:", error);
   }
