@@ -78,6 +78,7 @@
   "workspace": {
     "packageJson": {
       "dependencies": [
+        "npm:@playwright/test@^1.42.1",
         "npm:@types/node@^20.11.16",
         "npm:aimodels@~0.3.8",
         "npm:dotenv@^16.4.1",
