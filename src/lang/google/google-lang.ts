@@ -10,6 +10,7 @@ import {
 } from "../../http-request.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
 import { models, Model } from 'aimodels';
+import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
 
 export type GoogleLangOptions = {
   apiKey: string;
@@ -84,10 +85,20 @@ export class GoogleLang extends LanguageProvider {
       };
     });
 
+    // Calculate max tokens if we have model info
+    let maxOutputTokens = this._maxTokens;
+    if (this.modelInfo && !maxOutputTokens) {
+      maxOutputTokens = calculateModelResponseTokens(
+        this.modelInfo,
+        messages,
+        this._maxTokens
+      );
+    }
+
     const requestBody = {
       contents,
       generationConfig: {
-        maxOutputTokens: this._maxTokens,
+        maxOutputTokens: maxOutputTokens,
         temperature: 0.7,
         topP: 0.8,
         topK: 40,

@@ -12,7 +12,7 @@ export class DeepSeekLang extends OpenAILikeLang {
     const modelName = options.model || "deepseek-chat";
     super({
       apiKey: options.apiKey,
-      name: modelName,
+      model: modelName,
       systemPrompt: options.systemPrompt || "",
       maxTokens: options.maxTokens,
       baseURL: "https://api.deepseek.com/v1",

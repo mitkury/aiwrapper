@@ -21,17 +21,16 @@ export type AnthropicLangOptions = {
 
 export type AnthropicLangConfig = {
   apiKey: string;
-  name: string;
+  model: string;
   systemPrompt?: string;
   maxTokens?: number;
 };
 
 export class AnthropicLang extends LanguageProvider {
-  override readonly name: string;
   _config: AnthropicLangConfig;
 
   constructor(options: AnthropicLangOptions) {
-    const modelName = options.model || "claude-3-5-sonnet-20240620";
+    const modelName = options.model || "claude-3-sonnet-20240229";
     super(modelName);
 
     // Get model info from aimodels
@@ -42,11 +41,10 @@ export class AnthropicLang extends LanguageProvider {
 
     this._config = {
       apiKey: options.apiKey,
-      name: modelName,
+      model: modelName,
       systemPrompt: options.systemPrompt,
       maxTokens: options.maxTokens,
     };
-    this.name = this._config.name;
   }
 
   async ask(
@@ -91,9 +89,9 @@ export class AnthropicLang extends LanguageProvider {
     const result = new LangResultWithMessages(messages);
 
     // Get model info and calculate max tokens
-    const modelInfo = models.id(this._config.name);
+    const modelInfo = models.id(this._config.model);
     if (!modelInfo) {
-      throw new Error(`Model info not found for ${this._config.name}`);
+      throw new Error(`Model info not found for ${this._config.model}`);
     }
 
     const requestMaxTokens = calculateModelResponseTokens(
@@ -145,7 +143,7 @@ export class AnthropicLang extends LanguageProvider {
         "x-api-key": this._config.apiKey
       },
       body: JSON.stringify({
-        model: this._config.name,
+        model: this._config.model,
         messages: messages,
         max_tokens: requestMaxTokens,
         system: this._config.systemPrompt ? this._config.systemPrompt : detectedSystemMessage,

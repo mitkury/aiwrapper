@@ -4,7 +4,7 @@ import {
   LangResultWithString,
 } from "../language-provider.ts";
 import { OpenAILikeLang } from "../openai-like/openai-like-lang.ts";
-import { models, Model } from 'aimodels';
+import { models } from 'aimodels';
 
 export type OpenAILangOptions = {
   apiKey: string;
@@ -15,7 +15,7 @@ export type OpenAILangOptions = {
 
 export type OpenAILangConfig = {
   apiKey: string;
-  name: string;
+  model: string;
   systemPrompt: string;
   maxTokens?: number;
 };
@@ -31,7 +31,7 @@ export class OpenAILang extends OpenAILikeLang {
     
     super({
       apiKey: options.apiKey,
-      name: modelName,
+      model: modelName,
       systemPrompt: options.systemPrompt || "",
       maxTokens: options.maxTokens,
       baseURL: "https://api.openai.com/v1",
@@ -45,7 +45,7 @@ export class OpenAILang extends OpenAILikeLang {
 
   protected override transformMessages(messages: LangChatMessages): LangChatMessages {
     return messages.map((message) => {
-      if (message.role === "system" && this._config.name.includes("o1")) {
+      if (message.role === "system" && this._config.model.includes("o1")) {
         return { ...message, role: "user" };
       }
       else if (message.role === "system") {

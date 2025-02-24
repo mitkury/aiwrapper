@@ -13,7 +13,7 @@ export class MistralLang extends OpenAILikeLang {
     
     super({
       apiKey: options.apiKey,
-      name: modelName,
+      model: modelName,
       systemPrompt: options.systemPrompt || "",
       maxTokens: options.maxTokens,
       baseURL: "https://api.mistral.ai/v1",

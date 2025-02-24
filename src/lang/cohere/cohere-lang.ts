@@ -24,6 +24,7 @@ export class CohereLang extends LanguageProvider {
   private _model: string;
   private _systemPrompt: string;
   private _maxTokens?: number;
+  private modelInfo?: Model;
 
   constructor(options: CohereLangOptions) {
     const modelName = options.model || "command-r-plus-08-2024";
@@ -35,6 +36,7 @@ export class CohereLang extends LanguageProvider {
       console.error(`Invalid Cohere model: ${modelName}. Model not found in aimodels database.`);
     }
 
+    this.modelInfo = modelInfo;
     this._apiKey = options.apiKey;
     this._model = modelName;
     this._systemPrompt = options.systemPrompt || "";
@@ -68,43 +70,32 @@ export class CohereLang extends LanguageProvider {
   ): Promise<LangResultWithMessages> {
     const result = new LangResultWithMessages(messages);
 
-    // Transform messages to Cohere's format
+    // Transform messages to Cohere's format (only user/assistant roles)
     const transformedMessages = messages.map(msg => ({
-      role: msg.role === "assistant" ? "assistant" : "user", // Cohere only accepts "user" and "assistant"
+      role: msg.role === "assistant" ? "assistant" : "user",
       content: msg.content
     }));
+
+    // Calculate max tokens if we have model info
+    let maxTokens = this._maxTokens;
+    if (this.modelInfo && !maxTokens) {
+      maxTokens = calculateModelResponseTokens(
+        this.modelInfo,
+        messages,
+        this._maxTokens
+      );
+    }
 
     const requestBody = {
       messages: transformedMessages,
       model: this._model,
-      max_tokens: this._maxTokens,
-      temperature: 0.7,
       stream: true,
+      max_tokens: maxTokens,
+      temperature: 0.7,
       preamble_override: this._systemPrompt || undefined,
     };
 
-    const onData = (data: any) => {
-      if (data.type === "message-end") {
-        result.finished = true;
-        onResult?.(result);
-        return;
-      }
-
-      // Handle Cohere's streaming format
-      if (data.type === "content-delta" && data.delta?.message?.content?.text) {
-        const text = data.delta.message.content.text;
-        result.answer += text;
-
-        result.messages = [...messages, {
-          role: "assistant",
-          content: result.answer,
-        }];
-
-        onResult?.(result);
-      }
-    };
-
-    const response = await fetch("https://api.cohere.com/v2/chat?alt=sse", {
+    const response = await fetch(`https://api.cohere.com/v2/chat?alt=sse`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -134,6 +125,27 @@ export class CohereLang extends LanguageProvider {
     }).catch((err) => {
       throw new Error(err);
     });
+
+    const onData = (data: any) => {
+      if (data.type === "message-end") {
+        result.finished = true;
+        onResult?.(result);
+        return;
+      }
+
+      // Handle Cohere's streaming format
+      if (data.type === "content-delta" && data.delta?.message?.content?.text) {
+        const text = data.delta.message.content.text;
+        result.answer += text;
+
+        result.messages = [...messages, {
+          role: "assistant",
+          content: result.answer,
+        }];
+
+        onResult?.(result);
+      }
+    };
 
     await processResponseStream(response, onData);
 

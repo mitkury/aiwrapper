@@ -3,48 +3,54 @@ import { httpRequestWithRetry as fetch } from "../../http-request.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
 import { models } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
+import { OpenAILikeLang } from "../openai-like/openai-like-lang.ts";
 
 export type OllamaLangOptions = {
-  url?: string;
-  model: string;
+  model?: string;
   systemPrompt?: string;
   maxTokens?: number;
+  url?: string;
 };
 
 export type OllamaLangConfig = {
-  url: string;
+  apiKey: string;
   model: string;
   systemPrompt: string;
   maxTokens?: number;
+  baseURL: string;
 };
 
-export class OllamaLang extends LanguageProvider {
-  _config: OllamaLangConfig;
-
+export class OllamaLang extends OpenAILikeLang {
   constructor(options: OllamaLangOptions) {
-    const model = options.model;
-    super(model);
-
-    // Try to get model info from aimodels
-    const modelInfo = models.id(model);
-
-    this._config = {
-      url: options.url || "http://localhost:11434",
-      model,
-      systemPrompt: options.systemPrompt ? options.systemPrompt : '',
+    const modelName = options.model || "llama2:latest";
+    
+    super({
+      apiKey: "",
+      model: modelName,
+      systemPrompt: options.systemPrompt || "",
       maxTokens: options.maxTokens,
-    };
-
-    // If we have model info, validate maxTokens against model's context
-    if (modelInfo && this._config.maxTokens && modelInfo.context?.maxOutput) {
-      this._config.maxTokens = Math.min(
-        this._config.maxTokens,
-        modelInfo.context.maxOutput
-      );
+      baseURL: options.url || "http://localhost:11434",
+    });
+    
+    // For Ollama, we require the model to be in aimodels database
+    if (!this.modelInfo) {
+      console.error(`Invalid Ollama model: ${modelName}. Model not found in aimodels database.`);
     }
   }
 
-  async ask(
+  protected override transformBody(body: Record<string, unknown>): Record<string, unknown> {
+    // Ollama uses context_length instead of max_tokens
+    if (body.max_tokens) {
+      const { max_tokens, ...rest } = body;
+      return {
+        ...rest,
+        context_length: max_tokens
+      };
+    }
+    return body;
+  }
+
+  override async ask(
     prompt: string,
     onResult?: (result: LangResultWithString) => void,
   ): Promise<LangResultWithString> {
@@ -76,7 +82,7 @@ export class OllamaLang extends LanguageProvider {
       onResult?.(result);
     };
 
-    const response = await fetch(`${this._config.url}/api/generate`, {
+    const response = await fetch(`${this._config.baseURL}/api/generate`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -97,7 +103,7 @@ export class OllamaLang extends LanguageProvider {
     return result;
   }
 
-  async chat(messages: LangChatMessages, onResult?: (result: LangResultWithMessages) => void): Promise<LangResultWithMessages> {
+  override async chat(messages: LangChatMessages, onResult?: (result: LangResultWithMessages) => void): Promise<LangResultWithMessages> {
     const result = new LangResultWithMessages(
       messages,
     );
@@ -128,7 +134,7 @@ export class OllamaLang extends LanguageProvider {
       onResult?.(result);
     };
 
-    const response = await fetch(`${this._config.url}/api/chat`, {
+    const response = await fetch(`${this._config.baseURL}/api/chat`, {
       method: "POST",
       body: JSON.stringify({
         model: this._config.model,

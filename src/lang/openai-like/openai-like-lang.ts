@@ -14,7 +14,7 @@ import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
 
 export type OpenAILikeConfig = {
   apiKey: string;
-  name: string;
+  model: string;
   systemPrompt: string;
   maxTokens?: number;
   baseURL: string;
@@ -26,10 +26,10 @@ export abstract class OpenAILikeLang extends LanguageProvider {
   protected modelInfo?: Model;
 
   constructor(config: OpenAILikeConfig) {
-    super(config.name);
+    super(config.model);
 
     // Get model info from aimodels - it's optional now
-    const modelInfo = models.id(config.name);
+    const modelInfo = models.id(config.model);
     this.modelInfo = modelInfo; // can be undefined
     this._config = config;
   }
@@ -105,7 +105,7 @@ export abstract class OpenAILikeLang extends LanguageProvider {
     };
 
     const body = this.transformBody({
-      model: this._config.name,
+      model: this._config.model,
       messages: transformedMessages,
       stream: true,
       max_tokens: requestMaxTokens,

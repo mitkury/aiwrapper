@@ -4,7 +4,7 @@ import {
   LangResultWithString,
 } from "../language-provider.ts";
 import { OpenAILikeLang } from "../openai-like/openai-like-lang.ts";
-import { models, Model } from 'aimodels';
+import { models } from 'aimodels';
 
 export type XAILangOptions = {
   apiKey: string;
@@ -19,7 +19,7 @@ export class XAILang extends OpenAILikeLang {
     
     super({
       apiKey: options.apiKey,
-      name: modelName,
+      model: modelName,
       systemPrompt: options.systemPrompt || "",
       maxTokens: options.maxTokens,
       baseURL: "https://api.x.ai/v1",

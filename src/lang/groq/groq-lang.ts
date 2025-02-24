@@ -11,7 +11,7 @@ export class GroqLang extends OpenAILikeLang {
     const modelName = options.model || "llama3-70b-8192";
     super({
       apiKey: options.apiKey,
-      name: modelName,
+      model: modelName,
       systemPrompt: options.systemPrompt || "",
       baseURL: "https://api.groq.com/openai/v1",
     });

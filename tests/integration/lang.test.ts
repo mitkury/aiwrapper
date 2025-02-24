@@ -21,21 +21,21 @@ const CONFIG = {
     enabled: true,
     options: {
       apiKey: Deno.env.get("ANTHROPIC_API_KEY") || "",
-      model: "claude-3-sonnet-20240229",
+      //model: "claude-3-sonnet-20240229",
     },
   },
   mistral: {
     enabled: true,
     options: {
       apiKey: Deno.env.get("MISTRAL_API_KEY") || "",
-      model: "mistral-large-latest",
+      //model: "mistral-large-latest",
     },
   },
   groq: {
     enabled: true,
     options: {
       apiKey: Deno.env.get("GROQ_API_KEY") || "",
-      model: "mixtral-8x7b-32768",
+      //§model: "mixtral-8x7b-32768",
     },
   },
   xai: {
