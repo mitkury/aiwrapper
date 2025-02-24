@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AIWrapper Browser Tests</title>
+    <script type="module">
+        import { runTest } from './test.js';
+        // Expose the test function to window
+        window.runTest = runTest;
+    </script>
+</head>
+<body>
+    <h1>AIWrapper Browser Tests</h1>
+    <button onclick="window.runTest('dummy-key')">Run Test</button>
+    <div id="result"></div>
+</body>
+</html> 

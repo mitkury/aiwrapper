@@ -38,15 +38,19 @@
     "prebuild": "node ./node_builder/prebuild.js",
     "build": "tsc",
     "postbuild": "node ./node_builder/postbuild.js",
-    "test": "npm run test:deno && npm run test:node",
+    "test": "npm run test:deno && npm run test:node && npm run test:browser",
     "test:deno": "deno run -A tests/deno/lang.test.ts",
-    "test:node": "npm run build && node tests/node/dist.test.js"
+    "test:node": "npm run build && node tests/node/dist.test.js",
+    "test:browser": "playwright test",
+    "test:browser:ui": "playwright test --ui",
+    "serve": "npx serve ."
   },
   "dependencies": {
     "aimodels": "^0.3.8",
     "node-fetch": "^3.3.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.42.1",
     "@types/node": "^20.11.16",
     "dotenv": "^16.4.1",
     "glob": "^11.0.1",
