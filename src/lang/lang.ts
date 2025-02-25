@@ -15,8 +15,8 @@ import { LanguageProvider } from "./language-provider.ts";
  * Lang is a factory class for using language models from different providers. 
  */
 export abstract class Lang {
-  // Expose aimodels' ModelCollection for rich filtering and discovery
-  static models = models;
+  // Expose all chat (text-in, text-out) models
+  static models = models.can("chat");
 
   // Provider access methods
   static openai(options: OpenAILangOptions): OpenAILang {
