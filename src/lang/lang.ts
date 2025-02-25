@@ -9,7 +9,6 @@ import { GoogleLang, GoogleLangOptions } from "./google/google-lang.ts";
 import { CohereLang, CohereLangOptions } from "./cohere/cohere-lang.ts";
 import { OpenRouterLang, OpenRouterLangOptions } from "./openrouter/openrouter-lang.ts";
 import { MistralLang, MistralLangOptions } from "./mistral/mistral-lang.ts";
-import { LanguageProvider } from "./language-provider.ts";
 
 /**
  * Lang is a factory class for using language models from different providers. 
