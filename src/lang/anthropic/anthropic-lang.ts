@@ -109,6 +109,8 @@ export class AnthropicLang extends LanguageProvider {
 
     const onData = (data: any) => {
       if (data.type === "message_stop") {
+        // Store the thinking content in the result object before finishing
+        result.thinking = thinkingContent;
         result.finished = true;
         onResult?.(result);
         return;
@@ -122,7 +124,9 @@ export class AnthropicLang extends LanguageProvider {
 
       if (data.type === "content_block_stop" && isReceivingThinking) {
         isReceivingThinking = false;
-        // We don't add thinking content to the final answer
+        // Update the thinking content in the result object
+        result.thinking = thinkingContent;
+        onResult?.(result);
         return;
       }
 
@@ -150,6 +154,9 @@ export class AnthropicLang extends LanguageProvider {
         // Handle thinking content delta
         if (data.delta.type === "thinking_delta" && data.delta.thinking) {
           thinkingContent += data.delta.thinking;
+          // Update the thinking content in the result object
+          result.thinking = thinkingContent;
+          onResult?.(result);
           return;
         }
         
@@ -159,6 +166,9 @@ export class AnthropicLang extends LanguageProvider {
         // If we're receiving thinking content, store it separately
         if (isReceivingThinking) {
           thinkingContent += deltaContent;
+          // Update the thinking content in the result object
+          result.thinking = thinkingContent;
+          onResult?.(result);
           return;
         }
         

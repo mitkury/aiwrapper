@@ -101,11 +101,13 @@ function schemasAreMatching(example: any, target: any): boolean {
 interface LangProcessingResult {
   prompt: string;
   finished: boolean;
+  thinking?: string;
 }
 
 export class LangResultWithString implements LangProcessingResult {
   prompt: string;
   answer: string;
+  thinking?: string;
   finished = false;
 
   constructor(
@@ -128,6 +130,7 @@ export class LangResultWithString implements LangProcessingResult {
 export class LangResultWithObject implements LangProcessingResult {
   answerObj: object = {};
   answer = "";
+  thinking?: string;
   prompt: string;
   finished = false;
 
@@ -156,6 +159,7 @@ export type LangChatMessages = {
 export class LangResultWithMessages implements LangProcessingResult {
   prompt: string;
   answer: string;
+  thinking?: string;
   messages: LangChatMessages = [];
   finished = false;
 

@@ -43,7 +43,7 @@
     "test:node": "npm run build && node tests/node/dist.test.js",
     "test:browser": "playwright test",
     "test:browser:ui": "playwright test --ui",
-    "test:integration": "npm run build && node tests/integration/anthropic-thinking.test.js",
+    "test:integration": "npm run build && node tests/integration/anthropic-thinking.test.js && node tests/integration/deepseek-reasoning.test.js && node tests/integration/openai-reasoning.test.js",
     "serve": "npx serve ."
   },
   "dependencies": {
