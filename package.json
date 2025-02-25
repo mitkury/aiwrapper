@@ -47,7 +47,7 @@
     "serve": "npx serve ."
   },
   "dependencies": {
-    "aimodels": "^0.3.9",
+    "aimodels": "^0.3.10",
     "node-fetch": "^3.3.2"
   },
   "devDependencies": {
