@@ -17,6 +17,7 @@ export type AnthropicLangOptions = {
   model?: string;
   systemPrompt?: string;
   maxTokens?: number;
+  extendedThinking?: boolean;
 };
 
 export type AnthropicLangConfig = {
@@ -24,6 +25,7 @@ export type AnthropicLangConfig = {
   model: string;
   systemPrompt?: string;
   maxTokens?: number;
+  extendedThinking?: boolean;
 };
 
 export class AnthropicLang extends LanguageProvider {
@@ -44,6 +46,7 @@ export class AnthropicLang extends LanguageProvider {
       model: modelName,
       systemPrompt: options.systemPrompt,
       maxTokens: options.maxTokens,
+      extendedThinking: options.extendedThinking,
     };
   }
 
@@ -100,10 +103,26 @@ export class AnthropicLang extends LanguageProvider {
       this._config.maxTokens
     );
 
+    // Track if we're receiving thinking content
+    let isReceivingThinking = false;
+    let thinkingContent = "";
+
     const onData = (data: any) => {
       if (data.type === "message_stop") {
         result.finished = true;
         onResult?.(result);
+        return;
+      }
+
+      // Handle thinking content
+      if (data.type === "content_block_start" && data.content_block?.type === "thinking") {
+        isReceivingThinking = true;
+        return;
+      }
+
+      if (data.type === "content_block_stop" && isReceivingThinking) {
+        isReceivingThinking = false;
+        // We don't add thinking content to the final answer
         return;
       }
 
@@ -128,11 +147,68 @@ export class AnthropicLang extends LanguageProvider {
       }
 
       if (data.type === "content_block_delta") {
+        // Handle thinking content delta
+        if (data.delta.type === "thinking_delta" && data.delta.thinking) {
+          thinkingContent += data.delta.thinking;
+          return;
+        }
+        
+        // Handle regular text delta
         const deltaContent = data.delta.text ? data.delta.text : "";
+        
+        // If we're receiving thinking content, store it separately
+        if (isReceivingThinking) {
+          thinkingContent += deltaContent;
+          return;
+        }
+        
         result.answer += deltaContent;
         onResult?.(result);
       }
     };
+
+    // Check if the model supports extended thinking by looking for the "reason" capability
+    const supportsExtendedThinking = modelInfo.can && modelInfo.can.includes("reason");
+    
+    // Prepare request body
+    const requestBody: any = {
+      model: this._config.model,
+      messages: messages,
+      max_tokens: requestMaxTokens,
+      system: this._config.systemPrompt ? this._config.systemPrompt : detectedSystemMessage,
+      stream: true,
+    };
+
+    // Add extended thinking if enabled and supported
+    if (this._config.extendedThinking && supportsExtendedThinking) {
+      // Calculate a reasonable thinking budget
+      // According to Anthropic's docs, max_tokens must be greater than thinking.budget_tokens
+      // So we'll set thinking budget to be 75% of max_tokens
+      let thinkingBudget = Math.floor(requestMaxTokens * 0.75);
+      
+      // Check if the model has extended reasoning info
+      // Using type assertion to avoid TypeScript errors since the aimodels types might not include the extended property
+      const contextObj = modelInfo.context as any;
+      if (contextObj && contextObj.extended && contextObj.extended.reasoning && contextObj.extended.reasoning.maxOutput) {
+        // Make sure thinking budget doesn't exceed the model's capabilities
+        thinkingBudget = Math.min(
+          thinkingBudget,
+          Math.floor(contextObj.extended.reasoning.maxOutput * 0.75)
+        );
+      }
+      
+      // Make sure thinking budget is at least 1000 tokens for meaningful reasoning
+      thinkingBudget = Math.max(thinkingBudget, 1000);
+      
+      // Ensure max_tokens is greater than thinking.budget_tokens
+      requestBody.max_tokens = Math.max(requestMaxTokens, thinkingBudget + 1000);
+      
+      // According to the Anthropic API, we need to use 'enabled' as the type
+      requestBody.thinking = {
+        type: "enabled",
+        budget_tokens: thinkingBudget
+      };
+    }
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -142,13 +218,7 @@ export class AnthropicLang extends LanguageProvider {
         "anthropic-dangerous-direct-browser-access": "true",
         "x-api-key": this._config.apiKey
       },
-      body: JSON.stringify({
-        model: this._config.model,
-        messages: messages,
-        max_tokens: requestMaxTokens,
-        system: this._config.systemPrompt ? this._config.systemPrompt : detectedSystemMessage,
-        stream: true,
-      }),
+      body: JSON.stringify(requestBody),
       onNotOkResponse: async (
         res,
         decision,

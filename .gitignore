@@ -100,9 +100,6 @@ dist
 .env.test.local
 .env.production.local
 
-# Test configuration
-test.config.json
-
 /dist
 /temp_node_source
 /dev_tests

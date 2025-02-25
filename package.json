@@ -38,15 +38,16 @@
     "prebuild": "node ./node_builder/prebuild.js",
     "build": "tsc",
     "postbuild": "node ./node_builder/postbuild.js",
-    "test": "npm run test:deno && npm run test:node",
+    "test": "npm run test:deno && npm run test:node && npm run test:integration",
     "test:deno": "deno run -A tests/deno/lang.test.ts",
     "test:node": "npm run build && node tests/node/dist.test.js",
     "test:browser": "playwright test",
     "test:browser:ui": "playwright test --ui",
+    "test:integration": "npm run build && node tests/integration/anthropic-thinking.test.js",
     "serve": "npx serve ."
   },
   "dependencies": {
-    "aimodels": "^0.3.8",
+    "aimodels": "^0.3.9",
     "node-fetch": "^3.3.2"
   },
   "devDependencies": {
