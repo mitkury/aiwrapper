@@ -47,8 +47,7 @@
     "serve": "npx serve ."
   },
   "dependencies": {
-    "aimodels": "^0.3.10",
-    "node-fetch": "^3.3.2"
+    "aimodels": "^0.3.10"
   },
   "devDependencies": {
     "@playwright/test": "^1.42.1",
