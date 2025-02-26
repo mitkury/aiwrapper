@@ -29,8 +29,6 @@ export class DeepSeekLang extends OpenAILikeLang {
     // Check if the model has reasoning capability in aimodels
     const modelInfo = models.id(this._config.model);
 
-    console.log(JSON.stringify(modelInfo, null, 2));
-
     // First check if the model has the "reason" capability
     if (modelInfo?.can?.includes("reason")) {
       return true;
@@ -55,8 +53,6 @@ export class DeepSeekLang extends OpenAILikeLang {
       return super.chat(messages, onResult);
     }
 
-    console.log("Model supports reasoning:", modelSupportsReasoning);
-
     const result = new LangResultWithMessages(messages);
     const transformedMessages = this.transformMessages(messages);
 
@@ -71,8 +67,6 @@ export class DeepSeekLang extends OpenAILikeLang {
     let reasoningContent = "";
 
     const onData = (data: any) => {
-      console.log("Data:", data);
-
       if (data.finished) {
         result.thinking = reasoningContent;
         result.finished = true;

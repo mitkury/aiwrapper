@@ -18,7 +18,13 @@ async function testDistBuild() {
   // Test model info access
   console.log("\nTesting model info access...");
   const models = Lang.models;
-  console.log("✓ Available providers:", models.providers);
+  
+  // Use the getProviders() method to get available providers
+  const providers = models.getProviders();
+  console.log("✓ Available providers:", providers.join(", "));
+  
+  // Log count of available models
+  console.log("✓ Number of available models:", models.length);
 
   // Only test API if key is available
   if (process.env.OPENAI_API_KEY) {
