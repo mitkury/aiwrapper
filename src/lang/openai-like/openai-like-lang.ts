@@ -13,15 +13,16 @@ import { models, Model } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
 
 export type OpenAILikeConfig = {
-  apiKey: string;
+  apiKey?: string;
   model: string;
   systemPrompt: string;
   maxTokens?: number;
   baseURL: string;
   headers?: Record<string, string>;
+  bodyProperties?: Record<string, unknown>;
 };
 
-export abstract class OpenAILikeLang extends LanguageProvider {
+export class OpenAILikeLang extends LanguageProvider {
   protected _config: OpenAILikeConfig;
   protected modelInfo?: Model;
 
@@ -32,6 +33,31 @@ export abstract class OpenAILikeLang extends LanguageProvider {
     const modelInfo = models.id(config.model);
     this.modelInfo = modelInfo; // can be undefined
     this._config = config;
+  }
+
+  /**
+   * Creates an instance of OpenAILikeLang for custom OpenAI-compatible APIs
+   * @param options Configuration options for the custom API
+   * @returns A new OpenAILikeLang instance
+   */
+  static custom(options: {
+    apiKey?: string;
+    model: string;
+    baseURL: string;
+    systemPrompt?: string;
+    maxTokens?: number;
+    headers?: Record<string, string>;
+    bodyProperties?: Record<string, unknown>;
+  }): OpenAILikeLang {
+    return new OpenAILikeLang({
+      apiKey: options.apiKey,
+      model: options.model,
+      systemPrompt: options.systemPrompt || "",
+      maxTokens: options.maxTokens,
+      baseURL: options.baseURL,
+      headers: options.headers,
+      bodyProperties: options.bodyProperties,
+    });
   }
 
   async ask(
@@ -109,13 +135,14 @@ export abstract class OpenAILikeLang extends LanguageProvider {
       messages: transformedMessages,
       stream: true,
       max_tokens: requestMaxTokens,
+      ...this._config.bodyProperties,
     });
 
     const response = await fetch(`${this._config.baseURL}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${this._config.apiKey}`,
+        ...(this._config.apiKey ? { "Authorization": `Bearer ${this._config.apiKey}` } : {}),
         ...this._config.headers,
       },
       body: JSON.stringify(body),
@@ -126,7 +153,7 @@ export abstract class OpenAILikeLang extends LanguageProvider {
         if (res.status === 401) {
           decision.retry = false;
           throw new Error(
-            "API key is invalid. Please check your API key and try again.",
+            "Authentication failed. Please check your credentials and try again.",
           );
         }
 

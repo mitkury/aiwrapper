@@ -46,6 +46,36 @@ import { Lang } from "aiwrapper";
 const lang = Lang.openai({ apiKey: "YOUR KEY" }); // or Lang.anthropic
 ```
 
+### Connect to Custom OpenAI-compatible APIs
+```javascript
+import { Lang } from "aiwrapper";
+
+// Connect to a custom OpenAI-compatible API
+const lang = Lang.openaiLike({
+  apiKey: "YOUR KEY", // Optional - not needed for APIs without authentication
+  model: "model-name",
+  baseURL: "https://your-custom-api.example.com/v1",
+  systemPrompt: "Optional system prompt",
+  
+  // Optional headers for authentication or other purposes
+  headers: {
+    "X-Custom-Header": "custom-value",
+    "Authorization": "Basic dXNlcm5hbWU6cGFzc3dvcmQ=" // Alternative auth method example
+  },
+  
+  // Additional properties to include in the request body
+  bodyProperties: {
+    temperature: 0.7,
+    presence_penalty: 0.6,
+    frequency_penalty: 0.1
+  }
+});
+
+// Use it just like any other LLM provider
+const result = await lang.ask("Hello!");
+console.log(result);
+```
+
 ### Stream Results
 ```javascript
 await lang.ask('Hello, AI!', streamingResult => {

@@ -9,6 +9,7 @@ import { GoogleLang, GoogleLangOptions } from "./google/google-lang.ts";
 import { CohereLang, CohereLangOptions } from "./cohere/cohere-lang.ts";
 import { OpenRouterLang, OpenRouterLangOptions } from "./openrouter/openrouter-lang.ts";
 import { MistralLang, MistralLangOptions } from "./mistral/mistral-lang.ts";
+import { OpenAILikeLang } from "./openai-like/openai-like-lang.ts";
 
 /**
  * Lang is a factory class for using language models from different providers. 
@@ -56,6 +57,23 @@ export abstract class Lang {
 
   static mistral(options: MistralLangOptions): MistralLang {
     return new MistralLang(options);
+  }
+
+  /**
+   * Creates an instance for custom OpenAI-compatible APIs
+   * @param options Configuration options for the custom API
+   * @returns A new OpenAILikeLang instance
+   */
+  static openaiLike(options: {
+    apiKey?: string;
+    model: string;
+    baseURL: string;
+    systemPrompt?: string;
+    maxTokens?: number;
+    headers?: Record<string, string>;
+    bodyProperties?: Record<string, unknown>;
+  }): OpenAILikeLang {
+    return OpenAILikeLang.custom(options);
   }
 
   // Dynamic provider access
