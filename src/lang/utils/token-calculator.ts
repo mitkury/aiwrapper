@@ -13,25 +13,24 @@ export function calculateModelResponseTokens(
   messages: Array<{ role: string; content: string }>,
   maxTokens?: number
 ): number {
-  // If user specified maxTokens, use that
-  if (maxTokens) {
-    return maxTokens;
-  }
-
   // Get model context
   if (model.context.type !== "token") {
-    // Non-token contexts aren't handled, return a reasonable default
-    return 2000;
+    // Non-token contexts aren't handled, return user maxTokens or a reasonable default
+    return maxTokens || 2000;
   }
 
   const context = model.context;
   
-  // If model has fixed output capacity (like Anthropic models)
+  // For models with fixed output capacity (like Anthropic models)
   if (context.outputIsFixed === 1 && context.maxOutput) {
+    // If user specified maxTokens, clamp it to model's maxOutput
+    if (maxTokens) {
+      return Math.min(maxTokens, context.maxOutput);
+    }
     return context.maxOutput;
   }
   
-  // If model has dynamic output capacity that shares with input
+  // For models with dynamic output capacity that shares with input
   if (context.total && context.maxOutput) {
     // Estimate tokens used by messages
     const inputTokens = messages.reduce((sum, message) => {
@@ -41,10 +40,15 @@ export function calculateModelResponseTokens(
     // Calculate remaining tokens in context window
     const remainingTokens = context.total - inputTokens;
     
-    // Cap at model's maxOutput or available tokens, whichever is smaller
+    // If user specified maxTokens, respect it, but also respect model limits
+    if (maxTokens) {
+      return Math.max(0, Math.min(maxTokens, context.maxOutput, remainingTokens));
+    }
+    
+    // Otherwise use the maximum available within limits
     return Math.max(0, Math.min(context.maxOutput, remainingTokens));
   }
   
-  // If we don't have enough information, return a reasonable default
-  return context.maxOutput || 2000;
+  // If we don't have enough information, return user maxTokens or a reasonable default
+  return maxTokens || context.maxOutput || 2000;
 } 

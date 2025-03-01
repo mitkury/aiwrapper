@@ -31,24 +31,25 @@ const longMessage = { role: "user", content: "This is a longer message that will
 const calculateModelResponseTokens = (model, messages, maxTokens) => {
   // This is a simple wrapper that calls the internal function
   // We're creating a minimal implementation here to test the logic
-  if (maxTokens) {
-    return maxTokens;
-  }
-
+  
   // Get model context
   if (model.context.type !== "token") {
-    // Non-token contexts aren't handled, return a reasonable default
-    return 2000;
+    // Non-token contexts aren't handled, return user maxTokens or a reasonable default
+    return maxTokens || 2000;
   }
 
   const context = model.context;
   
-  // If model has fixed output capacity (like Anthropic models)
+  // For models with fixed output capacity (like Anthropic models)
   if (context.outputIsFixed === 1 && context.maxOutput) {
+    // If user specified maxTokens, clamp it to model's maxOutput
+    if (maxTokens) {
+      return Math.min(maxTokens, context.maxOutput);
+    }
     return context.maxOutput;
   }
   
-  // If model has dynamic output capacity that shares with input
+  // For models with dynamic output capacity that shares with input
   if (context.total && context.maxOutput) {
     // Estimate tokens used by messages
     const estimateTokens = (text) => Math.ceil(text.length / 4);
@@ -59,23 +60,28 @@ const calculateModelResponseTokens = (model, messages, maxTokens) => {
     // Calculate remaining tokens in context window
     const remainingTokens = context.total - inputTokens;
     
-    // Cap at model's maxOutput or available tokens, whichever is smaller
+    // If user specified maxTokens, respect it, but also respect model limits
+    if (maxTokens) {
+      return Math.max(0, Math.min(maxTokens, context.maxOutput, remainingTokens));
+    }
+    
+    // Otherwise use the maximum available within limits
     return Math.max(0, Math.min(context.maxOutput, remainingTokens));
   }
   
-  // If we don't have enough information, return a reasonable default
-  return context.maxOutput || 2000;
+  // If we don't have enough information, return user maxTokens or a reasonable default
+  return maxTokens || context.maxOutput || 2000;
 };
 
 async function testTokenCalculator() {
   console.log("\n=== Testing Token Calculator ===");
   
-  // Test 1: User provided maxTokens should be returned directly
+  // Test 1: User provided maxTokens should be returned directly (but clamped if needed)
   const test1 = calculateModelResponseTokens(createMockTokenModel(4000, 2000), [shortMessage], 500);
-  console.assert(test1 === 500, "Should return user-specified maxTokens");
-  console.log("✓ Test 1 passed: Uses user-specified maxTokens");
+  console.assert(test1 === 500, "Should return user-specified maxTokens when within limits");
+  console.log("✓ Test 1 passed: Uses user-specified maxTokens when within limits");
   
-  // Test 2: Non-token model context should return default
+  // Test 2: Non-token model context should return default or user maxTokens
   const test2 = calculateModelResponseTokens(mockNonTokenModel, [shortMessage]);
   console.assert(test2 === 2000, "Should return default for non-token models");
   console.log("✓ Test 2 passed: Returns default for non-token models");
@@ -84,6 +90,16 @@ async function testTokenCalculator() {
   const test3 = calculateModelResponseTokens(createMockTokenModel(8000, 4000, 1), [longMessage]);
   console.assert(test3 === 4000, "Should return maxOutput for fixed output models");
   console.log("✓ Test 3 passed: Returns maxOutput for fixed output models");
+  
+  // Test 3b: Model with fixed output + user maxTokens lower than model max
+  const test3b = calculateModelResponseTokens(createMockTokenModel(8000, 4000, 1), [longMessage], 2000);
+  console.assert(test3b === 2000, "Should respect user maxTokens when lower than model max");
+  console.log("✓ Test 3b passed: Respects user maxTokens when lower than max for fixed output models");
+  
+  // Test 3c: Model with fixed output + user maxTokens higher than model max
+  const test3c = calculateModelResponseTokens(createMockTokenModel(8000, 4000, 1), [longMessage], 6000);
+  console.assert(test3c === 4000, "Should clamp user maxTokens to model max");
+  console.log("✓ Test 3c passed: Clamps user maxTokens to model max for fixed output models");
   
   // Test 4: Model with dynamic output - plenty of space left
   const test4 = calculateModelResponseTokens(createMockTokenModel(4000, 2000), [shortMessage]);
