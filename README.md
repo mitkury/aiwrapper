@@ -202,9 +202,3 @@ async function getTask() {
 
 const task = await getTask();
 ```
-
-## Documentation
-
-For detailed information about AIWrapper development and contribution, see:
-- [Development Guide](docs/development.md)
-- [Testing Guide](docs/testing.md)

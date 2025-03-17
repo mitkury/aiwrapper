@@ -30,7 +30,7 @@ async function testDeepSeekReasoning() {
   // Check if the model supports reasoning
   const modelInfo = lang.modelInfo;
   console.log(JSON.stringify(modelInfo, null, 2));
-  console.log("Model supports reasoning:", modelInfo?.can?.includes("reason") || false);
+  console.log("Model supports reasoning:", modelInfo?.can("reason") || false);
   
   console.log("✓ Initialized DeepSeek provider with a reasoning-capable model");
   

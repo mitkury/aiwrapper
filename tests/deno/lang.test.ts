@@ -67,7 +67,7 @@ const CONFIG = {
     },
   },
   ollama: {
-    enabled: true,
+    enabled: false,
     options: {
       model: "olmo2:latest",
       url: "http://localhost:11434",
@@ -234,8 +234,7 @@ async function testErrorHandling() {
 function testDynamicProviderAccess() {
   console.log("\n=== Testing Dynamic Provider Access ===");
 
-  // List all available providers
-  console.log("\nAvailable providers in aimodels:", models.providers);
+  console.log("Available providers in aimodels:", models.providers);
 
   // Test direct static access
   const openaiDirect = Lang.openai({ apiKey: "test" });
@@ -246,18 +245,22 @@ function testDynamicProviderAccess() {
   console.log("✓ Array-like access works:", openaiDynamic instanceof LanguageProvider);
 
   // Test models access
-  console.log("✓ Models access works:", Lang.models === models);
+  console.log("✓ Models access works:", Lang.models === models.can("chat"));
 
   // Test iteration
   const providerCount = [...Lang].length;
   console.log(`✓ Iterator works: found ${providerCount} providers`);
 
   // Test all providers from models.providers
-  for (const providerId of models.providers) {
+  for (const provider of models.providers) {
     try {
-      const provider = Lang[providerId]({ apiKey: "test" });
-      console.log(`✓ Provider ${providerId} access works:`, provider instanceof LanguageProvider);
+      // Extract provider ID if it's an object
+      const providerId = typeof provider === 'object' && provider !== null ? provider.id : provider;
+      const langProvider = Lang[providerId]({ apiKey: "test" });
+      console.log(`✓ Provider ${providerId} access works:`, langProvider instanceof LanguageProvider);
     } catch (error) {
+      // Extract provider ID if it's an object
+      const providerId = typeof provider === 'object' && provider !== null ? provider.id : provider;
       console.error(`❌ Provider ${providerId} access failed:`, error);
     }
   }
@@ -271,24 +274,29 @@ async function testModelCentricAccess() {
   console.log("✓ Found model:", model.id);
 
   // Initialize provider using model info
-  const lang = Lang[model.providers[0]]({
+  const provider = model.providers[0];
+  // Extract provider ID if it's an object
+  const providerId = typeof provider === 'object' && provider !== null ? provider.id : provider;
+  
+  const lang = Lang[providerId]({
     apiKey: CONFIG.openai.options.apiKey,
     model: model.id
   });
   console.log("✓ Provider initialized:", lang instanceof LanguageProvider);
 
   // Test basic chat capability
-  const messages = [
-    { role: "user", content: "Hello!" }
-  ];
+  console.log("\n=== Testing Basic Chat ===");
+  const prompt = "What is 2 + 2? Answer in one word.";
 
   try {
-    const result = await lang.chat(messages, (res: { answer: string }) => {
-      console.log("Streaming response:", res.answer);
+    console.log(`Testing ${providerId}...`);
+    console.log(`Prompt: "${prompt}"`);
+    const response = await lang.ask(prompt, (res) => {
+      console.log(`${providerId} streaming: ${res.answer}`);
     });
-    console.log("✓ Chat response received:", result.answer);
-  } catch (error) {
-    console.error("❌ Chat failed:", error instanceof Error ? error.message : String(error));
+    console.log(`✓ ${providerId} final response: ${response.answer}\n`);
+  } catch (error: unknown) {
+    console.error(`❌ ${providerId} Error:`, error instanceof Error ? error.message : String(error));
   }
 }
 

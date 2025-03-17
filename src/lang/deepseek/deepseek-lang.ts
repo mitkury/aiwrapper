@@ -30,7 +30,7 @@ export class DeepSeekLang extends OpenAILikeLang {
     const modelInfo = models.id(this._config.model);
 
     // First check if the model has the "reason" capability
-    if (modelInfo?.can?.includes("reason")) {
+    if (modelInfo?.can("reason")) {
       return true;
     }
 

@@ -1,4 +1,4 @@
-import { models } from 'aimodels';
+import { models, AIModels, ModelCollection } from 'aimodels';
 import { OpenAILang, OpenAILangOptions } from "./openai/openai-lang.ts";
 import { AnthropicLang, AnthropicLangOptions  } from "./anthropic/anthropic-lang.ts";
 import { OllamaLang, OllamaLangOptions } from "./ollama/ollama-lang.ts";
@@ -16,7 +16,7 @@ import { OpenAILikeLang } from "./openai-like/openai-like-lang.ts";
  */
 export abstract class Lang {
   // Expose all chat (text-in, text-out) models
-  static models = models.can("chat");
+  static models = models.can("chat") || [];
 
   // Provider access methods
   static openai(options: OpenAILangOptions): OpenAILang {
@@ -78,12 +78,14 @@ export abstract class Lang {
 
   // Dynamic provider access
   static [Symbol.iterator]() {
-    const providers = models.providers.reduce((acc, providerId) => {
+    const providers = models.providers.reduce((acc: Record<string, Function>, provider: any) => {
+      // Handle provider as object with id property (new aimodels behavior)
+      const providerId = typeof provider === 'object' && provider !== null ? provider.id : provider;
       if (providerId in this) {
-        acc[providerId] = (this as any)[providerId];
+        acc[providerId] = this[providerId];
       }
       return acc;
-    }, {} as Record<string, Function>);
+    }, {});
     return Object.values(providers)[Symbol.iterator]();
   }
 

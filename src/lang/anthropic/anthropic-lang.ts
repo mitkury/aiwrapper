@@ -178,7 +178,7 @@ export class AnthropicLang extends LanguageProvider {
     };
 
     // Check if the model supports extended thinking by looking for the "reason" capability
-    const supportsExtendedThinking = modelInfo.can && modelInfo.can.includes("reason");
+    const supportsExtendedThinking = modelInfo.can && modelInfo.can("reason");
     
     // Prepare request body
     const requestBody: any = {

@@ -47,7 +47,7 @@
     "serve": "npx serve ."
   },
   "dependencies": {
-    "aimodels": "^0.3.10"
+    "aimodels": "^0.4.5"
   },
   "devDependencies": {
     "@playwright/test": "^1.42.1",
