@@ -16,7 +16,7 @@ import { OpenAILikeLang } from "./openai-like/openai-like-lang.ts";
  */
 export abstract class Lang {
   // Expose all chat (text-in, text-out) models
-  static models = models.can("chat") || [];
+  static models = models.can("chat");
 
   // Provider access methods
   static openai(options: OpenAILangOptions): OpenAILang {
