@@ -15,46 +15,57 @@ import { OpenAILikeLang } from "./openai-like/openai-like-lang.ts";
  * Lang is a factory class for using language models from different providers. 
  */
 export abstract class Lang {
-  // Expose all chat (text-in, text-out) models
-  static models = models.can("chat");
+  /** Get all language models */
+  static get models() {
+    return models.can("chat");
+  }
 
-  // Provider access methods
+  /** Create an OpenAI provider instance */
   static openai(options: OpenAILangOptions): OpenAILang {
     return new OpenAILang(options);
   }
 
+  /** Create an Anthropic provider instance */
   static anthropic(options: AnthropicLangOptions): AnthropicLang {
     return new AnthropicLang(options);
   }
 
+  /** Create an Ollama provider instance */
   static ollama(options: OllamaLangOptions): OllamaLang {
     return new OllamaLang(options);
   }
 
+  /** Create a Groq provider instance */
   static groq(options: GroqLangOptions): GroqLang {
     return new GroqLang(options);
   }
 
+  /** Create a DeepSeek provider instance */
   static deepseek(options: DeepSeekLangOptions): DeepSeekLang {
     return new DeepSeekLang(options);
   }
 
+  /** Create an xAI provider instance */
   static xai(options: XAILangOptions): XAILang {
     return new XAILang(options);
   }
 
+  /** Create a Google provider instance */
   static google(options: GoogleLangOptions): GoogleLang {
     return new GoogleLang(options);
   }
 
+  /** Create a Cohere provider instance */
   static cohere(options: CohereLangOptions): CohereLang {
     return new CohereLang(options);
   }
 
+  /** Create an OpenRouter provider instance */
   static openrouter(options: OpenRouterLangOptions): OpenRouterLang {
     return new OpenRouterLang(options);
   }
 
+  /** Create a Mistral provider instance */
   static mistral(options: MistralLangOptions): MistralLang {
     return new MistralLang(options);
   }
