@@ -32,9 +32,10 @@ export class OllamaLang extends OpenAILikeLang {
       baseURL: options.url || "http://localhost:11434",
     });
     
-    // For Ollama, we require the model to be in aimodels database
+    // Print a warning if model is not in database, but don't block execution
+    // This allows users to use any Ollama model, even if it's not in our database
     if (!this.modelInfo) {
-      console.error(`Invalid Ollama model: ${modelName}. Model not found in aimodels database.`);
+      //console.error(`Invalid Ollama model: ${modelName}. Model not found in aimodels database.`);
     }
   }
 
@@ -68,15 +69,33 @@ export class OllamaLang extends OpenAILikeLang {
       );
     }
 
+    let visibleContent = "";
     const onData = (data: any) => {
       if (data.done) {
+        // Final check for thinking content when streaming is complete
+        const extracted = this.extractThinking(visibleContent);
+        if (extracted.thinking) {
+          result.thinking = extracted.thinking;
+          result.answer = extracted.answer;
+        }
+        
         result.finished = true;
         onResult?.(result);
         return;
       }
 
       if (data.response) {
-        result.answer += data.response;
+        visibleContent += data.response;
+        
+        // Check for thinking content in each chunk
+        const extracted = this.extractThinking(visibleContent);
+        if (extracted.thinking) {
+          result.thinking = extracted.thinking;
+          result.answer = extracted.answer;
+        } else {
+          // If no thinking content is found, just use the full response
+          result.answer = visibleContent;
+        }
       }
 
       onResult?.(result);
@@ -99,6 +118,15 @@ export class OllamaLang extends OpenAILikeLang {
       });
 
     await processResponseStream(response, onData);
+    
+    // For non-streaming case, perform final extraction
+    if (!onResult) {
+      const extracted = this.extractThinking(result.answer);
+      if (extracted.thinking) {
+        result.thinking = extracted.thinking;
+        result.answer = extracted.answer;
+      }
+    }
 
     return result;
   }
@@ -120,15 +148,34 @@ export class OllamaLang extends OpenAILikeLang {
       );
     }
 
+    let visibleContent = "";
     const onData = (data: any) => {
       if (data.done) {
+        // Final check for thinking content when streaming is complete
+        const extracted = this.extractThinking(visibleContent);
+        if (extracted.thinking) {
+          result.thinking = extracted.thinking;
+          result.answer = extracted.answer;
+        }
+        
         result.finished = true;
         onResult?.(result);
         return;
       }
 
       if (data.message && data.message.content) {
-        result.answer += data.message.content;
+        const newContent = data.message.content;
+        visibleContent += newContent;
+        
+        // Check for thinking content in each chunk
+        const extracted = this.extractThinking(visibleContent);
+        if (extracted.thinking) {
+          result.thinking = extracted.thinking;
+          result.answer = extracted.answer;
+        } else {
+          // If no thinking content is found, just use the full response
+          result.answer = visibleContent;
+        }
       }
 
       onResult?.(result);
@@ -148,7 +195,36 @@ export class OllamaLang extends OpenAILikeLang {
       });
 
     await processResponseStream(response, onData);
+    
+    // For non-streaming case, perform final extraction
+    if (!onResult) {
+      const extracted = this.extractThinking(result.answer);
+      if (extracted.thinking) {
+        result.thinking = extracted.thinking;
+        result.answer = extracted.answer;
+      }
+    }
 
     return result;
+  }
+  
+  // Helper to extract thinking content from <think> tags
+  private extractThinking(content: string): { thinking: string, answer: string } {
+    const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
+    const matches = content.match(thinkRegex);
+    
+    if (!matches || matches.length === 0) {
+      return { thinking: "", answer: content };
+    }
+    
+    // Extract thinking content
+    const thinking = matches
+      .map((match: string) => match.replace(/<think>|<\/think>/g, "").trim())
+      .join("\n");
+    
+    // Remove thinking tags for clean answer
+    const answer = content.replace(thinkRegex, "").trim();
+    
+    return { thinking, answer };
   }
 }
