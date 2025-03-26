@@ -47,7 +47,6 @@ export type TokenUsageDetails = {
 export class OpenAILikeLang extends LanguageProvider {
   protected _config: OpenAILikeConfig;
   protected modelInfo?: Model;
-  protected tokenUsage?: TokenUsageDetails;
 
   constructor(config: OpenAILikeConfig) {
     super(config.model);
@@ -130,33 +129,15 @@ export class OpenAILikeLang extends LanguageProvider {
   }
 
   /**
-   * Gets the token usage details for the last request
-   * @returns The token usage details or undefined if not available
-   */
-  getTokenUsage(): TokenUsageDetails | undefined {
-    return this.tokenUsage;
-  }
-
-  /**
-   * Gets the reasoning tokens used in the last request
-   * @returns The number of reasoning tokens or undefined if not available
-   */
-  getReasoningTokens(): number | undefined {
-    return this.tokenUsage?.completionTokensDetails?.reasoningTokens;
-  }
-
-  /**
    * Checks if the current model has reasoning capabilities
    * @returns True if the model supports reasoning, false otherwise
    */
   supportsReasoning(): boolean {
-    // First check using models library if available
-    if (this.modelInfo && typeof this.modelInfo.canReason === 'function') {
+    if (this.modelInfo) {
       return this.modelInfo.canReason();
     }
     
-    // Fallback to regex pattern for known OpenAI reasoning models
-    return /^o[1-9](-mini|-pro)?$/.test(this._config.model);
+    return false;
   }
 
   async chat(
@@ -182,44 +163,7 @@ export class OpenAILikeLang extends LanguageProvider {
     }
 
     const onData = (data: any) => {
-      if (data.finished) {
-        result.finished = true;
-        
-        // Store token usage if available
-        if (data.usage) {
-          this.tokenUsage = {
-            promptTokens: data.usage.prompt_tokens,
-            completionTokens: data.usage.completion_tokens,
-            totalTokens: data.usage.total_tokens,
-            promptTokensDetails: data.usage.prompt_tokens_details,
-            completionTokensDetails: data.usage.completion_tokens_details,
-          };
-          
-          // If reasoning tokens were used, store them in the result
-          if (this.tokenUsage?.completionTokensDetails?.reasoningTokens) {
-            // For OpenAI, we don't get the actual reasoning content, just the token count
-            result.thinking = `[Model used ${this.tokenUsage.completionTokensDetails.reasoningTokens} reasoning tokens]`;
-          }
-        }
-        
-        onResult?.(result);
-        return;
-      }
-
-      if (data.choices !== undefined) {
-        const deltaContent = data.choices[0].delta.content
-          ? data.choices[0].delta.content
-          : "";
-
-        result.answer += deltaContent;
-
-        result.messages = [...messages, {
-          role: "assistant",
-          content: result.answer,
-        }];
-
-        onResult?.(result);
-      }
+      this.handleStreamData(data, result, messages, onResult);
     };
 
     const body = this.transformBody({
@@ -267,6 +211,42 @@ export class OpenAILikeLang extends LanguageProvider {
   }
 
   /**
+   * Handles streaming data from the API response
+   * This method can be overridden by subclasses to add custom handling for different response formats
+   * @param data The current data chunk from the stream
+   * @param result The result object being built
+   * @param messages The original messages array
+   * @param onResult Optional callback for streaming results
+   */
+  protected handleStreamData(
+    data: any, 
+    result: LangResultWithMessages,
+    messages: LangChatMessages,
+    onResult?: (result: LangResultWithMessages) => void
+  ): void {
+    if (data.finished) {
+      result.finished = true;
+      onResult?.(result);
+      return;
+    }
+
+    if (data.choices !== undefined) {
+      const deltaContent = data.choices[0].delta.content
+        ? data.choices[0].delta.content
+        : "";
+
+      result.answer += deltaContent;
+
+      result.messages = [...messages, {
+        role: "assistant",
+        content: result.answer,
+      }];
+
+      onResult?.(result);
+    }
+  }
+
+  /**
    * Sets the reasoning effort level for the model
    * @param effort The reasoning effort level: "low", "medium", or "high"
    * @returns this instance for method chaining
@@ -301,14 +281,5 @@ export class OpenAILikeLang extends LanguageProvider {
    */
   getMaxCompletionTokens(): number | undefined {
     return this._config.maxCompletionTokens;
-  }
-
-  /**
-   * Checks if the most recent response used reasoning
-   * @returns True if reasoning tokens were used in the last request, false otherwise
-   */
-  usedReasoning(): boolean {
-    const reasoningTokens = this.getReasoningTokens();
-    return reasoningTokens !== undefined && reasoningTokens > 0;
   }
 } 

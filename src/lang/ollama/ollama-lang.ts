@@ -1,9 +1,8 @@
 import { LangChatMessages, LangResultWithMessages, LangResultWithString, LanguageProvider } from "../language-provider.ts";
 import { httpRequestWithRetry as fetch } from "../../http-request.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
-import { models } from 'aimodels';
+import { models, Model } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
-import { OpenAILikeLang } from "../openai-like/openai-like-lang.ts";
 
 export type OllamaLangOptions = {
   model?: string;
@@ -13,24 +12,29 @@ export type OllamaLangOptions = {
 };
 
 export type OllamaLangConfig = {
-  apiKey: string;
   model: string;
   systemPrompt: string;
   maxTokens?: number;
   baseURL: string;
 };
 
-export class OllamaLang extends OpenAILikeLang {
+export class OllamaLang extends LanguageProvider {
+  protected _config: OllamaLangConfig;
+  protected modelInfo?: Model;
+
   constructor(options: OllamaLangOptions) {
     const modelName = options.model || "llama2:latest";
+    super(modelName);
     
-    super({
-      apiKey: "",
+    this._config = {
       model: modelName,
       systemPrompt: options.systemPrompt || "",
       maxTokens: options.maxTokens,
       baseURL: options.url || "http://localhost:11434",
-    });
+    };
+    
+    // Try to get model info from aimodels
+    this.modelInfo = models.id(modelName);
     
     // Print a warning if model is not in database, but don't block execution
     // This allows users to use any Ollama model, even if it's not in our database
@@ -39,7 +43,7 @@ export class OllamaLang extends OpenAILikeLang {
     }
   }
 
-  protected override transformBody(body: Record<string, unknown>): Record<string, unknown> {
+  protected transformBody(body: Record<string, unknown>): Record<string, unknown> {
     // Ollama uses context_length instead of max_tokens
     if (body.max_tokens) {
       const { max_tokens, ...rest } = body;
@@ -51,19 +55,18 @@ export class OllamaLang extends OpenAILikeLang {
     return body;
   }
 
-  override async ask(
+  async ask(
     prompt: string,
     onResult?: (result: LangResultWithString) => void,
   ): Promise<LangResultWithString> {
     const result = new LangResultWithString(prompt);
 
     // Try to get model info and calculate max tokens
-    const modelInfo = models.id(this._config.model);
     let requestMaxTokens = this._config.maxTokens;
 
-    if (modelInfo) {
+    if (this.modelInfo) {
       requestMaxTokens = calculateModelResponseTokens(
-        modelInfo,
+        this.modelInfo,
         [{ role: "user", content: prompt }],
         this._config.maxTokens
       );
@@ -131,18 +134,17 @@ export class OllamaLang extends OpenAILikeLang {
     return result;
   }
 
-  override async chat(messages: LangChatMessages, onResult?: (result: LangResultWithMessages) => void): Promise<LangResultWithMessages> {
+  async chat(messages: LangChatMessages, onResult?: (result: LangResultWithMessages) => void): Promise<LangResultWithMessages> {
     const result = new LangResultWithMessages(
       messages,
     );
 
     // Try to get model info and calculate max tokens
-    const modelInfo = models.id(this._config.model);
     let requestMaxTokens = this._config.maxTokens;
 
-    if (modelInfo) {
+    if (this.modelInfo) {
       requestMaxTokens = calculateModelResponseTokens(
-        modelInfo,
+        this.modelInfo,
         messages,
         this._config.maxTokens
       );

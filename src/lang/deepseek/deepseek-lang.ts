@@ -41,102 +41,30 @@ export class DeepSeekLang extends OpenAILikeLang {
     return isReasonerModel;
   }
 
-  override async chat(
+  /**
+   * Override the handleStreamData method to capture reasoning content
+   */
+  protected override handleStreamData(
+    data: any,
+    result: LangResultWithMessages,
     messages: LangChatMessages,
-    onResult?: (result: LangResultWithMessages) => void,
-  ): Promise<LangResultWithMessages> {
-    // Check if the model supports reasoning
-    const modelSupportsReasoning = this.supportsReasoning();
-
-    // If the model doesn't support reasoning, use the parent implementation
-    if (!modelSupportsReasoning) {
-      return super.chat(messages, onResult);
+    onResult?: (result: LangResultWithMessages) => void
+  ): void {
+    if (data.finished) {
+      result.finished = true;
+      onResult?.(result);
+      return;
     }
 
-    const result = new LangResultWithMessages(messages);
-    const transformedMessages = this.transformMessages(messages);
+    // Handle reasoning content if available (DeepSeek specific)
+    if (data.choices && data.choices[0].delta.reasoning_content) {
+      const reasoningContent = data.choices[0].delta.reasoning_content;
+      result.thinking = (result.thinking || "") + reasoningContent;
+      onResult?.(result);
+      return;
+    }
 
-    const requestMaxTokens = this.modelInfo
-      ? calculateModelResponseTokens(
-        this.modelInfo,
-        transformedMessages,
-        this._config.maxTokens
-      )
-      : this._config.maxTokens || 4000;
-
-    let reasoningContent = "";
-
-    const onData = (data: any) => {
-      if (data.finished) {
-        result.thinking = reasoningContent;
-        result.finished = true;
-        onResult?.(result);
-        return;
-      }
-
-      if (data.choices && data.choices[0].delta.reasoning_content) {
-        reasoningContent += data.choices[0].delta.reasoning_content;
-        result.thinking = reasoningContent;
-        onResult?.(result);
-        return;
-      }
-
-      if (data.choices !== undefined) {
-        const deltaContent = data.choices[0].delta.content
-          ? data.choices[0].delta.content
-          : "";
-
-        result.answer += deltaContent;
-
-        result.messages = [...messages, {
-          role: "assistant",
-          content: result.answer,
-        }];
-
-        onResult?.(result);
-      }
-    };
-
-    const body = this.transformBody({
-      model: this._config.model,
-      messages: transformedMessages,
-      stream: true,
-      max_tokens: requestMaxTokens,
-    });
-
-    const response = await fetch(`${this._config.baseURL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${this._config.apiKey}`,
-        ...this._config.headers,
-      },
-      body: JSON.stringify(body),
-      onNotOkResponse: async (
-        res,
-        decision,
-      ): Promise<DecisionOnNotOkResponse> => {
-        if (res.status === 401) {
-          decision.retry = false;
-          throw new Error(
-            "API key is invalid. Please check your API key and try again.",
-          );
-        }
-
-        if (res.status === 400) {
-          const data = await res.text();
-          decision.retry = false;
-          throw new Error(data);
-        }
-
-        return decision;
-      },
-    }).catch((err) => {
-      throw new Error(err);
-    });
-
-    await processResponseStream(response, onData);
-
-    return result;
+    // Fall back to standard content handling from the parent class
+    super.handleStreamData(data, result, messages, onResult);
   }
 } 
