@@ -27,7 +27,7 @@ export interface FunctionParameter {
   description?: string;
   type: "string" | "number" | "boolean" | "array" | "object";
   required?: boolean;
-  enum?: any[];
+  enum?: any[];  // List of allowed values for this parameter
   items?: {
     type: "string" | "number" | "boolean" | "object";
     properties?: Record<string, FunctionParameter>;
@@ -42,14 +42,69 @@ export interface FunctionDefinition {
 }
 ```
 
+#### Parameter Types and Constraints
+
+Parameters can have different types and constraints:
+
+1. **Basic Types**:
+   - `string`: Text values
+   - `number`: Numeric values
+   - `boolean`: True/false values
+   - `array`: Lists of values
+   - `object`: Structured data
+
+2. **Enum Values**:
+   The `enum` field allows you to restrict a parameter to a specific set of allowed values. This is useful for:
+   - Unit specifications (e.g., temperature units)
+   - Status values (e.g., "active", "inactive", "pending")
+   - Predefined options (e.g., "small", "medium", "large")
+
+Example with enum:
+```typescript
+const functions = [
+  {
+    name: "getCurrentWeather",
+    description: "Get the current weather in a given location",
+    parameters: {
+      location: {
+        type: "string",
+        description: "The city and state, e.g., San Francisco, CA",
+        required: true,
+      },
+      unit: {
+        type: "string",
+        enum: ["celsius", "fahrenheit"],  // Only these two values are allowed
+        description: "The unit of temperature",
+        required: false,
+      },
+      condition: {
+        type: "string",
+        enum: ["sunny", "cloudy", "rainy", "snowy"],  // Predefined weather conditions
+        description: "Current weather condition",
+        required: true,
+      }
+    }
+  }
+];
+```
+
+When using this function, the model will only be able to select values from the specified enums. For example:
+- `unit` can only be "celsius" or "fahrenheit"
+- `condition` can only be one of the four predefined weather conditions
+
+This helps ensure that function calls contain valid values and provides clear options for the model to choose from.
+
 ### 2. Function Call Result
 
 The result of a model's function call:
 
 ```typescript
 export interface FunctionCall {
-  name: string; // Name of the called function
-  arguments: Record<string, any>; // Arguments provided by the model
+  id?: string;         // Optional ID from the provider (useful for tracking)
+  name: string;        // Name of the called function
+  arguments: Record<string, any>; // Arguments provided by the model (parsed)
+  rawArguments?: string; // Original arguments string (for provider compatibility)
+  provider?: string;   // Provider that generated this call (for debugging)
 }
 ```
 
@@ -67,6 +122,7 @@ interface LangOptions {
   // Function calling
   functions?: FunctionDefinition[];
   functionHandler?: (call: FunctionCall) => Promise<any>;
+  functionCall?: "none" | "auto" | { name: string };  // OpenAI style function selection
   
   // Other options 
   temperature?: number;
@@ -136,109 +192,181 @@ Different providers implement function calling in different ways. Here's how we'
 OpenAI uses a "tools" field in the request and returns "tool_calls" in responses:
 
 ```typescript
-class OpenAILang extends OpenAILikeLang {
-  // Simplified chat method implementation
-  async chat(
-    messages: LangChatMessages,
-    options?: LangOptions
-  ): Promise<LangResult> {
-    const result = new LangResult(messages);
-    
-    // Extract options
-    const { 
-      onResult, 
-      functions, 
-      functionHandler,
-      temperature,
-      maxTokens,
-      // other options...
-    } = options || {};
-    
-    // If functions are provided, convert them to OpenAI's format
-    let tools;
-    if (functions && functions.length > 0) {
-      tools = functions.map(f => ({
-        type: "function",
-        function: {
-          name: f.name,
-          description: f.description,
-          parameters: {
-            type: "object",
-            properties: this.convertParameters(f.parameters),
-            required: this.getRequiredParameters(f.parameters),
+// OpenAI request format
+{
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "getCurrentWeather",
+        "description": "Get the current weather in a given location",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "location": {
+              "type": "string",
+              "description": "The city and state, e.g., San Francisco, CA"
+            },
+            "unit": {
+              "type": "string",
+              "enum": ["celsius", "fahrenheit"],
+              "description": "The unit of temperature"
+            }
           },
-        },
-      }));
+          "required": ["location"]
+        }
+      }
     }
-    
-    // Rest of implementation...
-    
-    // Call the onResult callback if provided
-    if (onResult) {
-      onResult(result);
+  ]
+}
+
+// OpenAI response format
+{
+  "tool_calls": [
+    {
+      "id": "call_abc123",
+      "type": "function",
+      "function": {
+        "name": "getCurrentWeather",
+        "arguments": "{\"location\":\"San Francisco, CA\",\"unit\":\"fahrenheit\"}"
+      }
     }
-    
-    return result;
-  }
+  ]
 }
 ```
 
+Key OpenAI characteristics:
+- Uses `tools` array with `type: "function"` wrapper
+- Returns `tool_calls` array with `id` field
+- Arguments are returned as a JSON string
+- Supports `function_call` parameter to force specific function calls
+
 ### 2. Anthropic
 
-Anthropic uses a "tools" field with slightly different format:
+Anthropic uses a "tools" field with a different format and returns "tool_calls" in responses:
 
 ```typescript
-class AnthropicLang extends LanguageProvider {
-  // Simplified chat method implementation
-  async chat(
-    messages: LangChatMessages,
-    options?: LangOptions
-  ): Promise<LangResult> {
-    const result = new LangResult(messages);
-    
-    // Extract options
-    const { 
-      onResult, 
-      functions, 
-      functionHandler,
-      temperature,
-      maxTokens,
-      // other options...
-    } = options || {};
-    
-    // If functions are provided, convert them to Anthropic's format
-    let tools;
-    if (functions && functions.length > 0) {
-      tools = functions.map(f => ({
+// Anthropic request format
+{
+  "tools": [
+    {
+      "name": "getCurrentWeather",
+      "description": "Get the current weather in a given location",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string",
+            "description": "The city and state, e.g., San Francisco, CA"
+          },
+          "unit": {
+            "type": "string",
+            "enum": ["celsius", "fahrenheit"],
+            "description": "The unit of temperature"
+          }
+        },
+        "required": ["location"]
+      }
+    }
+  ]
+}
+
+// Anthropic response format
+{
+  "tool_calls": [
+    {
+      "id": "tool_abc123",
+      "type": "tool",
+      "name": "getCurrentWeather",
+      "arguments": {
+        "location": "San Francisco, CA",
+        "unit": "fahrenheit"
+      }
+    }
+  ]
+}
+```
+
+Key Anthropic characteristics:
+- Uses `tools` array directly without type wrapper
+- Uses `input_schema` instead of `parameters`
+- Returns `tool_calls` array with `id` field
+- Arguments are returned as a parsed object (not a string)
+- Supports `tool_choice` parameter to force specific tool calls
+
+### Provider-Specific Mappings
+
+We'll handle these differences in our implementation:
+
+```typescript
+class OpenAILang extends LanguageProvider {
+  protected convertToProviderFormat(functions: FunctionDefinition[]): any[] {
+    return functions.map(f => ({
+      type: "function",
+      function: {
         name: f.name,
         description: f.description,
-        input_schema: {
+        parameters: {
           type: "object",
           properties: this.convertParameters(f.parameters),
           required: this.getRequiredParameters(f.parameters),
         },
-      }));
-    }
-    
-    // Rest of implementation...
-    
-    // Call the onResult callback if provided
-    if (onResult) {
-      onResult(result);
-    }
-    
-    return result;
+      },
+    }));
+  }
+
+  protected convertFromProviderFormat(toolCalls: any[]): FunctionCall[] {
+    return toolCalls.map(call => ({
+      name: call.function.name,
+      arguments: JSON.parse(call.function.arguments),
+    }));
+  }
+}
+
+class AnthropicLang extends LanguageProvider {
+  protected convertToProviderFormat(functions: FunctionDefinition[]): any[] {
+    return functions.map(f => ({
+      name: f.name,
+      description: f.description,
+      input_schema: {
+        type: "object",
+        properties: this.convertParameters(f.parameters),
+        required: this.getRequiredParameters(f.parameters),
+      },
+    }));
+  }
+
+  protected convertFromProviderFormat(toolCalls: any[]): FunctionCall[] {
+    return toolCalls.map(call => ({
+      name: call.name,
+      arguments: call.arguments,
+    }));
   }
 }
 ```
 
+Key differences we handle:
+1. Request format differences:
+   - OpenAI wraps functions in `type: "function"`
+   - Anthropic uses `input_schema` instead of `parameters`
+2. Response format differences:
+   - OpenAI returns arguments as JSON string
+   - Anthropic returns arguments as parsed object
+3. Parameter naming differences:
+   - OpenAI uses `function_call`
+   - Anthropic uses `tool_choice`
+
 ## Function Call Handling
 
-For handling function calls from the model, we'll add processing logic in each provider implementation:
+For handling function calls from the model, we'll add processing logic in each provider implementation to handle their specific streaming response formats.
+
+### OpenAI Streaming Function Calls
+
+OpenAI returns function calls as part of the delta streaming response with JSON strings for arguments that may be incomplete:
 
 ```typescript
-// Example for OpenAI
-const onData = (data: any) => {
+// Example for OpenAI streaming function calls
+const handleOpenAIStream = (data: any) => {
   // Existing streaming response handling...
   
   // Handle function calls
@@ -249,19 +377,26 @@ const onData = (data: any) => {
     let currentFunctionCall = result.functionCalls?.find(f => f.name === toolCall.function.name);
     if (!currentFunctionCall) {
       currentFunctionCall = {
+        id: toolCall.id,
         name: toolCall.function.name,
         arguments: {},
+        rawArguments: "",
+        provider: "openai"
       };
       result.functionCalls = [...(result.functionCalls || []), currentFunctionCall];
     }
     
-    // Update arguments
+    // OpenAI streams the arguments as a JSON string that may be incomplete
+    // We need to accumulate the string and parse when complete
     if (toolCall.function.arguments) {
+      currentFunctionCall.rawArguments += toolCall.function.arguments;
+      
       try {
-        const args = JSON.parse(toolCall.function.arguments);
-        currentFunctionCall.arguments = {...currentFunctionCall.arguments, ...args};
+        // Try to parse the arguments as JSON
+        const args = JSON.parse(currentFunctionCall.rawArguments);
+        currentFunctionCall.arguments = args;
       } catch (e) {
-        // Handle partial JSON
+        // Ignore parsing errors for incomplete JSON
       }
     }
     
@@ -272,6 +407,13 @@ const onData = (data: any) => {
     
     // If function call is complete, execute the function if handler provided
     if (data.choices[0].finish_reason === "tool_calls" && functionHandler) {
+      // Make sure we have valid arguments
+      try {
+        currentFunctionCall.arguments = JSON.parse(currentFunctionCall.rawArguments);
+      } catch (e) {
+        console.error("Failed to parse function arguments:", e);
+      }
+      
       // Call the handler with the function call
       const functionResult = await functionHandler(currentFunctionCall);
       
@@ -284,7 +426,7 @@ const onData = (data: any) => {
           type: "function",
           function: {
             name: currentFunctionCall.name,
-            arguments: JSON.stringify(currentFunctionCall.arguments)
+            arguments: currentFunctionCall.rawArguments
           }
         }]
       });
@@ -301,6 +443,113 @@ const onData = (data: any) => {
   }
 };
 ```
+
+### Anthropic Streaming Function Calls
+
+Anthropic sends complete tool calls in streaming responses, with arguments already parsed as objects:
+
+```typescript
+// Example for Anthropic streaming function calls
+const handleAnthropicStream = (data: any) => {
+  // Handle content blocks in streaming response
+  if (data.delta?.content_blocks) {
+    for (const block of data.delta.content_blocks) {
+      // Check for tool_use blocks
+      if (block.type === "tool_use") {
+        // Anthropic provides complete tool calls with parsed arguments
+        const toolCall = {
+          id: block.id,
+          name: block.tool_use.name,
+          arguments: block.tool_use.input, // Already parsed as an object
+          provider: "anthropic"
+        };
+        
+        result.functionCalls = [...(result.functionCalls || []), toolCall];
+        
+        // Call the streaming callback with updated result
+        if (onResult) {
+          onResult(result);
+        }
+        
+        // If function handler is provided and this is the end of the response
+        if (data.delta.stop_reason === "tool_use" && functionHandler) {
+          // Call the handler with the function call
+          const functionResult = await functionHandler(toolCall);
+          
+          // Add function result to messages for the next request
+          messages.push({
+            role: "assistant",
+            content: null,
+            tool_uses: [{
+              id: toolCall.id,
+              name: toolCall.name,
+              input: toolCall.arguments
+            }]
+          });
+          
+          messages.push({
+            role: "tool",
+            tool_use_id: toolCall.id,
+            content: JSON.stringify(functionResult)
+          });
+          
+          // Continue the conversation with the function result
+          return this.chat(messages, options);
+        }
+      }
+    }
+  }
+};
+```
+
+### Normalizing Function Calls
+
+Each provider will implement its own normalization method in its derived class:
+
+```typescript
+// Base class provides the interface but doesn't implement provider-specific logic
+abstract class LanguageProvider {
+  // Abstract method that each provider must implement
+  protected abstract normalizeFunctionCall(providerCall: any): FunctionCall;
+  
+  // Other common methods...
+}
+
+// OpenAI implementation
+class OpenAILang extends LanguageProvider {
+  protected normalizeFunctionCall(providerCall: any): FunctionCall {
+    return {
+      id: providerCall.id,
+      name: providerCall.function.name,
+      arguments: typeof providerCall.function.arguments === 'string' 
+        ? JSON.parse(providerCall.function.arguments) 
+        : providerCall.function.arguments,
+      rawArguments: typeof providerCall.function.arguments === 'string' 
+        ? providerCall.function.arguments 
+        : JSON.stringify(providerCall.function.arguments),
+      provider: "openai"
+    };
+  }
+  
+  // Other OpenAI-specific methods...
+}
+
+// Anthropic implementation
+class AnthropicLang extends LanguageProvider {
+  protected normalizeFunctionCall(providerCall: any): FunctionCall {
+    return {
+      id: providerCall.id,
+      name: providerCall.name || providerCall.tool_use?.name,
+      arguments: providerCall.arguments || providerCall.tool_use?.input,
+      provider: "anthropic"
+    };
+  }
+  
+  // Other Anthropic-specific methods...
+}
+```
+
+This approach keeps provider-specific logic encapsulated in the appropriate classes and follows the principle of having each class handle its own data format.
 
 ## Usage Examples
 
@@ -421,9 +670,45 @@ console.log(result.answer);
 
 For providers or models that don't support function calling:
 
-1. We'll add a method to check if a model can use functions: `canUseFunction()`
-2. Providers will throw errors if functions are provided but not supported
-3. Document which providers and models support native function calling
+1. We use AIModels to check model capabilities:
+```typescript
+class LanguageProvider {
+  protected modelInfo?: Model;
+
+  constructor(modelName: string) {
+    // Get model info from aimodels
+    const modelInfo = models.id(modelName);
+    if (!modelInfo) {
+      console.error(`Invalid model: ${modelName}. Model not found in aimodels database.`);
+    }
+    this.modelInfo = modelInfo;
+  }
+
+  protected validateFunctionCalling(modelName: string): void {
+    const modelInfo = models.id(modelName);
+    
+    // Only validate if we know about the model
+    if (modelInfo) {
+      const functionCallingModels = models.canCallFunctions();
+      if (!functionCallingModels.includes(modelInfo)) {
+        console.warn(`Model ${modelName} is known but does not support function calling. Supported models: ${functionCallingModels.map(m => m.name).join(", ")}`);
+      }
+    }
+    // If we don't know about the model, we don't warn - it might be a new model
+  }
+
+  async ask(prompt: string, options?: LangOptions): Promise<LangResult> {
+    if (options?.model) {
+      this.validateFunctionCalling(options.model);
+    }
+    // ... rest of implementation
+  }
+}
+```
+
+2. We only warn about function calling support if we know about the model in AIModels
+3. Unknown models (not in AIModels) are allowed to proceed without warnings
+4. The warning includes a list of known models that support function calling
 
 ## Advanced Features (Future Work)
 
