@@ -107,6 +107,9 @@ export class GroqLang extends OpenAILikeLang {
     // For streaming
     let thinkingContent = "";
     let visibleContent = "";
+    // Variables to track streaming state for thinking extraction
+    let openThinkTagIndex = -1;
+    let pendingThinkingContent = "";
     
     const onData = (data: any) => {
       if (data.finished) {
@@ -134,17 +137,20 @@ export class GroqLang extends OpenAILikeLang {
         
         // Handle content
         if (delta.content) {
-          visibleContent += delta.content;
+          const currentChunk = delta.content;
+          visibleContent += currentChunk;
           
-          // Always try to extract thinking on each update
-          // This handles cases where model capabilities aren't up-to-date in our database
-          const extracted = this.extractThinking(visibleContent);
-          if (extracted.thinking) {
-            result.thinking = extracted.thinking;
-            result.answer = extracted.answer;
-          } else {
-            // If no thinking tags found, just use the content directly
-            result.answer = visibleContent;
+          // Process the chunk for potential thinking content
+          this.processChunkForThinking(visibleContent, result);
+          
+          // Update tracking variables based on current state
+          openThinkTagIndex = visibleContent.lastIndexOf("<think>");
+          if (openThinkTagIndex !== -1) {
+            const closeTagIndex = visibleContent.indexOf("</think>", openThinkTagIndex);
+            if (closeTagIndex === -1) {
+              // We have an open tag but no close tag yet
+              pendingThinkingContent = visibleContent.substring(openThinkTagIndex + 7); // +7 to skip "<think>"
+            }
           }
         }
         
@@ -192,6 +198,56 @@ export class GroqLang extends OpenAILikeLang {
     const answer = content.replace(thinkRegex, "").trim();
     
     return { thinking, answer };
+  }
+  
+  // Process a chunk for thinking content during streaming
+  private processChunkForThinking(
+    fullContent: string, 
+    result: LangResultWithMessages
+  ): void {
+    // Check if we have a complete thinking section
+    const extracted = this.extractThinking(fullContent);
+    
+    if (extracted.thinking) {
+      // We have one or more complete thinking sections
+      result.thinking = extracted.thinking;
+      result.answer = extracted.answer;
+      return;
+    }
+    
+    // Check for partial thinking tags
+    if (fullContent.includes("<think>")) {
+      // We have at least an opening tag
+      const lastOpenTagIndex = fullContent.lastIndexOf("<think>");
+      const firstCloseTagIndex = fullContent.indexOf("</think>");
+      
+      if (firstCloseTagIndex === -1 || lastOpenTagIndex > firstCloseTagIndex) {
+        // We have an open tag without a closing tag
+        // Everything from the open tag to the end should be considered thinking
+        const beforeThinkingContent = fullContent.substring(0, lastOpenTagIndex).trim();
+        const potentialThinkingContent = fullContent.substring(lastOpenTagIndex + 7).trim();
+        
+        result.thinking = potentialThinkingContent;
+        result.answer = beforeThinkingContent;
+        return;
+      }
+      
+      // If we have both tags but the regex didn't match (shouldn't happen but just in case)
+      // Extract the content manually
+      const startIndex = fullContent.indexOf("<think>") + 7;
+      const endIndex = fullContent.indexOf("</think>");
+      if (startIndex < endIndex) {
+        const thinkingContent = fullContent.substring(startIndex, endIndex).trim();
+        const beforeThinking = fullContent.substring(0, fullContent.indexOf("<think>")).trim();
+        const afterThinking = fullContent.substring(fullContent.indexOf("</think>") + 8).trim();
+        
+        result.thinking = thinkingContent;
+        result.answer = (beforeThinking + " " + afterThinking).trim();
+      }
+    } else {
+      // No thinking tags yet, just update the answer
+      result.answer = fullContent;
+    }
   }
   
   // Helper method to call the API
