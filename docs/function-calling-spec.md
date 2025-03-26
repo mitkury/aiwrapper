@@ -710,10 +710,186 @@ class LanguageProvider {
 3. Unknown models (not in AIModels) are allowed to proceed without warnings
 4. The warning includes a list of known models that support function calling
 
+## Multiple Function Calls
+
+Modern language models can request multiple function calls in a single response. Here's how we'll handle this capability across providers:
+
+### Sequential vs. Parallel Function Calls
+
+#### Sequential Function Calls
+Most commonly, function calls occur sequentially, where the model calls one function, receives the result, and then decides to call another function based on that result:
+
+```typescript
+// Model flow
+1. Model: "I need the weather in San Francisco" → calls getCurrentWeather(location: "San Francisco")
+2. Function returns: { temperature: 72, condition: "sunny" }
+3. Model: "Now I need to know about local attractions" → calls getAttractions(city: "San Francisco")
+```
+
+#### Parallel Function Calls
+Some providers (like OpenAI) support parallel function calling where the model can request multiple function calls at once:
+
+```typescript
+// OpenAI can return multiple tool_calls in a single response
+{
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+    {
+      "id": "call_123",
+      "type": "function",
+      "function": {
+        "name": "getCurrentWeather",
+        "arguments": "{\"location\":\"San Francisco\"}"
+      }
+    },
+    {
+      "id": "call_456",
+      "type": "function",
+      "function": {
+        "name": "getAttractions",
+        "arguments": "{\"city\":\"San Francisco\"}"
+      }
+    }
+  ]
+}
+```
+
+### Handling Multiple Function Calls
+
+Our implementation will support both sequential and parallel function calls:
+
+```typescript
+// For providers supporting parallel calls (like OpenAI)
+if (data.choices[0].finish_reason === "tool_calls" && functionHandler) {
+  const toolCalls = data.choices[0].delta.tool_calls || [data.choices[0].delta.tool_calls[0]];
+  
+  // Process all tool calls in parallel
+  const functionPromises = toolCalls.map(async (toolCall) => {
+    const call = {
+      id: toolCall.id,
+      name: toolCall.function.name,
+      arguments: JSON.parse(toolCall.function.arguments || '{}'),
+      provider: "openai"
+    };
+    
+    // Call the handler
+    const functionResult = await functionHandler(call);
+    
+    // Add to result's function calls history
+    result.functionCalls = [...(result.functionCalls || []), call];
+    
+    // Return info needed for the next message
+    return {
+      id: toolCall.id,
+      call,
+      result: functionResult
+    };
+  });
+  
+  // Wait for all function calls to complete
+  const functionResults = await Promise.all(functionPromises);
+  
+  // Add all function calls and results to the messages
+  functionResults.forEach(({ id, call, result: functionResult }) => {
+    // Add function call
+    messages.push({
+      role: "assistant",
+      content: null,
+      tool_calls: [{
+        id,
+        type: "function",
+        function: {
+          name: call.name,
+          arguments: JSON.stringify(call.arguments)
+        }
+      }]
+    });
+    
+    // Add function result
+    messages.push({
+      role: "tool",
+      tool_call_id: id,
+      content: JSON.stringify(functionResult)
+    });
+  });
+  
+  // Continue the conversation with all function results
+  return this.chat(messages, options);
+}
+```
+
+### Multiple Function Example
+
+```typescript
+import { Lang } from "aiwrapper";
+
+// Define multiple functions
+const functions = [
+  {
+    name: "getCurrentWeather",
+    description: "Get the current weather in a given location",
+    parameters: {
+      location: {
+        type: "string",
+        description: "The city and state, e.g., San Francisco, CA",
+        required: true,
+      },
+    },
+  },
+  {
+    name: "getAttractions",
+    description: "Get tourist attractions in a given city",
+    parameters: {
+      city: {
+        type: "string",
+        description: "The city name, e.g., San Francisco",
+        required: true,
+      },
+      category: {
+        type: "string",
+        enum: ["museums", "parks", "restaurants", "historical"],
+        description: "The category of attractions",
+        required: false,
+      },
+    },
+  },
+];
+
+// Initialize a model that supports function calling
+const lang = Lang.openai({ apiKey: "YOUR KEY", model: "gpt-4-turbo" });
+
+// Use multiple functions
+const result = await lang.ask("I'm planning a trip to San Francisco. What's the weather like and what attractions should I visit?", { 
+  functions, 
+  functionHandler: async (call) => {
+    // Handle different function calls
+    if (call.name === "getCurrentWeather") {
+      return { temperature: 72, unit: "fahrenheit", condition: "sunny" };
+    }
+    else if (call.name === "getAttractions") {
+      const category = call.arguments.category || "all";
+      return {
+        attractions: [
+          { name: "Golden Gate Bridge", category: "historical" },
+          { name: "Alcatraz Island", category: "historical" },
+          { name: "Fisherman's Wharf", category: "restaurants" },
+          { name: "Golden Gate Park", category: "parks" }
+        ].filter(a => category === "all" || a.category === category)
+      };
+    }
+    return null;
+  },
+  onResult: (partialResult) => {
+    console.log(partialResult.answer);
+  }
+});
+```
+
 ## Advanced Features (Future Work)
 
-1. Support for parallel function calls
-2. Automatic function selection by the model
-3. Streaming function call results
-4. User-controlled function permissions
-5. Conversion between different providers' function calling formats
+1. Support for more advanced tool calling patterns
+2. Tool-specific error handling
+3. User-controlled function permissions
+4. Conversion helpers between different providers' function calling formats
+5. Debug mode for function calls
