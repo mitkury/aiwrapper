@@ -32,6 +32,7 @@ jspm_packages/
 .windsurfrules
 .clinerules
 .github/copilot-instructions.md
+CLAUDE.md
 
 # Optional npm cache directory
 .npm
