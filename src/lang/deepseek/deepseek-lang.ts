@@ -25,7 +25,7 @@ export class DeepSeekLang extends OpenAILikeLang {
   }
 
   // Check if the model supports reasoning
-  private supportsReasoning(): boolean {
+  override supportsReasoning(): boolean {
     // Check if the model has reasoning capability in aimodels
     const modelInfo = models.id(this._config.model);
 
