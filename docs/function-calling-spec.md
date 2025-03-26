@@ -760,86 +760,184 @@ Some providers (like OpenAI) support parallel function calling where the model c
 Our implementation will support both sequential and parallel function calls:
 
 ```typescript
-// For providers supporting parallel calls (like OpenAI)
-if (data.choices[0].finish_reason === "tool_calls" && functionHandler) {
-  const toolCalls = data.choices[0].delta.tool_calls || [data.choices[0].delta.tool_calls[0]];
+// WHAT HAPPENS INSIDE THE LIBRARY (not seen by users)
+// Each provider class extends the base LanguageProvider class and implements
+// its own processProviderResponse method to handle provider-specific formats
+
+// In OpenAILang class
+protected processStreamingResponse(chunk: any): void {
+  // Handle text responses
+  if (chunk.choices?.[0]?.delta?.content) {
+    this.result.answer += chunk.choices[0].delta.content;
+    this.triggerOnResult();
+  }
   
-  // Process all tool calls in parallel
-  const functionPromises = toolCalls.map(async (toolCall) => {
-    const call = {
-      id: toolCall.id,
-      name: toolCall.function.name,
-      arguments: JSON.parse(toolCall.function.arguments || '{}'),
-      provider: "openai"
+  // Handle function calls - OpenAI specific format
+  if (chunk.choices?.[0]?.delta?.tool_calls) {
+    // Get the tool calls from the OpenAI response
+    const openaiToolCalls = chunk.choices[0].delta.tool_calls;
+    
+    // Convert OpenAI's format to our standardized format
+    openaiToolCalls.forEach(toolCall => {
+      // Find or create a function call entry
+      let functionCall = this.result.functionCalls?.find(fc => fc.id === toolCall.id);
+      if (!functionCall) {
+        functionCall = {
+          id: toolCall.id,
+          name: toolCall.function.name,
+          arguments: {},
+          provider: "openai"
+        };
+        this.result.functionCalls = [...(this.result.functionCalls || []), functionCall];
+      }
+      
+      // Accumulate arguments (OpenAI sends them in chunks)
+      if (toolCall.function?.arguments) {
+        try {
+          const args = JSON.parse(toolCall.function.arguments);
+          functionCall.arguments = { ...functionCall.arguments, ...args };
+        } catch (e) {
+          // Ignore partial JSON
+        }
+      }
+    });
+    
+    this.triggerOnResult();
+  }
+  
+  // Handle function call completion
+  if (chunk.choices?.[0]?.finish_reason === "tool_calls" && this.options?.functionHandler) {
+    this.handleFunctionCalls();
+  }
+}
+
+// In AnthropicLang class
+protected processStreamingResponse(chunk: any): void {
+  // Handle text responses
+  if (chunk.delta?.text) {
+    this.result.answer += chunk.delta.text;
+    this.triggerOnResult();
+  }
+  
+  // Handle function calls - Anthropic specific format
+  if (chunk.delta?.tool_use) {
+    // Anthropic provides complete tool calls in one go
+    const anthropicToolUse = chunk.delta.tool_use;
+    
+    // Convert Anthropic's format to our standardized format
+    const functionCall = {
+      id: chunk.delta.tool_use_id || `tool_${Date.now()}`,
+      name: anthropicToolUse.name,
+      arguments: anthropicToolUse.input, // Already an object in Anthropic
+      provider: "anthropic"
     };
     
-    // Call the handler
-    const functionResult = await functionHandler(call);
+    this.result.functionCalls = [...(this.result.functionCalls || []), functionCall];
+    this.triggerOnResult();
+  }
+  
+  // Handle function call completion
+  if (chunk.delta?.stop_reason === "tool_use" && this.options?.functionHandler) {
+    this.handleFunctionCalls();
+  }
+}
+
+// Common code in the base LanguageProvider class
+// This is shared across all providers
+protected async handleFunctionCalls(): Promise<void> {
+  // Get all function calls that haven't been handled yet
+  const pendingCalls = this.result.functionCalls?.filter(call => !call.handled) || [];
+  
+  if (pendingCalls.length === 0) return;
+  
+  // Process all function calls in parallel
+  const functionPromises = pendingCalls.map(async (call) => {
+    // Mark as handled to prevent duplicate processing
+    call.handled = true;
     
-    // Add to result's function calls history
-    result.functionCalls = [...(result.functionCalls || []), call];
-    
-    // Return info needed for the next message
-    return {
-      id: toolCall.id,
-      call,
-      result: functionResult
-    };
+    // Call the user-provided handler
+    try {
+      const result = await this.options.functionHandler(call);
+      return { call, result };
+    } catch (error) {
+      console.error(`Error executing function ${call.name}:`, error);
+      return { 
+        call, 
+        result: { error: `Error executing function: ${error.message}` } 
+      };
+    }
   });
   
   // Wait for all function calls to complete
-  const functionResults = await Promise.all(functionPromises);
+  const results = await Promise.all(functionPromises);
   
-  // Add all function calls and results to the messages
-  functionResults.forEach(({ id, call, result: functionResult }) => {
-    // Add function call
-    messages.push({
-      role: "assistant",
-      content: null,
-      tool_calls: [{
-        id,
-        type: "function",
-        function: {
-          name: call.name,
-          arguments: JSON.stringify(call.arguments)
-        }
-      }]
-    });
-    
-    // Add function result
-    messages.push({
-      role: "tool",
-      tool_call_id: id,
-      content: JSON.stringify(functionResult)
-    });
-  });
+  // Add the results to the message history and continue the conversation
+  // Each provider class implements addFunctionResultsToMessages differently
+  this.addFunctionResultsToMessages(results);
   
-  // Continue the conversation with all function results
-  return this.chat(messages, options);
+  // Continue the conversation
+  this.continueConversation();
 }
 ```
 
-### Multiple Function Example
+### Provider-Agnostic Function Calling Example
+
+The key advantage of our abstraction is that it provides a unified interface for function calling across all supported providers (OpenAI, Anthropic, etc.) without exposing provider-specific implementation details. Here's how it works in practice:
 
 ```typescript
 import { Lang } from "aiwrapper";
+import axios from "axios";
 
-// Define multiple functions
+// 1. Define your function implementations
+async function getWeather(location) {
+  // This would call a real weather API in production
+  console.log(`Getting weather for ${location}...`);
+  
+  // Simulated API call
+  return {
+    temperature: 72,
+    condition: "sunny",
+    humidity: 45,
+    wind: 8,
+    unit: "fahrenheit"
+  };
+}
+
+async function getAttractions(city, category = "all") {
+  // This would query a tourism database or API in production
+  console.log(`Getting ${category} attractions for ${city}...`);
+  
+  const attractions = [
+    { name: "Golden Gate Bridge", category: "historical" },
+    { name: "Alcatraz Island", category: "historical" },
+    { name: "Fisherman's Wharf", category: "restaurants" },
+    { name: "Golden Gate Park", category: "parks" }
+  ];
+  
+  return {
+    attractions: category === "all" 
+      ? attractions 
+      : attractions.filter(a => a.category === category)
+  };
+}
+
+// 2. Define function definitions using our standard schema
+// The same definitions work for ANY provider that supports function calling
 const functions = [
   {
-    name: "getCurrentWeather",
-    description: "Get the current weather in a given location",
+    name: "getWeather",
+    description: "Get the current weather in a location",
     parameters: {
       location: {
         type: "string",
         description: "The city and state, e.g., San Francisco, CA",
         required: true,
-      },
-    },
+      }
+    }
   },
   {
     name: "getAttractions",
-    description: "Get tourist attractions in a given city",
+    description: "Get tourist attractions in a city",
     parameters: {
       city: {
         type: "string",
@@ -848,42 +946,112 @@ const functions = [
       },
       category: {
         type: "string",
-        enum: ["museums", "parks", "restaurants", "historical"],
+        enum: ["all", "museums", "parks", "restaurants", "historical"],
         description: "The category of attractions",
         required: false,
-      },
-    },
-  },
+      }
+    }
+  }
 ];
 
-// Initialize a model that supports function calling
-const lang = Lang.openai({ apiKey: "YOUR KEY", model: "gpt-4-turbo" });
-
-// Use multiple functions
-const result = await lang.ask("I'm planning a trip to San Francisco. What's the weather like and what attractions should I visit?", { 
-  functions, 
-  functionHandler: async (call) => {
-    // Handle different function calls
-    if (call.name === "getCurrentWeather") {
-      return { temperature: 72, unit: "fahrenheit", condition: "sunny" };
-    }
-    else if (call.name === "getAttractions") {
-      const category = call.arguments.category || "all";
-      return {
-        attractions: [
-          { name: "Golden Gate Bridge", category: "historical" },
-          { name: "Alcatraz Island", category: "historical" },
-          { name: "Fisherman's Wharf", category: "restaurants" },
-          { name: "Golden Gate Park", category: "parks" }
-        ].filter(a => category === "all" || a.category === category)
-      };
-    }
-    return null;
-  },
-  onResult: (partialResult) => {
-    console.log(partialResult.answer);
+// 3. This code works with ANY supported provider
+async function runWithAnyProvider(providerName, apiKey) {
+  // The beauty of our abstraction: initialize ANY provider that supports functions
+  // Use the exact same code with different providers
+  let lang;
+  
+  if (providerName === "openai") {
+    lang = Lang.openai({ apiKey, model: "gpt-4-turbo" });
+  } 
+  else if (providerName === "anthropic") {
+    lang = Lang.anthropic({ apiKey, model: "claude-3-opus-20240229" });
   }
-});
+  else if (providerName === "groq") {
+    lang = Lang.groq({ apiKey, model: "llama3-groq-8b-8192" });
+  }
+  else {
+    throw new Error(`Provider ${providerName} not supported`);
+  }
+  
+  // 4. Use the same function calling interface across all providers
+  // Our library handles all the provider-specific transformations 
+  const result = await lang.ask(
+    "I'm planning a trip to San Francisco. What's the weather like and what attractions should I visit?",
+    {
+      // Same function definitions for all providers
+      functions,
+      
+      // Same function handler for all providers
+      functionHandler: async (call) => {
+        console.log(`Function called: ${call.name}`, call.arguments);
+        
+        // The function calls come in a standard format regardless of provider
+        if (call.name === "getWeather") {
+          return await getWeather(call.arguments.location);
+        }
+        else if (call.name === "getAttractions") {
+          return await getAttractions(
+            call.arguments.city, 
+            call.arguments.category || "all"
+          );
+        }
+        
+        return { error: `Unknown function: ${call.name}` };
+      },
+      
+      // The onResult format is the same across providers
+      onResult: (partialResult) => {
+        // Function calls appear in the same format for all providers
+        if (partialResult.functionCalls && partialResult.functionCalls.length > 0) {
+          // This functions the same way regardless of provider
+          console.log("Function calls so far:", partialResult.functionCalls.length);
+        }
+        
+        // Streaming happens the same way for all providers
+        if (partialResult.answer) {
+          console.log("Partial answer:", partialResult.answer);
+        }
+      }
+    }
+  );
+  
+  console.log("\nFinal answer:", result.answer);
+  
+  return result;
+}
+
+// 5. Try with different providers
+async function main() {
+  // Try with OpenAI
+  console.log("Running with OpenAI:");
+  await runWithAnyProvider("openai", "YOUR_OPENAI_KEY");
+  
+  // Try with Anthropic - THE EXACT SAME CODE WORKS
+  console.log("\nRunning with Anthropic:");
+  await runWithAnyProvider("anthropic", "YOUR_ANTHROPIC_KEY");
+  
+  // Try with another provider - THE EXACT SAME CODE WORKS
+  console.log("\nRunning with another provider:");
+  await runWithAnyProvider("groq", "YOUR_GROQ_KEY");
+}
+
+main().catch(console.error);
+```
+
+This example illustrates how our abstraction works:
+
+1. **Define Functions Once**: Define your functions and their schemas in a standard format
+2. **Use Any Provider**: Use any provider that supports function calling with the exact same code
+3. **No Provider-Specific Logic**: You don't need to write different code for OpenAI vs Anthropic
+4. **Consistent Response Format**: The results and function calls are returned in a consistent format
+
+Under the hood, our library handles:
+- Converting function definitions to each provider's specific format (OpenAI tools, Anthropic tools, etc.)
+- Normalizing function calls from each provider into a standard format
+- Managing the conversation flow and function call execution
+- Providing the right message format for each provider's API
+
+The beauty of this approach is that you can switch providers without changing your code. If a newer, better provider comes along, you can just change one line to use it instead.
 ```
 
 ## Advanced Features (Future Work)
