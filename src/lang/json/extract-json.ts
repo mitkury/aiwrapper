@@ -1,4 +1,4 @@
-import jsonic from "./jsonic.js";
+import { Jsonic } from "jsonic";
 
 /**
  * Gets something that resembles JSON from a string by finding the first "{" and the last "}" or the first "[" and the last "]".
@@ -79,7 +79,7 @@ export default function extractJSON(
 
     try {
       // If it fails, try to parse it with a less strict JSON parser
-      jsonObj = jsonic(possilbeJsonStr);
+      jsonObj = Jsonic(possilbeJsonStr);
     } catch {
       if (verbose) {
         console.error("Failed to parse JSON with jsonic as well.");
