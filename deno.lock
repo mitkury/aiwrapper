@@ -87,6 +87,7 @@
         "npm:aimodels@~0.4.5",
         "npm:dotenv@^16.4.1",
         "npm:glob@^11.0.1",
+        "npm:jsonic@^2.16.0",
         "npm:ts-node@^10.9.2",
         "npm:typescript@^5.7.3"
       ]
