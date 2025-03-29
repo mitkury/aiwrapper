@@ -352,6 +352,22 @@ export class OpenAILikeLang extends LanguageProvider {
   /**
    * Handles streaming data from the API response
    * This method can be overridden by subclasses to add custom handling for different response formats
+   * 
+   * Function Calling Flow:
+   * 1. During streaming, we collect function call information as it arrives:
+   *    - First chunk contains function name and ID
+   *    - Subsequent chunks contain pieces of the arguments JSON
+   *    - We accumulate these pieces and try to parse the JSON when possible
+   * 
+   * 2. When streaming is complete (data.finished = true):
+   *    - We finalize parsing any incomplete argument JSON
+   *    - Execute the functions via the provided functionHandler
+   *    - Add the function calls and results to the message history
+   *    - Continue the conversation with these results
+   * 
+   * This approach matches OpenAI's official client libraries and avoids making 
+   * unnecessary additional API requests.
+   * 
    * @param data The current data chunk from the stream
    * @param result The result object being built
    * @param messages The original messages array
@@ -468,6 +484,15 @@ export class OpenAILikeLang extends LanguageProvider {
 
   /**
    * Process function calls and execute the handler
+   * 
+   * Once all function call information has been collected during streaming,
+   * this method:
+   * 1. Finds all unhandled function calls and marks them as handled
+   * 2. Executes each function through the user-provided handler
+   * 3. Captures the results and adds them to the message history
+   * 4. Continues the conversation with these results
+   * 
+   * All function calls are processed in parallel for efficiency.
    */
   protected async handleFunctionCalls(
     result: LangResultWithMessages, 
