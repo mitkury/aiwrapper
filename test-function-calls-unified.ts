@@ -113,12 +113,31 @@ async function runTests() {
   const prompt = "What's the weather like in San Francisco, CA right now? I need the current temperature.";
   
   // Get API keys from .env
+  const googleApiKey = Deno.env.get("GOOGLE_API_KEY");
   const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
   const anthropicApiKey = Deno.env.get("ANTHROPIC_API_KEY");
   
   // Test results
+  let googleSuccess = false;
   let openaiSuccess = false;
   let anthropicSuccess = false;
+  
+  // Test Google first for faster debugging
+  if (googleApiKey) {
+    try {
+      const google = Lang.google({
+        apiKey: googleApiKey,
+        model: "gemini-2.0-flash", // Use newer Gemini model with function calling support
+        systemPrompt: "You are a helpful assistant that can provide weather information."
+      });
+      
+      googleSuccess = await testProvider("Google Gemini", google, prompt);
+    } catch (error) {
+      console.error("Error testing Google Gemini:", error);
+    }
+  } else {
+    console.log("\nSkipping Google Gemini test - API key not found in .env file");
+  }
   
   // Test OpenAI
   if (openaiApiKey) {
@@ -149,6 +168,7 @@ async function runTests() {
   
   // Summary
   console.log("\n\n=== Test Summary ===");
+  console.log(`Google Gemini function calling: ${googleSuccess ? "✓ SUCCESS" : "✗ FAILED"}`);
   console.log(`OpenAI function calling: ${openaiSuccess ? "✓ SUCCESS" : "✗ FAILED"}`);
   console.log(`Anthropic function calling: ${anthropicSuccess ? "✓ SUCCESS" : "✗ FAILED"}`);
   console.log("\nTest completed!");
