@@ -294,6 +294,82 @@ Key Anthropic characteristics:
 - Arguments are returned as a parsed object (not a string)
 - Supports `tool_choice` parameter to force specific tool calls
 
+### 3. Google Generative Language API (Gemini)
+
+Google Generative Language API uses a "tools" field with "functionDeclarations" inside, and requires the v1beta API for function calling:
+
+```typescript
+// Google Gemini request format - Must use v1beta API path
+// URL: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=YOUR_API_KEY
+{
+  "contents": [
+    { 
+      "role": "user", 
+      "parts": [
+        { "text": "What's the weather in Boston?" }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "functionDeclarations": [
+        {
+          "name": "getCurrentWeather",
+          "description": "Get the current weather in a given location",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "location": {
+                "type": "string",
+                "description": "The city and state, e.g., San Francisco, CA"
+              },
+              "unit": {
+                "type": "string",
+                "enum": ["celsius", "fahrenheit"],
+                "description": "The unit of temperature"
+              }
+            },
+            "required": ["location"]
+          }
+        }
+      ]
+    }
+  ]
+}
+
+// Google Gemini response format
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "functionCall": {
+              "name": "getCurrentWeather",
+              "args": {
+                "location": "Boston, MA"
+              }
+            }
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ]
+}
+```
+
+Key Google Gemini characteristics:
+- Requires using the **v1beta** API path for function calling with non-streaming responses
+- Uses `tools` array with a `functionDeclarations` array inside (not wrapped in `type: "function"`)
+- Uses `parameters` similar to OpenAI, not `input_schema` like Anthropic
+- Authentication done via API key in the query string (`?key=YOUR_API_KEY`)
+- Function calls are found in `candidates[0].content.parts` array, where a part has a `functionCall` object
+- Arguments are returned as a parsed object (`args`) directly, not as a JSON string
+- No unique `id` is provided for function calls in the response
+
 ### Provider-Specific Mappings
 
 We'll handle these differences in our implementation:
@@ -317,6 +393,7 @@ class OpenAILang extends LanguageProvider {
 
   protected convertFromProviderFormat(toolCalls: any[]): FunctionCall[] {
     return toolCalls.map(call => ({
+      id: call.id,
       name: call.function.name,
       arguments: JSON.parse(call.function.arguments),
     }));
@@ -338,9 +415,50 @@ class AnthropicLang extends LanguageProvider {
 
   protected convertFromProviderFormat(toolCalls: any[]): FunctionCall[] {
     return toolCalls.map(call => ({
+      id: call.id,
       name: call.name,
       arguments: call.arguments,
     }));
+  }
+}
+
+class GoogleLang extends LanguageProvider {
+  protected convertToProviderFormat(functions: FunctionDefinition[]): any[] {
+    return [{
+      functionDeclarations: functions.map(f => ({
+        name: f.name,
+        description: f.description,
+        parameters: {
+          type: "object",
+          properties: this.convertParameters(f.parameters),
+          required: this.getRequiredParameters(f.parameters),
+        },
+      }))
+    }];
+  }
+
+  protected convertFromProviderFormat(candidates: any[]): FunctionCall[] {
+    // Extract function calls from candidates array
+    if (!candidates || candidates.length === 0) return [];
+    
+    const functionCalls: FunctionCall[] = [];
+    const candidate = candidates[0];
+    
+    if (candidate?.content?.parts) {
+      for (const part of candidate.content.parts) {
+        if (part.functionCall) {
+          functionCalls.push({
+            // Generate a unique ID since Google doesn't provide one
+            id: `google_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+            name: part.functionCall.name,
+            arguments: part.functionCall.args,
+            provider: "google"
+          });
+        }
+      }
+    }
+    
+    return functionCalls;
   }
 }
 ```
@@ -349,12 +467,15 @@ Key differences we handle:
 1. Request format differences:
    - OpenAI wraps functions in `type: "function"`
    - Anthropic uses `input_schema` instead of `parameters`
+   - Google uses an array of `functionDeclarations` inside a single `tools` object 
 2. Response format differences:
    - OpenAI returns arguments as JSON string
    - Anthropic returns arguments as parsed object
+   - Google returns arguments as parsed object in the `args` field
 3. Parameter naming differences:
    - OpenAI uses `function_call`
    - Anthropic uses `tool_choice`
+   - Google has no equivalent parameter currently documented for forcing a specific function call
 
 ## Function Call Handling
 
