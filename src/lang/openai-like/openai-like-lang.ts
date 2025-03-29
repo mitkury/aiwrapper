@@ -50,8 +50,6 @@ export type TokenUsageDetails = {
 export class OpenAILikeLang extends LanguageProvider {
   protected _config: OpenAILikeConfig;
   protected modelInfo?: Model;
-  // Symbol for storing function call detection on result objects
-  private readonly functionCallDetectionSymbol = Symbol('functionCallDetection');
 
   constructor(config: OpenAILikeConfig) {
     super(config.model);
@@ -367,18 +365,30 @@ export class OpenAILikeLang extends LanguageProvider {
     onResult?: (result: LangResultWithMessages) => void,
     options?: LangOptions
   ): Promise<void> {
-    // Initialize detection flag if needed using the symbol
-    if ((result as any)[this.functionCallDetectionSymbol] === undefined) {
-      (result as any)[this.functionCallDetectionSymbol] = false;
+    // Initialize function call collection if needed
+    if (!result.functionCalls) {
+      result.functionCalls = [];
     }
     
     if (data.finished) {
       result.finished = true;
       
-      // Get detection flag directly from the result object
-      const detectedFunctionCalls = (result as any)[this.functionCallDetectionSymbol] || false;
-      if (detectedFunctionCalls || (data.choices?.length > 0 && data.choices[0].finish_reason === "tool_calls")) {
-        await this.getFunctionCallsAndProcess(messages, result, options);
+      // When streaming is finished, check if we have any function calls to process
+      if (result.functionCalls && result.functionCalls.length > 0 && options?.functionHandler) {
+        // Try to ensure arguments are properly parsed for all function calls
+        for (const call of result.functionCalls) {
+          if (call.rawArguments && (!call.arguments || Object.keys(call.arguments).length === 0)) {
+            try {
+              call.arguments = JSON.parse(call.rawArguments);
+            } catch (e) {
+              console.warn(`Failed to parse arguments for function ${call.name}:`, e);
+              call.arguments = {};
+            }
+          }
+        }
+        
+        // Process valid function calls
+        await this.handleFunctionCalls(result, messages, options);
       }
       
       onResult?.(result);
@@ -401,75 +411,58 @@ export class OpenAILikeLang extends LanguageProvider {
         onResult?.(result);
       }
       
-      // Check for function/tool calls in streaming response to detect them
-      if (delta.tool_calls) {
-        (result as any)[this.functionCallDetectionSymbol] = true;
-      }
-      
-      // Also check if we get a finish_reason
-      if (choice.finish_reason === "tool_calls") {
-        (result as any)[this.functionCallDetectionSymbol] = true;
-      }
-    }
-  }
-  
-  /**
-   * Make a separate non-streaming request to get function calls and process them
-   * This is necessary because in streaming mode the function calls are not returned completely
-   */
-  protected async getFunctionCallsAndProcess(
-    messages: LangChatMessages,
-    result: LangResultWithMessages,
-    options?: LangOptions
-  ): Promise<void> {
-    try {
-      // Create body for a non-streaming request
-      const body = this.transformBody({
-        model: this._config.model,
-        messages: messages,
-        stream: false, // Important - don't stream this request
-        max_tokens: options?.maxTokens || this._config.maxTokens || 4000,
-        ...this._config.bodyProperties,
-      }, options);
-      
-      // Make the request
-      const response = await fetch(`${this._config.baseURL}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(this._config.apiKey ? { "Authorization": `Bearer ${this._config.apiKey}` } : {}),
-          ...this._config.headers,
-        },
-        body: JSON.stringify(body),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error ${response.status}: ${await response.text()}`);
-      }
-      
-      const responseData = await response.json();
-      
-      // Extract function calls from the complete response
-      if (responseData.choices && 
-          responseData.choices[0] && 
-          responseData.choices[0].message && 
-          responseData.choices[0].message.tool_calls) {
-        
-        // Convert to our format
-        const functionCalls = this.convertToolCallsToFunctionCalls(
-          responseData.choices[0].message.tool_calls
-        );
-        
-        // Update the result
-        result.functionCalls = functionCalls;
-        
-        // Process the function calls if we have a handler
-        if (options?.functionHandler && functionCalls.length > 0) {
-          await this.handleFunctionCalls(result, messages, options);
+      // Process function/tool calls in streaming response
+      if (delta.tool_calls && Array.isArray(delta.tool_calls)) {
+        for (const toolCallDelta of delta.tool_calls) {
+          // Skip if no index is provided
+          if (typeof toolCallDelta.index !== 'number') continue;
+          
+          const index = toolCallDelta.index;
+          
+          // Find existing function call or create a new one
+          let functionCall = result.functionCalls.find(fc => fc.index === index);
+          
+          if (!functionCall) {
+            // This is a new function call
+            functionCall = {
+              index,
+              id: toolCallDelta.id,
+              name: toolCallDelta.function?.name || '',
+              arguments: {},
+              rawArguments: '',
+              provider: "openai"
+            };
+            result.functionCalls.push(functionCall);
+          }
+          
+          // Update function call with new delta information
+          if (toolCallDelta.id && !functionCall.id) {
+            functionCall.id = toolCallDelta.id;
+          }
+          
+          if (toolCallDelta.function) {
+            // Update function name if present
+            if (toolCallDelta.function.name) {
+              functionCall.name = toolCallDelta.function.name;
+            }
+            
+            // Accumulate arguments string
+            if (toolCallDelta.function.arguments) {
+              functionCall.rawArguments = (functionCall.rawArguments || '') + toolCallDelta.function.arguments;
+              
+              // Try to parse arguments, but don't worry if it fails (might be incomplete)
+              try {
+                functionCall.arguments = JSON.parse(functionCall.rawArguments);
+              } catch (e) {
+                // Arguments are incomplete, will try again when we get more chunks
+              }
+            }
+          }
         }
+        
+        // Call the streaming callback with updated result
+        onResult?.(result);
       }
-    } catch (error) {
-      console.error("Error getting function calls:", error);
     }
   }
 
@@ -486,7 +479,7 @@ export class OpenAILikeLang extends LanguageProvider {
     if (!options.functionHandler) return;
 
     // Get all function calls that haven't been handled yet
-    const pendingCalls = result.functionCalls.filter(call => !call.handled);
+    const pendingCalls = result.functionCalls.filter(call => !call.handled && call.name);
     
     if (pendingCalls.length === 0) return;
     
@@ -553,11 +546,7 @@ export class OpenAILikeLang extends LanguageProvider {
       result.messages = updatedResult.messages;
       
       // Append any new function calls
-      if (updatedResult.functionCalls) {
-        if (!result.functionCalls) {
-          result.functionCalls = [];
-        }
-        
+      if (updatedResult.functionCalls && result.functionCalls) {
         for (const newCall of updatedResult.functionCalls) {
           if (!result.functionCalls.some(c => c.id === newCall.id)) {
             result.functionCalls.push(newCall);

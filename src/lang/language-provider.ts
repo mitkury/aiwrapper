@@ -31,6 +31,7 @@ export interface FunctionDefinition {
  */
 export interface FunctionCall {
   id?: string;         // Optional ID from the provider (useful for tracking)
+  index?: number;      // Index in the tool_calls array (for streaming responses)
   name: string;        // Name of the called function
   arguments: Record<string, any>; // Arguments provided by the model (parsed)
   rawArguments?: string; // Original arguments string (for provider compatibility)
