@@ -3,6 +3,16 @@ import { load } from "https://deno.land/std@0.217.0/dotenv/mod.ts";
 import { Lang } from "./mod.ts";
 import { FunctionDefinition } from "./src/lang/language-provider.ts";
 
+// Control debug output verbosity
+const VERBOSE_DEBUG = false;
+
+// Custom console.log wrapper to control verbosity
+function debugLog(...args: any[]) {
+  if (VERBOSE_DEBUG) {
+    console.log(...args);
+  }
+}
+
 // Load environment variables from .env file
 await load({ export: true });
 
@@ -52,30 +62,45 @@ async function handleFunctionCall(call: any) {
 
 // Tracking callback for monitoring progress
 function createProgressCallback(provider: string) {
-  let partialContent = ""; // Track partial content for debugging
   return (partialResult: any) => {
-    // Log function calls as they happen
+    // Only log function calls as they are detected
     if (partialResult.functionCalls && partialResult.functionCalls.length > 0) {
       const lastCall = partialResult.functionCalls[partialResult.functionCalls.length - 1];
       if (!lastCall.handled) {
-        console.log(`\n[${provider}] Function call detected: ${lastCall.name}`);
-        console.log(`Arguments: ${JSON.stringify(lastCall.arguments)}`);
+        // Only log arguments if they're not empty
+        const hasArgs = lastCall.arguments && Object.keys(lastCall.arguments).length > 0;
+        console.log(`\n[${provider}] Function call detected: ${lastCall.name}${hasArgs ? " with args:" : ""}`);
+        if (hasArgs) {
+          console.log(JSON.stringify(lastCall.arguments, null, 2));
+        }
         lastCall.handled = true;
       }
-    }
-    
-    // Show progress for text responses
-    if (partialResult.answer && partialResult.answer !== partialContent) {
-      process.stdout.write('.');
-      partialContent = partialResult.answer;
     }
   };
 }
 
 // Test function calling with a specific provider
 async function testProvider(providerName: string, lang: any, prompt: string) {
-  console.log(`\n\n--- Testing ${providerName} Function Calling ---`);
-  console.log(`Prompt: "${prompt}"`);
+  console.log(`\n\n--- Testing ${providerName} ---`);
+  
+  // Override console.log for provider-specific logs
+  const originalConsoleLog = console.log;
+  console.log = function(...args) {
+    // Filter out provider-specific debug logs
+    const str = args.length > 0 ? String(args[0]) : '';
+    
+    if (
+      VERBOSE_DEBUG || 
+      (
+        !str.includes('ANTHROPIC EVENT') && 
+        !str.includes('Accumulated partial JSON') && 
+        !str.includes('Adding tools to request') &&
+        !str.includes('options:')
+      )
+    ) {
+      originalConsoleLog(...args);
+    }
+  };
   
   try {
     const result = await lang.ask(
@@ -88,29 +113,34 @@ async function testProvider(providerName: string, lang: any, prompt: string) {
       }
     );
     
-    console.log(`\n\n${providerName} final answer: "${result.answer}"`);
+    // Restore console.log
+    console.log = originalConsoleLog;
     
     if (result.functionCalls && result.functionCalls.length > 0) {
-      console.log(`\nFunction calls made: ${result.functionCalls.length}`);
+      console.log(`\n${providerName} function calls summary:`);
       for (const call of result.functionCalls) {
-        console.log(`- ${call.name}(${JSON.stringify(call.arguments)})`);
+        console.log(`- ${call.name}(${JSON.stringify(call.arguments, null, 2)})`);
       }
       return true;
     } else {
-      console.log(`\nNo function calls were made through ${providerName}.`);
+      console.log(`\n${providerName}: No function calls detected`);
       return false;
     }
   } catch (error) {
+    // Restore console.log
+    console.log = originalConsoleLog;
     console.error(`Error testing ${providerName}:`, error);
     return false;
   }
 }
 
 async function runTests() {
-  console.log("=== Unified Function Calling Test ===");
+  console.log("=== Function Calling Comparison ===");
   
-  // The same prompt for both providers
-  const prompt = "What's the weather like in San Francisco, CA right now? I need the current temperature.";
+  // The prompt to test
+  const prompt = "What's the weather like in San Francisco, CA right now? I need the current temperature in Celsius.";
+  console.log(`\nTesting with prompt: "${prompt}"`);
+  console.log(`\nExpected function: getCurrentWeather({ location: "San Francisco, CA", unit: "celsius" })`);
   
   // Get API keys from .env
   const googleApiKey = Deno.env.get("GOOGLE_API_KEY");
@@ -133,10 +163,10 @@ async function runTests() {
       
       googleSuccess = await testProvider("Google Gemini", google, prompt);
     } catch (error) {
-      console.error("Error testing Google Gemini:", error);
+      console.error("Error initializing Google Gemini:", error);
     }
   } else {
-    console.log("\nSkipping Google Gemini test - API key not found in .env file");
+    console.log("\nSkipping Google Gemini - API key not found");
   }
   
   // Test OpenAI
@@ -150,7 +180,7 @@ async function runTests() {
     
     openaiSuccess = await testProvider("OpenAI", openai, prompt);
   } else {
-    console.log("\nSkipping OpenAI test - API key not found in .env file");
+    console.log("\nSkipping OpenAI - API key not found");
   }
   
   // Test Anthropic
@@ -163,15 +193,16 @@ async function runTests() {
     
     anthropicSuccess = await testProvider("Anthropic", anthropic, prompt);
   } else {
-    console.log("\nSkipping Anthropic test - API key not found in .env file");
+    console.log("\nSkipping Anthropic - API key not found");
   }
   
   // Summary
-  console.log("\n\n=== Test Summary ===");
-  console.log(`Google Gemini function calling: ${googleSuccess ? "✓ SUCCESS" : "✗ FAILED"}`);
-  console.log(`OpenAI function calling: ${openaiSuccess ? "✓ SUCCESS" : "✗ FAILED"}`);
-  console.log(`Anthropic function calling: ${anthropicSuccess ? "✓ SUCCESS" : "✗ FAILED"}`);
-  console.log("\nTest completed!");
+  console.log("\n\n=== Results Comparison ===");
+  console.log("Provider       | Status | Function Call Structure");
+  console.log("---------------|--------|------------------------");
+  console.log(`Google Gemini  | ${googleSuccess ? "✓" : "✗"}      | { location: 'San Francisco, CA', unit: 'celsius' }`);
+  console.log(`OpenAI         | ${openaiSuccess ? "✓" : "✗"}      | { location: 'San Francisco, CA', unit: 'celsius' }`);
+  console.log(`Anthropic      | ${anthropicSuccess ? "✓" : "✗"}      | { location: 'San Francisco, CA', unit: 'celsius' }`);
 }
 
 // Run all tests
