@@ -1,5 +1,8 @@
 import {
+  FunctionCall,
+  FunctionDefinition,
   LangChatMessages,
+  LangOptions,
   LangResultWithMessages,
   LangResultWithString,
   LanguageProvider,
@@ -47,6 +50,8 @@ export type TokenUsageDetails = {
 export class OpenAILikeLang extends LanguageProvider {
   protected _config: OpenAILikeConfig;
   protected modelInfo?: Model;
+  // Symbol for storing function call detection on result objects
+  private readonly functionCallDetectionSymbol = Symbol('functionCallDetection');
 
   constructor(config: OpenAILikeConfig) {
     super(config.model);
@@ -88,14 +93,29 @@ export class OpenAILikeLang extends LanguageProvider {
 
   async ask(
     prompt: string,
-    onResult?: (result: LangResultWithString) => void,
+    onResultOrOptions?: ((result: LangResultWithString) => void) | LangOptions,
+    options?: LangOptions,
   ): Promise<LangResultWithString> {
+    // Handle overloaded parameters
+    let onResult: ((result: LangResultWithString) => void) | undefined;
+    let opts: LangOptions = {};
+    
+    if (typeof onResultOrOptions === 'function') {
+      onResult = onResultOrOptions;
+      opts = options || {};
+    } else if (onResultOrOptions) {
+      opts = onResultOrOptions;
+      onResult = undefined;
+    }
+
     const messages: LangChatMessages = [];
 
-    if (this._config.systemPrompt) {
+    // Apply system prompt from options or config
+    const systemPrompt = opts.systemPrompt || this._config.systemPrompt;
+    if (systemPrompt) {
       messages.push({
         role: "system",
-        content: this._config.systemPrompt,
+        content: systemPrompt,
       });
     }
 
@@ -104,7 +124,17 @@ export class OpenAILikeLang extends LanguageProvider {
       content: prompt,
     });
 
-    return await this.chat(messages, onResult);
+    // Get the chat result
+    const chatResult = await this.chat(messages, onResult, opts);
+    
+    // Create a result with the prompt but use data from chatResult
+    const result = new LangResultWithString(prompt);
+    result.answer = chatResult.answer;
+    result.thinking = chatResult.thinking;
+    result.finished = chatResult.finished;
+    result.functionCalls = chatResult.functionCalls;
+    
+    return result;
   }
 
   protected transformMessages(messages: LangChatMessages): LangChatMessages {
@@ -112,7 +142,91 @@ export class OpenAILikeLang extends LanguageProvider {
     return messages;
   }
 
-  protected transformBody(body: Record<string, unknown>): Record<string, unknown> {
+  /**
+   * Converts our internal function definitions to OpenAI format
+   * @param functions Array of function definitions
+   * @returns OpenAI format tools array
+   */
+  protected convertFunctionsToTools(functions: FunctionDefinition[]): any[] {
+    return functions.map(f => ({
+      type: "function",
+      function: {
+        name: f.name,
+        description: f.description,
+        parameters: {
+          type: "object",
+          properties: this.convertParameters(f.parameters),
+          required: this.getRequiredParameters(f.parameters),
+        },
+      },
+    }));
+  }
+
+  /**
+   * Convert parameter map to OpenAI format
+   */
+  protected convertParameters(parameters: Record<string, any>): Record<string, any> {
+    const result: Record<string, any> = {};
+    
+    for (const [name, param] of Object.entries(parameters)) {
+      result[name] = {
+        type: param.type,
+        description: param.description,
+      };
+      
+      if (param.enum) {
+        result[name].enum = param.enum;
+      }
+      
+      if (param.items) {
+        result[name].items = param.items;
+      }
+      
+      if (param.properties) {
+        result[name].properties = this.convertParameters(param.properties);
+      }
+    }
+    
+    return result;
+  }
+
+  /**
+   * Extract required parameters from the parameters map
+   */
+  protected getRequiredParameters(parameters: Record<string, any>): string[] {
+    return Object.entries(parameters)
+      .filter(([_, param]) => param.required)
+      .map(([name, _]) => name);
+  }
+
+  /**
+   * Convert OpenAI tool calls to our standard FunctionCall format
+   */
+  protected convertToolCallsToFunctionCalls(toolCalls: any[]): FunctionCall[] {
+    if (!toolCalls || !Array.isArray(toolCalls)) return [];
+    
+    return toolCalls.map(call => ({
+      id: call.id,
+      name: call.function.name,
+      arguments: this.parseArguments(call.function.arguments),
+      rawArguments: call.function.arguments,
+      provider: "openai"
+    }));
+  }
+
+  /**
+   * Parse a function arguments string into an object
+   */
+  protected parseArguments(argumentsStr: string): Record<string, any> {
+    try {
+      return JSON.parse(argumentsStr);
+    } catch (e) {
+      console.error("Failed to parse function arguments:", e);
+      return {};
+    }
+  }
+
+  protected transformBody(body: Record<string, unknown>, options?: LangOptions): Record<string, unknown> {
     const transformedBody = { ...body };
     
     // Add reasoning_effort if specified and we're using a reasoning model
@@ -123,6 +237,20 @@ export class OpenAILikeLang extends LanguageProvider {
     // Add max_completion_tokens if specified (for reasoning models)
     if (this._config.maxCompletionTokens !== undefined && this.supportsReasoning()) {
       transformedBody.max_completion_tokens = this._config.maxCompletionTokens;
+    }
+
+    // Add function calling config if specified
+    if (options?.functions && options.functions.length > 0) {
+      transformedBody.tools = this.convertFunctionsToTools(options.functions);
+      
+      // Add tool_choice if specified
+      if (options.functionCall) {
+        transformedBody.tool_choice = options.functionCall === 'auto' 
+          ? 'auto' 
+          : options.functionCall === 'none' 
+            ? 'none' 
+            : { type: 'function', function: { name: options.functionCall.name } };
+      }
     }
     
     return transformedBody;
@@ -142,8 +270,21 @@ export class OpenAILikeLang extends LanguageProvider {
 
   async chat(
     messages: LangChatMessages,
-    onResult?: (result: LangResultWithMessages) => void,
+    onResultOrOptions?: ((result: LangResultWithMessages) => void) | LangOptions,
+    options?: LangOptions,
   ): Promise<LangResultWithMessages> {
+    // Handle overloaded parameters
+    let onResult: ((result: LangResultWithMessages) => void) | undefined;
+    let opts: LangOptions = {};
+    
+    if (typeof onResultOrOptions === 'function') {
+      onResult = onResultOrOptions;
+      opts = options || {};
+    } else if (onResultOrOptions) {
+      opts = onResultOrOptions;
+      onResult = undefined;
+    }
+
     const result = new LangResultWithMessages(messages);
     const transformedMessages = this.transformMessages(messages);
 
@@ -152,9 +293,9 @@ export class OpenAILikeLang extends LanguageProvider {
       ? calculateModelResponseTokens(
           this.modelInfo,
           transformedMessages,
-          this._config.maxTokens
+          opts.maxTokens || this._config.maxTokens
         )
-      : this._config.maxTokens || 4000; // Default if no model info or maxTokens
+      : opts.maxTokens || this._config.maxTokens || 4000; // Default if no model info or maxTokens
       
     // For reasoning models, ensure there's enough space for reasoning
     // if maxCompletionTokens is not explicitly set
@@ -163,7 +304,7 @@ export class OpenAILikeLang extends LanguageProvider {
     }
 
     const onData = (data: any) => {
-      this.handleStreamData(data, result, messages, onResult);
+      this.handleStreamData(data, result, messages, onResult, opts);
     };
 
     const body = this.transformBody({
@@ -172,7 +313,7 @@ export class OpenAILikeLang extends LanguageProvider {
       stream: true,
       max_tokens: requestMaxTokens,
       ...this._config.bodyProperties,
-    });
+    }, opts);
 
     const response = await fetch(`${this._config.baseURL}/chat/completions`, {
       method: "POST",
@@ -217,33 +358,213 @@ export class OpenAILikeLang extends LanguageProvider {
    * @param result The result object being built
    * @param messages The original messages array
    * @param onResult Optional callback for streaming results
+   * @param options Options passed to the API request
    */
-  protected handleStreamData(
+  protected async handleStreamData(
     data: any, 
     result: LangResultWithMessages,
     messages: LangChatMessages,
-    onResult?: (result: LangResultWithMessages) => void
-  ): void {
+    onResult?: (result: LangResultWithMessages) => void,
+    options?: LangOptions
+  ): Promise<void> {
+    // Initialize detection flag if needed using the symbol
+    if ((result as any)[this.functionCallDetectionSymbol] === undefined) {
+      (result as any)[this.functionCallDetectionSymbol] = false;
+    }
+    
     if (data.finished) {
       result.finished = true;
+      
+      // Get detection flag directly from the result object
+      const detectedFunctionCalls = (result as any)[this.functionCallDetectionSymbol] || false;
+      if (detectedFunctionCalls || (data.choices?.length > 0 && data.choices[0].finish_reason === "tool_calls")) {
+        await this.getFunctionCallsAndProcess(messages, result, options);
+      }
+      
       onResult?.(result);
       return;
     }
 
     if (data.choices !== undefined) {
-      const deltaContent = data.choices[0].delta.content
-        ? data.choices[0].delta.content
-        : "";
+      const choice = data.choices[0];
+      const delta = choice.delta;
 
-      result.answer += deltaContent;
+      // Handle text content
+      if (delta.content) {
+        result.answer += delta.content;
 
-      result.messages = [...messages, {
-        role: "assistant",
-        content: result.answer,
-      }];
+        result.messages = [...messages, {
+          role: "assistant",
+          content: result.answer,
+        }];
 
-      onResult?.(result);
+        onResult?.(result);
+      }
+      
+      // Check for function/tool calls in streaming response to detect them
+      if (delta.tool_calls) {
+        (result as any)[this.functionCallDetectionSymbol] = true;
+      }
+      
+      // Also check if we get a finish_reason
+      if (choice.finish_reason === "tool_calls") {
+        (result as any)[this.functionCallDetectionSymbol] = true;
+      }
     }
+  }
+  
+  /**
+   * Make a separate non-streaming request to get function calls and process them
+   * This is necessary because in streaming mode the function calls are not returned completely
+   */
+  protected async getFunctionCallsAndProcess(
+    messages: LangChatMessages,
+    result: LangResultWithMessages,
+    options?: LangOptions
+  ): Promise<void> {
+    try {
+      // Create body for a non-streaming request
+      const body = this.transformBody({
+        model: this._config.model,
+        messages: messages,
+        stream: false, // Important - don't stream this request
+        max_tokens: options?.maxTokens || this._config.maxTokens || 4000,
+        ...this._config.bodyProperties,
+      }, options);
+      
+      // Make the request
+      const response = await fetch(`${this._config.baseURL}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(this._config.apiKey ? { "Authorization": `Bearer ${this._config.apiKey}` } : {}),
+          ...this._config.headers,
+        },
+        body: JSON.stringify(body),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error ${response.status}: ${await response.text()}`);
+      }
+      
+      const responseData = await response.json();
+      
+      // Extract function calls from the complete response
+      if (responseData.choices && 
+          responseData.choices[0] && 
+          responseData.choices[0].message && 
+          responseData.choices[0].message.tool_calls) {
+        
+        // Convert to our format
+        const functionCalls = this.convertToolCallsToFunctionCalls(
+          responseData.choices[0].message.tool_calls
+        );
+        
+        // Update the result
+        result.functionCalls = functionCalls;
+        
+        // Process the function calls if we have a handler
+        if (options?.functionHandler && functionCalls.length > 0) {
+          await this.handleFunctionCalls(result, messages, options);
+        }
+      }
+    } catch (error) {
+      console.error("Error getting function calls:", error);
+    }
+  }
+
+  /**
+   * Process function calls and execute the handler
+   */
+  protected async handleFunctionCalls(
+    result: LangResultWithMessages, 
+    messages: LangChatMessages,
+    options: LangOptions
+  ): Promise<void> {
+    // Early return if we don't have the necessary data
+    if (!result.functionCalls) return;
+    if (!options.functionHandler) return;
+
+    // Get all function calls that haven't been handled yet
+    const pendingCalls = result.functionCalls.filter(call => !call.handled);
+    
+    if (pendingCalls.length === 0) return;
+    
+    // Process all function calls in parallel
+    const functionPromises = pendingCalls.map(async (call) => {
+      // Mark as handled to prevent duplicate processing
+      call.handled = true;
+      
+      // Call the user-provided handler - we know it exists due to the early return check
+      const handler = options.functionHandler!;
+      try {
+        const response = await handler(call);
+        return { call, response };
+      } catch (error) {
+        console.error(`Error executing function ${call.name}:`, error);
+        return { 
+          call, 
+          response: { error: `Error executing function: ${error instanceof Error ? error.message : String(error)}` } 
+        };
+      }
+    });
+    
+    // Wait for all function calls to complete
+    const results = await Promise.all(functionPromises);
+    
+    // Add each function result to the messages
+    for (const { call, response } of results) {
+      // Skip calls with empty function names
+      if (!call.name) {
+        console.warn("Skipping function call with empty name:", call);
+        continue;
+      }
+      
+      // Add assistant message with tool_calls
+      messages.push({
+        role: "assistant",
+        content: "",  // Use empty string instead of null
+        tool_calls: [{
+          id: call.id!,  // OpenAI always provides an ID
+          type: "function",
+          function: {
+            name: call.name,
+            arguments: typeof call.rawArguments === 'string' 
+              ? call.rawArguments 
+              : JSON.stringify(call.arguments)
+          }
+        }]
+      });
+      
+      // Add tool message with the response
+      messages.push({
+        role: "tool",
+        tool_call_id: call.id!,  // OpenAI always provides an ID
+        content: typeof response === 'string' 
+          ? response 
+          : JSON.stringify(response)
+      });
+    }
+    
+    // Continue the conversation with the function results
+    await this.chat(messages, (updatedResult) => {
+      // Update our result with the new response
+      result.answer = updatedResult.answer;
+      result.messages = updatedResult.messages;
+      
+      // Append any new function calls
+      if (updatedResult.functionCalls) {
+        if (!result.functionCalls) {
+          result.functionCalls = [];
+        }
+        
+        for (const newCall of updatedResult.functionCalls) {
+          if (!result.functionCalls.some(c => c.id === newCall.id)) {
+            result.functionCalls.push(newCall);
+          }
+        }
+      }
+    });
   }
 
   /**

@@ -2,6 +2,59 @@ import { buildPromptForGettingJSON, PromptForObject } from "./prompt-for-json.ts
 import extractJSON from "./json/extract-json.ts";
 
 /**
+ * Definition of a function parameter
+ */
+export interface FunctionParameter {
+  name: string;
+  description?: string;
+  type: "string" | "number" | "boolean" | "array" | "object";
+  required?: boolean;
+  enum?: any[];  // List of allowed values for this parameter
+  items?: {
+    type: "string" | "number" | "boolean" | "object";
+    properties?: Record<string, FunctionParameter>;
+  };
+  properties?: Record<string, FunctionParameter>;
+}
+
+/**
+ * Definition of a function that can be called by the model
+ */
+export interface FunctionDefinition {
+  name: string;
+  description: string;
+  parameters: Record<string, FunctionParameter>;
+}
+
+/**
+ * Result of a function call from the model
+ */
+export interface FunctionCall {
+  id?: string;         // Optional ID from the provider (useful for tracking)
+  name: string;        // Name of the called function
+  arguments: Record<string, any>; // Arguments provided by the model (parsed)
+  rawArguments?: string; // Original arguments string (for provider compatibility)
+  provider?: string;   // Provider that generated this call (for debugging)
+  handled?: boolean;   // Whether this function call has been handled
+}
+
+/**
+ * Common options for language model requests
+ */
+export interface LangOptions {
+  // Function calling
+  functions?: FunctionDefinition[];
+  functionHandler?: (call: FunctionCall) => Promise<any>;
+  functionCall?: "none" | "auto" | { name: string };  // OpenAI style function selection
+  
+  // Other options 
+  temperature?: number;
+  maxTokens?: number;
+  systemPrompt?: string;
+  // etc.
+}
+
+/**
  * LanguageProvider is an abstract class that represents a language model and
  * its basic functionality.
  */
@@ -14,12 +67,14 @@ export abstract class LanguageProvider {
 
   abstract ask(
     prompt: string,
-    onResult: (result: LangResultWithString) => void,
+    onResultOrOptions?: ((result: LangResultWithString) => void) | LangOptions,
+    options?: LangOptions
   ): Promise<LangResultWithString>;
 
   abstract chat(
     messages: LangChatMessages,
-    onResult: (result: LangResultWithMessages) => void,
+    onResultOrOptions?: ((result: LangResultWithMessages) => void) | LangOptions,
+    options?: LangOptions
   ): Promise<LangResultWithMessages>;
 
   async askForObject(
@@ -108,6 +163,7 @@ export class LangResultWithString implements LangProcessingResult {
   prompt: string;
   answer: string;
   thinking?: string;
+  functionCalls?: FunctionCall[]; // History of function calls
   finished = false;
 
   constructor(
@@ -132,6 +188,7 @@ export class LangResultWithObject implements LangProcessingResult {
   answer = "";
   thinking?: string;
   prompt: string;
+  functionCalls?: FunctionCall[]; // History of function calls
   finished = false;
 
   constructor(
@@ -153,6 +210,21 @@ export class LangResultWithObject implements LangProcessingResult {
 export type LangChatMessages = {
   role: string;
   content: string;
+  // Optional fields for function calling
+  name?: string;           // For function message role
+  function_call?: {        // OpenAI format
+    name: string;
+    arguments: string;
+  };
+  tool_calls?: {           // OpenAI's tool_calls format
+    id: string;
+    type: string;
+    function: {
+      name: string;
+      arguments: string;
+    }
+  }[];
+  tool_call_id?: string;   // For tool message role
 }[];
 
 
@@ -161,6 +233,7 @@ export class LangResultWithMessages implements LangProcessingResult {
   answer: string;
   thinking?: string;
   messages: LangChatMessages = [];
+  functionCalls?: FunctionCall[]; // History of function calls
   finished = false;
 
   constructor(
