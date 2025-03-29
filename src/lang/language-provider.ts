@@ -48,6 +48,9 @@ export interface LangOptions {
   functionHandler?: (call: FunctionCall) => Promise<any>;
   functionCall?: "none" | "auto" | { name: string };  // OpenAI style function selection
   
+  // Callback for streaming results
+  onResult?: (result: LangResultWithString | LangResultWithMessages) => void;
+  
   // Other options 
   temperature?: number;
   maxTokens?: number;
