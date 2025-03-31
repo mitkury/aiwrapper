@@ -47,7 +47,7 @@
     "serve": "npx serve ."
   },
   "dependencies": {
-    "aimodels": "^0.4.9",
+    "aimodels": "^0.4.10",
     "jsonic": "^2.16.0"
   },
   "devDependencies": {
