@@ -84,7 +84,7 @@
       "dependencies": [
         "npm:@playwright/test@^1.42.1",
         "npm:@types/node@^20.11.16",
-        "npm:aimodels@~0.4.8",
+        "npm:aimodels@~0.4.9",
         "npm:dotenv@^16.4.1",
         "npm:glob@^11.0.1",
         "npm:jsonic@^2.16.0",
