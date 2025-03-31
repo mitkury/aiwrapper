@@ -1,4 +1,4 @@
-import { LangChatMessages, LangResultWithMessages, LangResultWithString, LanguageProvider } from "../language-provider.ts";
+import { LangMessageCollection, LangResultWithMessages, LangResultWithString, LanguageProvider } from "../language-provider.ts";
 import { httpRequestWithRetry as fetch } from "../../http-request.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
 import { models, Model } from 'aimodels';
@@ -142,7 +142,7 @@ export class OllamaLang extends LanguageProvider {
     return result;
   }
 
-  async chat(messages: LangChatMessages, onResult?: (result: LangResultWithMessages) => void): Promise<LangResultWithMessages> {
+  async chat(messages: LangMessageCollection, onResult?: (result: LangResultWithMessages) => void): Promise<LangResultWithMessages> {
     const result = new LangResultWithMessages(
       messages,
     );

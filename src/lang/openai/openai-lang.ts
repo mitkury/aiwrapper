@@ -1,5 +1,5 @@
 import {
-  LangChatMessages,
+  LangMessageCollection,
   LangResultWithMessages,
   LangResultWithString,
 } from "../language-provider.ts";
@@ -43,7 +43,7 @@ export class OpenAILang extends OpenAILikeLang {
     }
   }
 
-  protected override transformMessages(messages: LangChatMessages): LangChatMessages {
+  protected override transformMessages(messages: LangMessageCollection): LangMessageCollection {
     return messages.map((message) => {
       if (message.role === "system" && this._config.model.includes("o1")) {
         return { ...message, role: "user" };

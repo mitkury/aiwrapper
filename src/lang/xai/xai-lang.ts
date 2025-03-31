@@ -1,5 +1,5 @@
 import {
-  LangChatMessages,
+  LangMessageCollection,
   LangResultWithMessages,
   LangResultWithString,
 } from "../language-provider.ts";

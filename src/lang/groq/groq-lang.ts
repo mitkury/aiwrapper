@@ -2,7 +2,7 @@ import { OpenAILikeLang } from "../openai-like/openai-like-lang.ts";
 import { models } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
 import { 
-  LangChatMessages, 
+  LangMessageCollection, 
   LangResultWithMessages 
 } from "../language-provider.ts";
 
@@ -28,7 +28,7 @@ export class GroqLang extends OpenAILikeLang {
   }
 
   override async chat(
-    messages: LangChatMessages,
+    messages: LangMessageCollection,
     onResult?: (result: LangResultWithMessages) => void,
   ): Promise<LangResultWithMessages> {
     // Initialize the result

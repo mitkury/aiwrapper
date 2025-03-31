@@ -2,8 +2,7 @@ import { buildPromptForGettingJSON, PromptForObject } from "./prompt-for-json.ts
 import extractJSON from "./json/extract-json.ts";
 
 /**
- * LanguageProvider is an abstract class that represents a language model and
- * its basic functionality.
+ * LanguageProvider is an abstract class that represents a language model and ways to interact with it.
  */
 export abstract class LanguageProvider {
   readonly name: string;
@@ -14,17 +13,27 @@ export abstract class LanguageProvider {
 
   abstract ask(
     prompt: string,
-    onResult: (result: LangResultWithString) => void,
-  ): Promise<LangResultWithString>;
+    options?: NewMessageOptions,
+  ): Promise<LangMessageCollection>;
 
   abstract chat(
-    messages: LangChatMessages,
-    onResult: (result: LangResultWithMessages) => void,
-  ): Promise<LangResultWithMessages>;
+    messages: LangMessageCollection,
+    options?: NewMessageOptions,
+  ): Promise<LangMessageCollection>;
 
+  async getObject(
+    promptOrMessages: string | LangMessageCollection,
+    schema: object,
+    options?: NewObjectOptions,
+  ): Promise<LangResultWithObject> {
+    throw new Error("Not implemented yet");
+  }
+
+  /*
+  // @TODO: remove when finished getObject
   async askForObject(
-    promptObj: PromptForObject,
-    onResult?: (result: LangResultWithObject) => void,
+    promptOrMessages: string | LangChatMessages,
+    options?: NewMessageOptions,
   ): Promise<LangResultWithObject> {
     let trialsLeft = 3;
     const trials = trialsLeft;
@@ -41,7 +50,7 @@ export abstract class LanguageProvider {
           result.answer = r.answer;
           result.finished = r.finished;
 
-          onResult?.(result);
+          options?.onResult?.(result);
         },
       );
 
@@ -78,8 +87,11 @@ export abstract class LanguageProvider {
 
     return result;
   }
+  */
+  
 }
 
+/*
 function schemasAreMatching(example: any, target: any): boolean {
   // If both are arrays
   if (Array.isArray(example) && Array.isArray(target)) {
@@ -96,6 +108,17 @@ function schemasAreMatching(example: any, target: any): boolean {
 
   // If example and target are neither arrays nor objects, they don't match the schema
   return false;
+}
+*/
+
+type NewMessageOptions = {
+  onResult?: (result: LangMessageCollection) => void;
+  onError?: (error: Error) => void;
+}
+
+type NewObjectOptions = NewMessageOptions & {
+  onResult?: (result: LangMessageCollection) => void;
+  examples?: object[];
 }
 
 interface LangProcessingResult {
@@ -150,21 +173,51 @@ export class LangResultWithObject implements LangProcessingResult {
   }
 }
 
-export type LangChatMessages = {
+export type LangChatMessage = {
   role: string;
   content: string;
-}[];
+};
+
+export class LangMessageCollection extends Array<LangChatMessage> {
+  get lastAnswer(): string {
+    for (let i = this.length - 1; i >= 0; i--) {
+      if (this[i].role === "assistant") {
+        return this[i].content;
+      }
+    }
+    return "";
+  }
+
+  get lastObject(): object | null {
+    for (let i = this.length - 1; i >= 0; i--) {
+      if (this[i].role === "assistant") {
+        try {
+          return JSON.parse(this[i].content);
+        } catch {
+          return null;
+        }
+      }
+    }
+    return null;
+  }
+
+  get lastMessageIsFromUser(): boolean {
+    if (this.length === 0) return false;
+    const lastRole = this[this.length - 1].role;
+    return lastRole === "user";
+  }
+}
 
 
 export class LangResultWithMessages implements LangProcessingResult {
   prompt: string;
   answer: string;
   thinking?: string;
-  messages: LangChatMessages = [];
+  messages: LangMessageCollection = [];
   finished = false;
 
   constructor(
-    messages: LangChatMessages,
+    messages: LangMessageCollection,
   ) {
     // The prompt is the latest message
     this.prompt = messages.length > 0 ? messages[messages.length - 1].content : "";

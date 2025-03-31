@@ -4,7 +4,7 @@ import {
 } from "../../http-request.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
 import {
-  LangChatMessages,
+  LangMessageCollection,
   LangResultWithMessages,
   LangResultWithString,
   LanguageProvider,
@@ -47,7 +47,7 @@ export class CohereLang extends LanguageProvider {
     prompt: string,
     onResult?: (result: LangResultWithString) => void,
   ): Promise<LangResultWithString> {
-    const messages: LangChatMessages = [];
+    const messages: LangMessageCollection = [];
 
     if (this._systemPrompt) {
       messages.push({
@@ -65,7 +65,7 @@ export class CohereLang extends LanguageProvider {
   }
 
   async chat(
-    messages: LangChatMessages,
+    messages: LangMessageCollection,
     onResult?: (result: LangResultWithMessages) => void,
   ): Promise<LangResultWithMessages> {
     const result = new LangResultWithMessages(messages);

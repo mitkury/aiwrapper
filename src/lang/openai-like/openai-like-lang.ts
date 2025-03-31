@@ -1,5 +1,5 @@
 import {
-  LangChatMessages,
+  LangMessageCollection,
   LangResultWithMessages,
   LangResultWithString,
   LanguageProvider,
@@ -90,7 +90,7 @@ export class OpenAILikeLang extends LanguageProvider {
     prompt: string,
     onResult?: (result: LangResultWithString) => void,
   ): Promise<LangResultWithString> {
-    const messages: LangChatMessages = [];
+    const messages: LangMessageCollection = [];
 
     if (this._config.systemPrompt) {
       messages.push({
@@ -107,7 +107,7 @@ export class OpenAILikeLang extends LanguageProvider {
     return await this.chat(messages, onResult);
   }
 
-  protected transformMessages(messages: LangChatMessages): LangChatMessages {
+  protected transformMessages(messages: LangMessageCollection): LangMessageCollection {
     // By default, no transformation
     return messages;
   }
@@ -141,7 +141,7 @@ export class OpenAILikeLang extends LanguageProvider {
   }
 
   async chat(
-    messages: LangChatMessages,
+    messages: LangMessageCollection,
     onResult?: (result: LangResultWithMessages) => void,
   ): Promise<LangResultWithMessages> {
     const result = new LangResultWithMessages(messages);
@@ -221,7 +221,7 @@ export class OpenAILikeLang extends LanguageProvider {
   protected handleStreamData(
     data: any, 
     result: LangResultWithMessages,
-    messages: LangChatMessages,
+    messages: LangMessageCollection,
     onResult?: (result: LangResultWithMessages) => void
   ): void {
     if (data.finished) {
