@@ -1,0 +1,55 @@
+name: Update AIModels Dependency
+
+on:
+  repository_dispatch:
+    types:
+      - aimodels-package-updated
+
+jobs:
+  update-dependency:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
+      
+      - name: Get aimodels version
+        id: version
+        run: |
+          VERSION=$(echo '${{ github.event.client_payload }}' | jq -r .version)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+      
+      - name: Update aimodels dependency
+        run: |
+          npm install aimodels@${{ steps.version.outputs.version }}
+      
+      - name: Configure Git
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+      
+      - name: Commit dependency update
+        run: |
+          git add package.json package-lock.json
+          git commit -m "chore: update aimodels to v${{ steps.version.outputs.version }}"
+          git push
+      
+      - name: Version patch and publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm version patch -m "chore: release patch version after aimodels update to v${{ steps.version.outputs.version }}"
+          git push --follow-tags
+          npm publish
+      
+      - name: Output version info
+        run: |
+          echo "Updated aimodels to version ${{ steps.version.outputs.version }} and published new patch version" 
