@@ -2,7 +2,7 @@
 
 ## Overview
 
-When aimodels is updated and released, it automatically triggers dependency updates in aiwrapper through GitHub Actions workflows. This ensures that aiwrapper stays up-to-date with the latest aimodels version.
+When aimodels is updated and released, it automatically triggers dependency updates in aiwrapper through GitHub Actions workflows. This ensures that aiwrapper stays up-to-date with the latest aimodels version and automatically publishes a new patch version.
 
 ## Workflow Steps
 
@@ -15,16 +15,17 @@ When aimodels is updated and released, it automatically triggers dependency upda
    - AIWrapper receives the `aimodels-package-updated` event
    - The `update-aimodels-dependency.yml` workflow:
      - Updates the aimodels dependency to the new version
-     - Creates a Pull Request with the changes
-     - Includes version information in the PR description
+     - Commits changes directly to the main branch
+     - Creates a new patch version of aiwrapper
+     - Publishes the new version to npm
 
 ## Configuration
 
 ### Required Secrets
 - `REPO_ACCESS_TOKEN`: A GitHub token with permissions to:
   - Trigger repository dispatch events
-  - Create Pull Requests
-  - Update dependencies
+  - Push to repositories
+- `NPM_TOKEN`: An npm token with publish permissions
 
 ### Workflow Details
 
@@ -37,9 +38,11 @@ When aimodels is updated and released, it automatically triggers dependency upda
   - Payload: `{ "version": "x.y.z" }`
 
 #### In AIWrapper (`update-aimodels-dependency.yml`)
-- Handles the dependency update
-- Creates a Pull Request with the changes
-- Includes version information in the PR description
+- Updates the aimodels dependency
+- Commits changes directly to main
+- Creates a new patch version
+- Pushes tags to GitHub
+- Publishes the new version to npm
 
 ## Manual Trigger
 
