@@ -11,15 +11,8 @@ import {
   ToolResult
 } from "./language-provider.ts";
 
-export {
-  Lang,
-  LangVecs,
-  LanguageProvider,
-  LangResult,
-  LangOptions,
-  LangChatMessages,
-  Tool,
-  ToolRequest,
-  ToolResult,
-  type PromptForObject,
-};
+// Export classes
+export { Lang, LangVecs, LanguageProvider, LangResult };
+
+// Export types with the 'type' keyword
+export type { LangOptions, LangChatMessages, Tool, ToolRequest, ToolResult, PromptForObject };

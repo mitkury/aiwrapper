@@ -1,6 +1,10 @@
 import {
   Lang,
   LanguageProvider,
+  LangChatMessages,
+  Tool,
+  ToolRequest,
+  ToolResult
 } from "../../mod.ts";
 import { models } from "aimodels";
 import { config } from "https://deno.land/x/dotenv@v3.2.2/mod.ts";
@@ -135,10 +139,12 @@ async function testBasicChat() {
     try {
       console.log(`Testing ${name}...`);
       console.log(`Prompt: "${prompt}"`);
-      const response = await lang.ask(prompt, (res) => {
-        console.log(`${name} streaming: ${res.answer}`);
+      const result = await lang.ask(prompt, {
+        onResult: (res) => {
+          console.log(`${name} streaming: ${res.answer}`);
+        }
       });
-      console.log(`✓ ${name} final response: ${response.answer}\n`);
+      console.log(`✓ ${name} final response: ${result.answer}\n`);
     } catch (error: unknown) {
       console.error(`❌ ${name} Error:`, error instanceof Error ? error.message : String(error));
     }
@@ -169,9 +175,12 @@ async function testSystemPrompts() {
   for (const [name, lang] of Object.entries(providers)) {
     try {
       console.log(`Testing ${name}...`);
-      await lang.chat(messages, (res) => {
-        console.log(`${name} streaming: ${res.answer}`);
+      const result = await lang.chat(messages, {
+        onResult: (res) => {
+          console.log(`${name} streaming: ${res.answer}`);
+        }
       });
+      console.log(`✓ ${name} final response: ${result.answer}\n`);
     } catch (error: unknown) {
       console.error(`❌ ${name} Error:`, error instanceof Error ? error.message : String(error));
     }
@@ -188,30 +197,137 @@ async function testStructuredOutput() {
   }
 
   console.log(`✓ Found ${Object.keys(providers).length} enabled providers: ${Object.keys(providers).join(", ")}\n`);
-  const prompt = {
-    instructions: [
-      "Generate 3 company names for a tech startup",
-      "For each name, provide a short description",
-    ],
-    objectExamples: [{
-      names: [
-        { name: "TechCo", description: "A tech company" },
-        { name: "DataFlow", description: "A data company" },
-      ],
-    }],
-  };
-
+  
+  // Define the schema for company names
+  const companySchema = Array<{ name: string, description: string }>;
+  
   for (const [name, lang] of Object.entries(providers)) {
     try {
       console.log(`Testing ${name}...`);
-      const result = await lang.askForObject(prompt, (res) => {
-        console.log(`${name} streaming: ${res.answer}`);
-      });
-      console.log(`✓ ${name} final result:`, result.answerObj, "\n");
+      const result = await lang.askForObject(
+        "Generate 3 company names for a tech startup. For each name, provide a short description.",
+        companySchema,
+        {
+          onResult: (res) => {
+            console.log(`${name} streaming: ${res.answer}`);
+          }
+        }
+      );
+      console.log(`✓ ${name} final result:`, result.object, "\n");
     } catch (error: unknown) {
       console.error(`❌ ${name} Error:`, error instanceof Error ? error.message : String(error));
     }
   }
+}
+
+async function testConversationFlow() {
+  console.log("\n=== Testing Conversation Flow ===");
+  const providers = getEnabledLangProviders();
+
+  if (Object.keys(providers).length === 0) {
+    console.log("❌ No models enabled for testing - please check your .env file");
+    return;
+  }
+
+  console.log(`✓ Found ${Object.keys(providers).length} enabled providers: ${Object.keys(providers).join(", ")}\n`);
+  
+  for (const [name, lang] of Object.entries(providers)) {
+    try {
+      console.log(`Testing ${name}...`);
+      
+      // Start a conversation
+      const result = await lang.ask("Tell me about the solar system");
+      console.log(`${name} initial response: ${result.answer.substring(0, 50)}...`);
+      
+      // Add a user message and continue
+      result.addUserMessage("Tell me more about Mars");
+      const newResult = await lang.chat(result.messages);
+      console.log(`${name} follow-up response: ${newResult.answer.substring(0, 50)}...`);
+      
+      // Add another and continue again
+      newResult.addUserMessage("What about Jupiter?");
+      const finalResult = await lang.chat(newResult.messages);
+      console.log(`${name} final response: ${finalResult.answer.substring(0, 50)}...`);
+      
+      // Verify the message array was mutated in place
+      console.log(`✓ Message array reference maintained: ${finalResult.messages === result.messages}\n`);
+    } catch (error: unknown) {
+      console.error(`❌ ${name} Error:`, error instanceof Error ? error.message : String(error));
+    }
+  }
+}
+
+async function testToolUsage() {
+  console.log("\n=== Testing Tool Usage ===");
+  console.log("⚠️ Tools functionality not implemented yet - skipping test");
+  
+  // Uncomment and use this code when tools are implemented:
+  /*
+  const providers = getEnabledLangProviders();
+
+  if (Object.keys(providers).length === 0) {
+    console.log("❌ No models enabled for testing - please check your .env file");
+    return;
+  }
+
+  console.log(`✓ Found ${Object.keys(providers).length} enabled providers: ${Object.keys(providers).join(", ")}\n`);
+  
+  // Define a simple tool
+  const getWeatherTool = {
+    name: "get_weather",
+    description: "Get the current weather for a location",
+    parameters: {
+      type: "object",
+      properties: {
+        location: {
+          type: "string",
+          description: "The city and state, e.g. San Francisco, CA"
+        }
+      },
+      required: ["location"]
+    }
+  };
+  
+  for (const [name, lang] of Object.entries(providers)) {
+    try {
+      console.log(`Testing ${name}...`);
+      
+      // Ask with tool available
+      const result = await lang.ask(
+        "What's the weather in New York and Los Angeles?",
+        {
+          tools: [getWeatherTool],
+          onResult: (res) => {
+            console.log(`${name} streaming: ${res.answer}`);
+          }
+        }
+      );
+      
+      // Check if tools were requested
+      if (result.tools && result.tools.length > 0) {
+        console.log(`${name} requested tools:`, result.tools);
+        
+        // Simulate tool execution
+        const toolResults = result.tools.map(tool => ({
+          toolId: tool.id,
+          name: tool.name,
+          result: { temperature: 72, conditions: "Sunny" }
+        }));
+        
+        // Add tool results back to the conversation
+        result.addToolUseMessage(toolResults);
+        
+        // Continue the conversation with tool results
+        const finalResult = await lang.chat(result.messages);
+        console.log(`${name} final response with tool results: ${finalResult.answer.substring(0, 50)}...\n`);
+      } else {
+        console.log(`${name} did not request any tools\n`);
+      }
+    } catch (error: unknown) {
+      console.error(`❌ ${name} Error:`, error instanceof Error ? error.message : String(error));
+    }
+  }
+  */
 }
 
 async function testErrorHandling() {
@@ -291,10 +407,12 @@ async function testModelCentricAccess() {
   try {
     console.log(`Testing ${providerId}...`);
     console.log(`Prompt: "${prompt}"`);
-    const response = await lang.ask(prompt, (res) => {
-      console.log(`${providerId} streaming: ${res.answer}`);
+    const result = await lang.ask(prompt, {
+      onResult: (res: { answer: string }) => {
+        console.log(`${providerId} streaming: ${res.answer}`);
+      }
     });
-    console.log(`✓ ${providerId} final response: ${response.answer}\n`);
+    console.log(`✓ ${providerId} final response: ${result.answer}\n`);
   } catch (error: unknown) {
     console.error(`❌ ${providerId} Error:`, error instanceof Error ? error.message : String(error));
   }
@@ -307,6 +425,8 @@ async function runAllTests() {
     await testBasicChat();
     await testSystemPrompts();
     await testStructuredOutput();
+    await testConversationFlow();
+    await testToolUsage();
     await testErrorHandling();
   } catch (error) {
     console.error("Test suite error:", error);
