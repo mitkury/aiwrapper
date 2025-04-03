@@ -3,7 +3,7 @@ import { models } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
 import { 
   LangChatMessages, 
-  LangResultWithMessages 
+  LangOptions, LangResult 
 } from "../language-provider.ts";
 
 export type GroqLangOptions = {
@@ -29,10 +29,10 @@ export class GroqLang extends OpenAILikeLang {
 
   override async chat(
     messages: LangChatMessages,
-    onResult?: (result: LangResultWithMessages) => void,
-  ): Promise<LangResultWithMessages> {
+    options?: LangOptions,
+  ): Promise<LangResult> {
     // Initialize the result
-    const result = new LangResultWithMessages(messages);
+    const result = new LangResult(messages);
     const transformedMessages = this.transformMessages(messages);
     
     // Get the model info and check if it can reason
@@ -47,6 +47,8 @@ export class GroqLang extends OpenAILikeLang {
     if (isReasoningModel && !bodyProperties.reasoning_format) {
       bodyProperties.reasoning_format = "parsed";
     }
+    
+    const onResult = options?.onResult;
     
     // For non-streaming calls
     if (!onResult) {
@@ -122,7 +124,7 @@ export class GroqLang extends OpenAILikeLang {
         }
         
         result.finished = true;
-        onResult?.(result);
+        options?.onResult?.(result);
         return;
       }
       
@@ -160,7 +162,7 @@ export class GroqLang extends OpenAILikeLang {
           content: result.answer,
         }];
         
-        onResult?.(result);
+        options?.onResult?.(result);
       }
     };
     
@@ -203,7 +205,7 @@ export class GroqLang extends OpenAILikeLang {
   // Process a chunk for thinking content during streaming
   private processChunkForThinking(
     fullContent: string, 
-    result: LangResultWithMessages
+    result: LangResult
   ): void {
     // Check if we have a complete thinking section
     const extracted = this.extractThinking(fullContent);

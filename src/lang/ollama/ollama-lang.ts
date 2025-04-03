@@ -1,4 +1,4 @@
-import { LangChatMessages, LangResultWithMessages, LangResultWithString, LanguageProvider } from "../language-provider.ts";
+import { LangChatMessages, LangOptions, LangResult,  LanguageProvider } from "../language-provider.ts";
 import { httpRequestWithRetry as fetch } from "../../http-request.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
 import { models, Model } from 'aimodels';
@@ -57,9 +57,9 @@ export class OllamaLang extends LanguageProvider {
 
   async ask(
     prompt: string,
-    onResult?: (result: LangResultWithString) => void,
-  ): Promise<LangResultWithString> {
-    const result = new LangResultWithString(prompt);
+    options?: LangOptions,
+  ): Promise<LangResult> {
+    const result = new LangResult([{ role: "user", content: prompt }]);
 
     // Try to get model info and calculate max tokens
     let requestMaxTokens = this._config.maxTokens;
@@ -77,6 +77,7 @@ export class OllamaLang extends LanguageProvider {
     let openThinkTagIndex = -1;
     let pendingThinkingContent = "";
     
+    const onResult = options?.onResult;
     const onData = (data: any) => {
       if (data.done) {
         // Final check for thinking content when streaming is complete
@@ -87,7 +88,7 @@ export class OllamaLang extends LanguageProvider {
         }
         
         result.finished = true;
-        onResult?.(result);
+        options?.onResult?.(result);
         return;
       }
 
@@ -109,7 +110,7 @@ export class OllamaLang extends LanguageProvider {
         }
       }
 
-      onResult?.(result);
+      options?.onResult?.(result);
     };
 
     const response = await fetch(`${this._config.baseURL}/api/generate`, {
@@ -142,10 +143,8 @@ export class OllamaLang extends LanguageProvider {
     return result;
   }
 
-  async chat(messages: LangChatMessages, onResult?: (result: LangResultWithMessages) => void): Promise<LangResultWithMessages> {
-    const result = new LangResultWithMessages(
-      messages,
-    );
+  async chat(messages: LangChatMessages, options?: LangOptions): Promise<LangResult> {
+    const result = new LangResult(messages);
 
     // Try to get model info and calculate max tokens
     let requestMaxTokens = this._config.maxTokens;
@@ -163,6 +162,7 @@ export class OllamaLang extends LanguageProvider {
     let openThinkTagIndex = -1;
     let pendingThinkingContent = "";
     
+    const onResult = options?.onResult;
     const onData = (data: any) => {
       if (data.done) {
         // Final check for thinking content when streaming is complete
@@ -173,7 +173,7 @@ export class OllamaLang extends LanguageProvider {
         }
         
         result.finished = true;
-        onResult?.(result);
+        options?.onResult?.(result);
         return;
       }
 
@@ -195,7 +195,7 @@ export class OllamaLang extends LanguageProvider {
         }
       }
 
-      onResult?.(result);
+      options?.onResult?.(result);
     };
 
     const response = await fetch(`${this._config.baseURL}/api/chat`, {
@@ -249,7 +249,7 @@ export class OllamaLang extends LanguageProvider {
   private processChunkForThinking(
     currentChunk: string, 
     fullContent: string, 
-    result: LangResultWithString | LangResultWithMessages,
+    result: LangResult,
     openTagIndex: number,
     pendingThinking: string
   ): void {

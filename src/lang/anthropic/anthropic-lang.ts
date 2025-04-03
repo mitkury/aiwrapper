@@ -5,8 +5,8 @@ import {
 import { processResponseStream } from "../../process-response-stream.ts";
 import {
   LangChatMessages,
-  LangResultWithMessages,
-  LangResultWithString,
+  LangOptions,
+  LangResult,
   LanguageProvider,
 } from "../language-provider.ts";
 import { models } from 'aimodels';
@@ -52,8 +52,8 @@ export class AnthropicLang extends LanguageProvider {
 
   async ask(
     prompt: string,
-    onResult?: (result: LangResultWithString) => void,
-  ): Promise<LangResultWithString> {
+    options?: LangOptions,
+  ): Promise<LangResult> {
     const messages: LangChatMessages = [];
 
     if (this._config.systemPrompt) {
@@ -68,13 +68,13 @@ export class AnthropicLang extends LanguageProvider {
       content: prompt,
     });
 
-    return await this.chat(messages, onResult);
+    return await this.chat(messages, options);
   }
 
   async chat(
     messages: LangChatMessages,
-    onResult?: (result: LangResultWithMessages) => void,
-  ): Promise<LangResultWithMessages> {
+    options?: LangOptions,
+  ): Promise<LangResult> {
     
     // Remove all system messages, save the first one if it exists.
     let detectedSystemMessage = "";
@@ -89,7 +89,7 @@ export class AnthropicLang extends LanguageProvider {
       return true;
     });
 
-    const result = new LangResultWithMessages(messages);
+    const result = new LangResult(messages);
 
     // Get model info and calculate max tokens
     const modelInfo = models.id(this._config.model);
@@ -107,6 +107,7 @@ export class AnthropicLang extends LanguageProvider {
     let isReceivingThinking = false;
     let thinkingContent = "";
 
+    const onResult = options?.onResult;
     const onData = (data: any) => {
       if (data.type === "message_stop") {
         // Store the thinking content in the result object before finishing
@@ -139,13 +140,20 @@ export class AnthropicLang extends LanguageProvider {
             ? choices[0].delta.content
             : "";
           result.answer += deltaContent;
-          result.messages = [
-            ...messages,
-            {
+          
+          // Update the existing assistant message or add a new one
+          if (result.messages.length > 0 && 
+              result.messages[result.messages.length - 1].role === "assistant") {
+            // Update the existing assistant message
+            result.messages[result.messages.length - 1].content = result.answer;
+          } else {
+            // Add a new assistant message
+            result.messages.push({
               role: "assistant",
               content: result.answer,
-            },
-          ];
+            });
+          }
+          
           onResult?.(result);
         }
       }
@@ -173,6 +181,20 @@ export class AnthropicLang extends LanguageProvider {
         }
         
         result.answer += deltaContent;
+        
+        // Update the existing assistant message or add a new one
+        if (result.messages.length > 0 && 
+            result.messages[result.messages.length - 1].role === "assistant") {
+          // Update the existing assistant message
+          result.messages[result.messages.length - 1].content = result.answer;
+        } else {
+          // Add a new assistant message
+          result.messages.push({
+            role: "assistant",
+            content: result.answer,
+          });
+        }
+        
         onResult?.(result);
       }
     };

@@ -1,5 +1,5 @@
 import { OpenAILikeLang, OpenAILikeConfig } from "../openai-like/openai-like-lang.ts";
-import { LangChatMessages, LangResultWithMessages } from "../language-provider.ts";
+import { LangChatMessages, LangOptions, LangResult } from "../language-provider.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
 import { DecisionOnNotOkResponse, httpRequestWithRetry as fetch } from "../../http-request.ts";
 import { models } from 'aimodels';
@@ -46,9 +46,9 @@ export class DeepSeekLang extends OpenAILikeLang {
    */
   protected override handleStreamData(
     data: any,
-    result: LangResultWithMessages,
+    result: LangResult,
     messages: LangChatMessages,
-    onResult?: (result: LangResultWithMessages) => void
+    onResult?: (result: LangResult) => void
   ): void {
     if (data.finished) {
       result.finished = true;

@@ -5,8 +5,8 @@ import {
 import { processResponseStream } from "../../process-response-stream.ts";
 import {
   LangChatMessages,
-  LangResultWithMessages,
-  LangResultWithString,
+  LangOptions,
+  LangResult,
   LanguageProvider,
 } from "../language-provider.ts";
 import { models, Model } from 'aimodels';
@@ -45,8 +45,8 @@ export class CohereLang extends LanguageProvider {
 
   async ask(
     prompt: string,
-    onResult?: (result: LangResultWithString) => void,
-  ): Promise<LangResultWithString> {
+    options?: LangOptions,
+  ): Promise<LangResult> {
     const messages: LangChatMessages = [];
 
     if (this._systemPrompt) {
@@ -61,14 +61,14 @@ export class CohereLang extends LanguageProvider {
       content: prompt,
     });
 
-    return await this.chat(messages, onResult);
+    return await this.chat(messages, options);
   }
 
   async chat(
     messages: LangChatMessages,
-    onResult?: (result: LangResultWithMessages) => void,
-  ): Promise<LangResultWithMessages> {
-    const result = new LangResultWithMessages(messages);
+    options?: LangOptions,
+  ): Promise<LangResult> {
+    const result = new LangResult(messages);
 
     // Transform messages to Cohere's format (only user/assistant roles)
     const transformedMessages = messages.map(msg => ({
@@ -126,6 +126,7 @@ export class CohereLang extends LanguageProvider {
       throw new Error(err);
     });
 
+    const onResult = options?.onResult;
     const onData = (data: any) => {
       if (data.type === "message-end") {
         result.finished = true;
@@ -138,10 +139,18 @@ export class CohereLang extends LanguageProvider {
         const text = data.delta.message.content.text;
         result.answer += text;
 
-        result.messages = [...messages, {
-          role: "assistant",
-          content: result.answer,
-        }];
+        // Update the existing assistant message or add a new one
+        if (result.messages.length > 0 && 
+            result.messages[result.messages.length - 1].role === "assistant") {
+          // Update the existing assistant message
+          result.messages[result.messages.length - 1].content = result.answer;
+        } else {
+          // Add a new assistant message
+          result.messages.push({
+            role: "assistant",
+            content: result.answer,
+          });
+        }
 
         onResult?.(result);
       }

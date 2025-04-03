@@ -1,8 +1,9 @@
 import {
   LangChatMessages,
-  LangResultWithMessages,
-  LangResultWithString,
+  LangOptions,
+  LangResult,
   LanguageProvider,
+  ToolRequest,
 } from "../language-provider.ts";
 import {
   DecisionOnNotOkResponse,
@@ -88,8 +89,8 @@ export class OpenAILikeLang extends LanguageProvider {
 
   async ask(
     prompt: string,
-    onResult?: (result: LangResultWithString) => void,
-  ): Promise<LangResultWithString> {
+    options?: LangOptions,
+  ): Promise<LangResult> {
     const messages: LangChatMessages = [];
 
     if (this._config.systemPrompt) {
@@ -104,7 +105,7 @@ export class OpenAILikeLang extends LanguageProvider {
       content: prompt,
     });
 
-    return await this.chat(messages, onResult);
+    return await this.chat(messages, options);
   }
 
   protected transformMessages(messages: LangChatMessages): LangChatMessages {
@@ -142,9 +143,10 @@ export class OpenAILikeLang extends LanguageProvider {
 
   async chat(
     messages: LangChatMessages,
-    onResult?: (result: LangResultWithMessages) => void,
-  ): Promise<LangResultWithMessages> {
-    const result = new LangResultWithMessages(messages);
+    options?: LangOptions,
+  ): Promise<LangResult> {
+    const result = new LangResult(messages);
+    const onResult = options?.onResult;
     const transformedMessages = this.transformMessages(messages);
 
     // Calculate max tokens for the request, using model info if available
@@ -166,12 +168,14 @@ export class OpenAILikeLang extends LanguageProvider {
       this.handleStreamData(data, result, messages, onResult);
     };
 
+    // @TODO: Add tools to the request body if provided in options
     const body = this.transformBody({
       model: this._config.model,
       messages: transformedMessages,
       stream: true,
       max_tokens: requestMaxTokens,
       ...this._config.bodyProperties,
+      // @TODO: Format tools for OpenAI API if options.tools is provided
     });
 
     const response = await fetch(`${this._config.baseURL}/chat/completions`, {
@@ -220,9 +224,9 @@ export class OpenAILikeLang extends LanguageProvider {
    */
   protected handleStreamData(
     data: any, 
-    result: LangResultWithMessages,
+    result: LangResult,
     messages: LangChatMessages,
-    onResult?: (result: LangResultWithMessages) => void
+    onResult?: (result: LangResult) => void
   ): void {
     if (data.finished) {
       result.finished = true;
@@ -230,17 +234,31 @@ export class OpenAILikeLang extends LanguageProvider {
       return;
     }
 
+    // @TODO: Handle tool calls from the response
     if (data.choices !== undefined) {
-      const deltaContent = data.choices[0].delta.content
-        ? data.choices[0].delta.content
-        : "";
+      // Handle regular text content
+      if (data.choices[0].delta.content) {
+        const deltaContent = data.choices[0].delta.content;
+        result.answer += deltaContent;
+      }
+      
+      // @TODO: Handle tool_calls if present in the delta
+      // if (data.choices[0].delta.tool_calls) {
+      //   // Process tool calls and add them to result.tools
+      // }
 
-      result.answer += deltaContent;
-
-      result.messages = [...messages, {
-        role: "assistant",
-        content: result.answer,
-      }];
+      // Update the messages array with the latest content
+      if (result.messages.length > 0 && 
+          result.messages[result.messages.length - 1].role === "assistant") {
+        // Update the existing assistant message
+        result.messages[result.messages.length - 1].content = result.answer;
+      } else {
+        // Add a new assistant message
+        result.messages.push({
+          role: "assistant",
+          content: result.answer,
+        });
+      }
 
       onResult?.(result);
     }
@@ -282,4 +300,4 @@ export class OpenAILikeLang extends LanguageProvider {
   getMaxCompletionTokens(): number | undefined {
     return this._config.maxCompletionTokens;
   }
-} 
+}

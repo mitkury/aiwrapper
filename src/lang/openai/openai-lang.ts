@@ -1,7 +1,7 @@
 import {
   LangChatMessages,
-  LangResultWithMessages,
-  LangResultWithString,
+  LangOptions,
+  LangResult,
 } from "../language-provider.ts";
 import { OpenAILikeLang } from "../openai-like/openai-like-lang.ts";
 import { models } from 'aimodels';
@@ -56,14 +56,23 @@ export class OpenAILang extends OpenAILikeLang {
   }
 
   protected override transformBody(body: Record<string, unknown>): Record<string, unknown> {
+    // Apply parent transformations first
+    let transformedBody = super.transformBody(body);
+    
     // OpenAI now uses max_completion_tokens instead of max_tokens
-    if (body.max_tokens) {
-      const { max_tokens, ...rest } = body;
+    if (transformedBody.max_tokens) {
+      const { max_tokens, ...rest } = transformedBody;
       return {
         ...rest,
         max_completion_tokens: max_tokens
       };
     }
-    return body;
+    
+    return transformedBody;
   }
+  
+  /**
+   * @TODO: Override handleStreamData to properly handle OpenAI-specific 
+   * response format for tool calls once we implement tools
+   */
 }

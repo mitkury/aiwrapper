@@ -1,7 +1,7 @@
 import {
   LangChatMessages,
-  LangResultWithMessages,
-  LangResultWithString,
+  LangOptions, LangResult,
+  
   LanguageProvider,
 } from "../language-provider.ts";
 import {
@@ -45,8 +45,8 @@ export class GoogleLang extends LanguageProvider {
 
   async ask(
     prompt: string,
-    onResult?: (result: LangResultWithString) => void,
-  ): Promise<LangResultWithString> {
+    options?: LangOptions,
+  ): Promise<LangResult> {
     const messages: LangChatMessages = [];
 
     if (this._systemPrompt) {
@@ -61,14 +61,14 @@ export class GoogleLang extends LanguageProvider {
       content: prompt,
     });
 
-    return await this.chat(messages, onResult);
+    return await this.chat(messages, options);
   }
 
   async chat(
     messages: LangChatMessages,
-    onResult?: (result: LangResultWithMessages) => void,
-  ): Promise<LangResultWithMessages> {
-    const result = new LangResultWithMessages(messages);
+    options?: LangOptions,
+  ): Promise<LangResult> {
+    const result = new LangResult(messages);
 
     // Transform messages into Google's format
     const contents = messages.map(msg => {
@@ -105,10 +105,11 @@ export class GoogleLang extends LanguageProvider {
       }
     };
 
+    const onResult = options?.onResult;
     const onData = (data: any) => {
       if (data.finished) {
         result.finished = true;
-        onResult?.(result);
+        options?.onResult?.(result);
         return;
       }
 
@@ -122,7 +123,7 @@ export class GoogleLang extends LanguageProvider {
           content: result.answer,
         }];
 
-        onResult?.(result);
+        options?.onResult?.(result);
       }
     };
 
