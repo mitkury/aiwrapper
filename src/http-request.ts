@@ -57,8 +57,6 @@ export const setHttpRequestImpl = (
   _httpRequest = impl;
 };
 
-fetch
-
 export const httpRequest = (
   url: string | URL,
   options: HttpRequestInit,
@@ -86,7 +84,7 @@ export const httpRequestWithRetry = async (
     retry: true,
     consumeReties: true,
   } as DecisionOnNotOkResponse;
-  
+
   try {
     const response = await httpRequest(url, options);
     if (!response.ok) {
@@ -102,7 +100,7 @@ export const httpRequestWithRetry = async (
       if (decision.consumeReties) {
         options.retries -= 1;
       }
-      
+
       options.backoffMs *= 2;
 
       await new Promise((resolve) => setTimeout(resolve, options.backoffMs));

@@ -247,6 +247,7 @@ export class AnthropicLang extends LanguageProvider {
       headers: {
         "Content-Type": "application/json",
         "anthropic-version": "2023-06-01",
+        /* In case if we're running in a browser */
         "anthropic-dangerous-direct-browser-access": "true",
         "x-api-key": this._config.apiKey
       },

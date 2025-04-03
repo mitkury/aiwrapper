@@ -1,4 +1,4 @@
-const processLinesFromStream = (rawData: string, onData) => {
+const processLinesFromStream = (rawData: string, onData: (data: any) => void) => {
   // Check if it's a JSON response
   if (rawData.startsWith("{")) {
     processDataAsJson(rawData, onData);
@@ -8,7 +8,7 @@ const processLinesFromStream = (rawData: string, onData) => {
   processDataAsStr(rawData, onData);
 };
 
-const processDataAsStr = (rawData: string, onData) => {
+const processDataAsStr = (rawData: string, onData: (data: any) => void) => {
   const lines = rawData.split("\n");
   for (const line of lines) {
     if (line.startsWith("data: ")) {
@@ -29,7 +29,7 @@ const processDataAsStr = (rawData: string, onData) => {
   }
 }
 
-const processDataAsJson = (rawData: string, onData) => {
+const processDataAsJson = (rawData: string, onData: (data: any) => void) => {
   const lines = rawData.split("\n");
   for (const line of lines) {
     try {

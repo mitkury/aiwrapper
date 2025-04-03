@@ -1,7 +1,7 @@
 import processLinesFromStream from "./lang/process-lines-from-stream.ts";
 
 // This would work only in Deno and browsers, not in Node.
-let _processResponseStream = (response: Response, onData): Promise<void> => {
+let _processResponseStream = (response: Response, onData: (data: any) => void): Promise<void> => {
   if (response.ok === false) {
     throw new Error(
       `Response from server was not ok. Status code: ${response.status}.`,
@@ -33,14 +33,14 @@ let _processResponseStream = (response: Response, onData): Promise<void> => {
 };
 
 export const setProcessResponseStreamImpl = (
-  impl: (response: Response, onProgress) => Promise<void>,
+  impl: (response: Response, onProgress: (data: any) => void) => Promise<void>,
 ) => {
   _processResponseStream = impl;
 };
 
 export const processResponseStream = (
   response: Response,
-  onProgress,
+  onProgress: (data: any) => void,
 ): Promise<void> => {
   return _processResponseStream(response, onProgress);
 };
