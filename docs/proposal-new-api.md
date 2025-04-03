@@ -8,7 +8,7 @@ This document proposes changes to the API of language-provider.ts to make it mor
 1. Unify return types for all methods (`ask`, `chat`, etc.)
 2. Simplify handling of conversations and message history
 3. Consolidate options handling with a unified options object
-4. Remove the separate `askForObject` method in favor of a simpler `schema` option
+4. Simplify `askForObject` to use a more direct signature
 5. Improve tool usage flow to match real-world LLM interactions
 
 ## Proposed API Structure
@@ -49,9 +49,6 @@ All methods will accept an optional options object:
 
 ```typescript
 interface LangOptions {
-  // Schema to parse the response into
-  schema?: object | Function;
-  
   // Available tools
   tools?: Tool[];
   
@@ -66,11 +63,14 @@ interface LangOptions {
 ### Core Methods
 
 ```typescript
-// Simple text generation with optional schema parsing
+// Simple text generation
 async ask(prompt: string, options?: LangOptions): Promise<LangResult>;
 
-// Continue a conversation with optional schema parsing
+// Continue a conversation
 async chat(messages: LangChatMessages, options?: LangOptions): Promise<LangResult>;
+
+// Directly get structured data (with a more discoverable API)
+async askForObject<T>(prompt: string, schema: T, options?: LangOptions): Promise<LangResult>;
 ```
 
 ## Usage Examples
@@ -102,11 +102,10 @@ console.log(finalResult.messages); // Full conversation history
 ### Getting Structured Data
 
 ```typescript
-const planets = await lang.ask(
-  "List the planets in our solar system with their diameters", 
-  { 
-    schema: Array<{ name: string, diameter: number, unit: string }> 
-  }
+// Using the dedicated method for structured data
+const planets = await lang.askForObject(
+  "List the planets in our solar system with their diameters",
+  Array<{ name: string, diameter: number, unit: string }>
 );
 
 console.log(planets.object); // Structured array of planet objects
@@ -136,7 +135,7 @@ weatherResult = await lang.chat(weatherResult.messages);
 console.log(weatherResult.answer); // Final response incorporating tool results
 ```
 
-### Combining Schema and Tools
+### Combining Object Extraction and Tools
 
 ```typescript
 // First get the tool usage
@@ -151,12 +150,10 @@ var restaurantResult = await lang.ask(
 const restaurantData = useTools(restaurantResult.tools);
 restaurantResult.addToolUseMessage(restaurantData);
 
-// Get structured data from the response
-const structuredResult = await lang.chat(
-  restaurantResult.messages, 
-  {
-    schema: Array<{ name: string, cuisine: string, rating: number }>
-  }
+// Get structured data using askForObject with the conversation
+const structuredResult = await lang.askForObject(
+  restaurantResult.messages,
+  Array<{ name: string, cuisine: string, rating: number }>
 );
 
 console.log(structuredResult.object); // Structured restaurant data
@@ -164,13 +161,14 @@ console.log(structuredResult.object); // Structured restaurant data
 
 ## Benefits
 
-1. **More Consistent API**: Unified return types and option handling
+1. **More Consistent API**: Unified return types
 2. **Simplified Conversation Flow**: Easy to build multi-turn conversations
-3. **Realistic Tool Usage**: Properly models the back-and-forth nature of tool usage
-4. **Progressive Complexity**: Simple use cases remain simple
-5. **Composable Functionality**: Easy to combine features through options
-6. **Improved Developer Experience**: More intuitive and less boilerplate
-7. **Future-proof Design**: Accommodates emerging LLM capabilities
+3. **Discoverable Object Extraction**: Dedicated method makes it obvious
+4. **Realistic Tool Usage**: Properly models the back-and-forth nature of tool usage
+5. **Progressive Complexity**: Simple use cases remain simple
+6. **Composable Functionality**: Easy to combine features
+7. **Improved Developer Experience**: More intuitive and less boilerplate
+8. **Future-proof Design**: Accommodates emerging LLM capabilities
 
 ```ts
 var messages = await lang.ask("tell me about yourself");
