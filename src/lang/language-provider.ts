@@ -1,4 +1,4 @@
-import { buildPromptForGettingJSON, PromptForObject } from "./prompt-for-json.ts";
+import { buildPromptForSchema, SchemaType } from "./prompt-for-json.ts";
 import extractJSON from "./json/extract-json.ts";
 
 /**
@@ -151,7 +151,8 @@ export abstract class LanguageProvider {
   }
 
   /**
-   * Directly get structured data
+   * Directly get structured data from a language model
+   * Uses a schema-based approach for better output consistency
    */
   async askForObject<T extends object>(
     prompt: string | LangChatMessages,
@@ -165,15 +166,11 @@ export abstract class LanguageProvider {
       throw new Error("askForObject with message array is not implemented yet");
     }
 
-    // Build a prompt for getting JSON
-    const promptObj: PromptForObject = {
-      title: "Extract Structured Data",
-      description: "Extract the requested information in structured format",
-      instructions: [typeof prompt === "string" ? prompt : "Extract structured data"],
-      objectExamples: Array.isArray(schema) ? schema : [schema as object],
-    };
+    // Convert schema to SchemaType
+    const schemaObj: SchemaType = schema as SchemaType;
     
-    const jsonPrompt = buildPromptForGettingJSON(promptObj);
+    // Build a prompt with the schema
+    const jsonPrompt = buildPromptForSchema(prompt, schemaObj);
     
     // Create options with the callback if provided
     const askOptions: LangOptions = {
@@ -201,9 +198,8 @@ export abstract class LanguageProvider {
         continue;
       }
 
-      // Make sure examples themselves have consistent schemas
-      const firstExample = promptObj.objectExamples[0];
-      const schemasAreMatching = this.schemasAreMatching(firstExample, result.object);
+      // Validate that the returned object matches the schema structure
+      const schemasAreMatching = this.schemasAreMatching(schemaObj, result.object);
 
       if (!schemasAreMatching && trialsLeft <= 0) {
         throw new Error(`The parsed JSON doesn't match the schema after ${trials} trials`);

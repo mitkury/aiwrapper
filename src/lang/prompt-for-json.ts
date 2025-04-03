@@ -1,9 +1,42 @@
-// @TODO: change to use schema instead of objectExamples
+/**
+ * Simplified approach to generate structured output
+ * Instead of examples, use the schema directly
+ */
 
-// Consider: instructions, schema, objects, examples (?)
+export type SchemaType = object | object[];
 
+/**
+ * Generate a prompt for extracting structured data based on a schema
+ * 
+ * @param instruction The instruction for the LLM (e.g., "List all planets with their diameters")
+ * @param schema The schema that the output should conform to
+ * @returns A formatted prompt string
+ */
+export function buildPromptForSchema(instruction: string, schema: SchemaType): string {
+  // Format the schema as a JSON string with proper indentation
+  const schemaJson = JSON.stringify(schema, null, 2);
+  const schemaType = Array.isArray(schema) ? "an array of objects" : "an object";
+  
+  return `# Extract Structured Data
+
+## Task
+${instruction}
+
+## Output Format
+You must return a valid JSON ${schemaType} that follows this exact schema structure:
+\`\`\`json
+${schemaJson}
+\`\`\`
+
+This schema is not an example - it shows the required structure and property types your output must have.
+Your response must be valid JSON that conforms to this schema. Don't include any text outside the JSON.
+
+## Output
+\`\`\`json`;
+}
+
+// Keep the old format for backward compatibility
 export type PromptForObject = {
-  // @TODO: make title and description optional
   title?: string;
   description?: string;
   instructions: string[];
@@ -14,43 +47,14 @@ export type PromptForObject = {
 };
 
 export function buildPromptForGettingJSON(prompt: PromptForObject): string {
-  const instructionsCount = prompt.instructions
-    ? prompt.instructions.length
-    : 0;
-  const instructions = prompt.instructions
-    ? "\n## Instructions\n" + prompt.instructions
-      .map((instruction, idx) => `${idx + 1}. ${instruction}`)
-      .join("\n")
-    : "";
-
-  let contentFields = prompt.content ? prompt.content : "";
-
-  if (prompt.content) {
-    contentFields = Object.keys(prompt.content)
-      .map((key) => `## ${key}\n${prompt.content ? prompt.content[key] : ""}`)
-      .join("\n\n");
-  }
-
-  let exampleOutputs = "";
-  if (prompt.objectExamples && prompt.objectExamples.length > 0) {
-    exampleOutputs = `## Examples of Output\n${
-      prompt.objectExamples
-        .map((example) => JSON.stringify(example, null, 2))
-        .join("\n\n")
-    }`;
-  }
-
-  return `# ${prompt.title ? prompt.title : "Prompt for JSON"}
-${prompt.description ? prompt.description : ""}
-${instructions}
-${
-    instructionsCount + 1
-  }. Output: Provide a correctly formatted JSON object (using Examples of Output) as your output in the Output section, in accordance with ECMA-404 standards. Make sure there are no comments or extraneous text.
-
-${contentFields}
-
-${exampleOutputs}
-
-## Output (JSON as ECMA-404)
-\`\`\`json`;
+  // Create a simpler prompt using the first instruction and first example as the schema
+  const instruction = prompt.instructions.length > 0 
+    ? prompt.instructions[0] 
+    : "Extract structured data";
+  
+  const schema = prompt.objectExamples.length > 0 
+    ? prompt.objectExamples[0] 
+    : {};
+  
+  return buildPromptForSchema(instruction, schema);
 }

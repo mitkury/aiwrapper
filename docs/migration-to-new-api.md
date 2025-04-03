@@ -79,8 +79,9 @@ console.log(nextResult.answer);
 
 // Object extraction
 const objectResult = await lang.askForObject(
-  "List planets",
-  [{ name: "Earth", diameter: 12742 }],
+  "List planets in our solar system",
+  // Provide a schema (not an example!) that defines the structure of the expected output
+  [{ name: "string", diameter: 0, unit: "string" }],
   { 
     onResult: (partialResult) => {
       console.log("Streaming:", partialResult.answer);

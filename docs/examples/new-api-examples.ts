@@ -30,12 +30,22 @@ async function continuingConversation() {
 
 async function gettingStructuredData() {
   // Using the dedicated method for structured data
+  // We provide a schema that defines the structure we want the model to return
   const planets = await lang.askForObject(
     "List the planets in our solar system with their diameters",
-    Array<{ name: string, diameter: number, unit: string }>
+    // This is a schema, not an example - it defines the structure of the expected response
+    [{ name: "string", diameter: 0, unit: "string" }]
   );
   
   console.log(planets.object); // Structured array of planet objects
+  /*
+  Example output:
+  [
+    { "name": "Mercury", "diameter": 4879, "unit": "km" },
+    { "name": "Venus", "diameter": 12104, "unit": "km" },
+    ...
+  ]
+  */
 }
 
 // Future implementation with tools
