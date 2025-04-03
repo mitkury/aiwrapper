@@ -170,6 +170,34 @@ console.log(structuredResult.object); // Structured restaurant data
 7. **Improved Developer Experience**: More intuitive and less boilerplate
 8. **Future-proof Design**: Accommodates emerging LLM capabilities
 
+## Performance Considerations
+
+### Message Array References
+
+For performance reasons, the API mutates message arrays in-place rather than creating new copies. This is particularly important for long conversations that may contain hundreds or thousands of messages.
+
+```typescript
+// The message array is mutated in-place when new messages are added
+const result = await lang.ask("Tell me a story");
+result.addUserMessage("Make it longer");  // Mutates result.messages
+
+// The same array reference is maintained
+const nextResult = await lang.chat(result.messages);
+console.log(nextResult.messages === result.messages);  // true
+
+// Helper methods also mutate the array
+nextResult.addToolUseMessage(toolResults);  // Mutates the same array
+```
+
+Developers who require immutability can create explicit copies:
+
+```typescript
+// Create a copy if immutability is needed
+const immutableMessages = [...result.messages];
+```
+
+This design choice prioritizes performance while still providing options for developers with different needs.
+
 ```ts
 var messages = await lang.ask("tell me about yourself");
 
