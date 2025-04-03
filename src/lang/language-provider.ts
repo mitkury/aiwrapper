@@ -1,5 +1,6 @@
 import { buildPromptForSchema, SchemaType } from "./prompt-for-json.ts";
 import extractJSON from "./json/extract-json.ts";
+import { Validator } from "jsonschema";
 
 /**
  * Interface for tool requests that can be sent to language models
@@ -130,24 +131,115 @@ export abstract class LanguageProvider {
   ): Promise<LangResult>;
 
   /**
-   * Helper function to check if schemas match
+   * Converts our simplified schema to a JSON Schema for validation
    */
-  private schemasAreMatching(example: any, target: any): boolean {
-    // If both are arrays
-    if (Array.isArray(example) && Array.isArray(target)) {
-      return true;
+  private schemaToJsonSchema(schema: any): any {
+    // Handle array schema
+    if (Array.isArray(schema)) {
+      if (schema.length === 0) {
+        return {
+          type: "array",
+          items: {}
+        };
+      }
+      
+      // Use the first item as the template for array items
+      return {
+        type: "array",
+        items: this.convertObjectToJsonSchema(schema[0])
+      };
     }
-
-    // If both are objects
-    if (typeof example === 'object' && example !== null && typeof target === 'object' && target !== null) {
-      const exampleKeys = Object.keys(example);
-      const targetKeys = Object.keys(target);
-
-      return exampleKeys.length === targetKeys.length && exampleKeys.every(key => targetKeys.includes(key));
+    
+    // Handle object schema
+    return this.convertObjectToJsonSchema(schema);
+  }
+  
+  /**
+   * Recursive helper to convert object properties to JSON Schema
+   */
+  private convertObjectToJsonSchema(obj: any): any {
+    if (obj === null || typeof obj !== 'object') {
+      return this.getTypeSchema(obj);
     }
-
-    // If example and target are neither arrays nor objects, they don't match the schema
-    return false;
+    
+    const properties: Record<string, any> = {};
+    const required: string[] = [];
+    
+    Object.entries(obj).forEach(([key, value]) => {
+      properties[key] = this.getPropertySchema(value);
+      required.push(key);
+    });
+    
+    return {
+      type: "object",
+      properties,
+      required,
+      additionalProperties: false
+    };
+  }
+  
+  /**
+   * Get JSON Schema for a property based on value type
+   */
+  private getPropertySchema(value: any): any {
+    if (value === null) {
+      return { type: "null" };
+    }
+    
+    if (Array.isArray(value)) {
+      if (value.length === 0) {
+        return { type: "array" };
+      }
+      
+      return {
+        type: "array",
+        items: this.getPropertySchema(value[0])
+      };
+    }
+    
+    if (typeof value === 'object') {
+      return this.convertObjectToJsonSchema(value);
+    }
+    
+    return this.getTypeSchema(value);
+  }
+  
+  /**
+   * Get JSON Schema type definition based on the type of value
+   */
+  private getTypeSchema(value: any): any {
+    switch (typeof value) {
+      case 'string':
+        return { type: "string" };
+      case 'number':
+        return { type: "number" };
+      case 'boolean':
+        return { type: "boolean" };
+      default:
+        return {};
+    }
+  }
+  
+  /**
+   * Validate that a target conforms to a schema
+   */
+  private validateSchema(schema: any, target: any): { valid: boolean, errors: any[] } {
+    const validator = new Validator();
+    
+    // Check if the schema is already in JSON Schema format
+    const isJsonSchema = schema && typeof schema === 'object' && 
+      (schema.type !== undefined || (schema.properties !== undefined && !Array.isArray(schema.properties)));
+    
+    const jsonSchema = isJsonSchema
+      ? schema  // Already in JSON Schema format
+      : this.schemaToJsonSchema(schema);  // Convert to JSON Schema
+      
+    const result = validator.validate(target, jsonSchema);
+    
+    return {
+      valid: result.valid,
+      errors: result.errors
+    };
   }
 
   /**
@@ -198,13 +290,16 @@ export abstract class LanguageProvider {
         continue;
       }
 
-      // Validate that the returned object matches the schema structure
-      const schemasAreMatching = this.schemasAreMatching(schemaObj, result.object);
+      // Validate the response against the schema
+      const { valid, errors } = this.validateSchema(schemaObj, result.object);
 
-      if (!schemasAreMatching && trialsLeft <= 0) {
-        throw new Error(`The parsed JSON doesn't match the schema after ${trials} trials`);
-      } else if (!schemasAreMatching) {
-        console.log(`The parsed JSON doesn't match the schema, trying again...`);
+      if (!valid && trialsLeft <= 0) {
+        const errorDetails = errors.length > 0 
+          ? ` Validation errors: ${JSON.stringify(errors)}`
+          : '';
+        throw new Error(`The parsed JSON doesn't match the schema after ${trials} trials.${errorDetails}`);
+      } else if (!valid) {
+        console.log(`The parsed JSON doesn't match the schema, trying again... Errors: ${JSON.stringify(errors)}`);
         continue;
       }
 
