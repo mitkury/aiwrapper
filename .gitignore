@@ -23,6 +23,8 @@ lib-cov
 node_modules/
 jspm_packages/
 
+# Deno cache
+.deno/
 
 # TypeScript cache
 *.tsbuildinfo

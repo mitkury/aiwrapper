@@ -80,8 +80,16 @@ console.log(nextResult.answer);
 // Object extraction
 const objectResult = await lang.askForObject(
   "List planets in our solar system",
-  // Provide a schema (not an example!) that defines the structure of the expected output
-  [{ name: "string", diameter: 0, unit: "string" }],
+  // Schema that defines the expected output structure:
+  // - Strings use "string" as placeholder
+  // - Numbers use 0 as placeholder
+  // - Booleans use false as placeholder
+  [{ 
+    name: "string",    // String property
+    diameter: 0,       // Number property
+    hasRings: false,   // Boolean property
+    unit: "string"     // String property
+  }],
   { 
     onResult: (partialResult) => {
       console.log("Streaming:", partialResult.answer);

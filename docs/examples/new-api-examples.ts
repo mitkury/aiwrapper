@@ -33,8 +33,14 @@ async function gettingStructuredData() {
   // We provide a schema that defines the structure we want the model to return
   const planets = await lang.askForObject(
     "List the planets in our solar system with their diameters",
-    // This is a schema, not an example - it defines the structure of the expected response
-    [{ name: "string", diameter: 0, unit: "string" }]
+    // This schema describes the expected output structure
+    // String properties use "string" as placeholder, numbers use 0, booleans use false
+    [{ 
+      name: "string",     // String property 
+      diameter: 0,        // Number property
+      hasRings: false,    // Boolean property (optional example)
+      unit: "string"      // String property
+    }]
   );
   
   console.log(planets.object); // Structured array of planet objects

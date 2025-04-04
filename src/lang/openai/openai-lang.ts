@@ -1,10 +1,17 @@
 import {
-  LangChatMessages,
+  LangChatMessageCollection,
   LangOptions,
   LangResult,
+  LangChatMessage
 } from "../language-provider.ts";
 import { OpenAILikeLang } from "../openai-like/openai-like-lang.ts";
 import { models } from 'aimodels';
+import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
+import { processResponseStream } from "../../process-response-stream.ts";
+import { 
+  DecisionOnNotOkResponse,
+  httpRequestWithRetry as fetch
+} from "../../http-request.ts";
 
 export type OpenAILangOptions = {
   apiKey: string;
@@ -43,16 +50,93 @@ export class OpenAILang extends OpenAILikeLang {
     }
   }
 
-  protected override transformMessages(messages: LangChatMessages): LangChatMessages {
-    return messages.map((message) => {
-      if (message.role === "system" && this._config.model.includes("o1")) {
-        return { ...message, role: "user" };
+  override async chat(
+    messages: LangChatMessage[],
+    options?: LangOptions,
+  ): Promise<LangResult> {
+    // Cast array to collection
+    const messageCollection = messages as LangChatMessageCollection;
+    
+    // Initialize result
+    const result = new LangResult(messageCollection);
+    
+    // Transform OpenAI-specific message roles
+    const transformedMessages = messages.map((message) => {
+      const msg = { ...message };
+      // Cast to any to handle the system role which isn't in the LangChatMessage type
+      const roleAny = (msg as any).role;
+      
+      if (roleAny === "system" && this._config.model.includes("o1")) {
+        return { ...msg, role: "user" as const };
       }
-      else if (message.role === "system") {
-        return { ...message, role: "developer" };
+      else if (roleAny === "system") {
+        return { ...msg, role: "developer" as any };
       }
-      return message;
+      return msg;
     });
+    
+    // Continue with regular chat processing
+    const onResult = options?.onResult;
+    
+    // Calculate max tokens
+    const requestMaxTokens = this.modelInfo 
+      ? calculateModelResponseTokens(
+          this.modelInfo,
+          transformedMessages as any,
+          this._config.maxTokens
+        )
+      : this._config.maxTokens || 4000;
+      
+    // For reasoning models, ensure there's enough space
+    if (this.supportsReasoning() && this._config.maxCompletionTokens === undefined) {
+      this._config.maxCompletionTokens = Math.max(requestMaxTokens, 25000);
+    }
+
+    const onData = (data: any) => {
+      this.handleStreamData(data, result, messageCollection, onResult);
+    };
+    
+    // Create request body
+    const body = this.transformBody({
+      model: this._config.model,
+      messages: transformedMessages,
+      stream: true,
+      max_tokens: requestMaxTokens,
+      ...this._config.bodyProperties,
+    });
+
+    const response = await fetch(`${this._config.baseURL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(this._config.apiKey ? { "Authorization": `Bearer ${this._config.apiKey}` } : {}),
+        ...this._config.headers,
+      },
+      body: JSON.stringify(body),
+      onNotOkResponse: async (
+        res: Response,
+        decision: DecisionOnNotOkResponse
+      ): Promise<DecisionOnNotOkResponse> => {
+        if (res.status === 401) {
+          decision.retry = false;
+          throw new Error("Authentication failed. Please check your credentials and try again.");
+        }
+
+        if (res.status === 400) {
+          const data = await res.text();
+          decision.retry = false;
+          throw new Error(data);
+        }
+
+        return decision;
+      },
+    }).catch((err) => {
+      throw new Error(err);
+    });
+
+    await processResponseStream(response, onData);
+
+    return result;
   }
 
   protected override transformBody(body: Record<string, unknown>): Record<string, unknown> {

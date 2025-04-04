@@ -1,0 +1,16 @@
+{
+  "name": "@mitkury/aiwrapper",
+  "version": "0.1.17",
+  "exports": "./src/index.ts",
+  "publish": {
+    "include": [
+      "LICENSE",
+      "README.md",
+      "src/**/*.ts"
+    ]
+  },
+  "description": "A Universal AI Wrapper for JavaScript & TypeScript",
+  "npmCompatibility": {
+    "packageName": "aiwrapper"
+  }
+} 

@@ -16,7 +16,7 @@ import { OpenAILikeLang } from "./openai-like/openai-like-lang.ts";
  */
 export abstract class Lang {
   /** Get all language models */
-  static get models() {
+  static get models(): ModelCollection {
     return models.can("chat");
   }
 
@@ -88,7 +88,7 @@ export abstract class Lang {
   }
 
   // Dynamic provider access
-  static [Symbol.iterator]() {
+  static [Symbol.iterator](): Iterator<any> {
     const providers = models.providers.reduce((acc: Record<string, Function>, provider: any) => {
       // Handle provider as object with id property (new aimodels behavior)
       const providerId = typeof provider === 'object' && provider !== null ? provider.id : provider;

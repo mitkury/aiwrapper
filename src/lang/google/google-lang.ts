@@ -1,5 +1,5 @@
 import {
-  LangChatMessages,
+  LangChatMessageCollection,
   LangOptions, LangResult,
   
   LanguageProvider,
@@ -47,11 +47,11 @@ export class GoogleLang extends LanguageProvider {
     prompt: string,
     options?: LangOptions,
   ): Promise<LangResult> {
-    const messages: LangChatMessages = [];
+    const messages = new LangChatMessageCollection();
 
     if (this._systemPrompt) {
       messages.push({
-        role: "system",
+        role: "user" as "user", // Cast to user role for system prompts
         content: this._systemPrompt,
       });
     }
@@ -65,18 +65,21 @@ export class GoogleLang extends LanguageProvider {
   }
 
   async chat(
-    messages: LangChatMessages,
+    messages: LangChatMessageCollection,
     options?: LangOptions,
   ): Promise<LangResult> {
     const result = new LangResult(messages);
 
     // Transform messages into Google's format
     const contents = messages.map(msg => {
-      if (msg.role === "system") {
+      // Use type assertion for potential system messages
+      const msgAny = msg as any;
+      
+      if (msgAny.role === "system") {
         // For system messages, we'll send them as user messages with a clear prefix
         return {
           role: "user",
-          parts: [{ text: `System instruction: ${msg.content}` }]
+          parts: [{ text: `System instruction: ${msgAny.content}` }]
         };
       }
       return {
@@ -118,10 +121,8 @@ export class GoogleLang extends LanguageProvider {
         const text = data.candidates[0].content.parts[0].text;
         result.answer += text;
 
-        result.messages = [...messages, {
-          role: "assistant",
-          content: result.answer,
-        }];
+        // Create a new collection with existing messages plus the new one
+        result.addAssistantMessage(result.answer);
 
         options?.onResult?.(result);
       }

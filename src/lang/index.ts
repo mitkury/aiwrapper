@@ -1,11 +1,10 @@
 import { Lang } from "./lang.ts";
 import { LangVecs } from "./lang-vecs.ts";
-import { PromptForObject } from "./prompt-for-json.ts";
 import { 
   LanguageProvider, 
   LangResult, 
   LangOptions, 
-  LangChatMessages,
+  LangChatMessageCollection,
   Tool,
   ToolRequest,
   ToolResult
@@ -14,5 +13,5 @@ import {
 // Export classes
 export { Lang, LangVecs, LanguageProvider, LangResult };
 
-// Export types with the 'type' keyword
-export type { LangOptions, LangChatMessages, Tool, ToolRequest, ToolResult, PromptForObject };
+// Export types
+export type { LangOptions, LangChatMessageCollection as LangChatMessages, Tool, ToolRequest, ToolResult };

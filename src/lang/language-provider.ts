@@ -1,4 +1,4 @@
-import { buildPromptForSchema, SchemaType } from "./prompt-for-json.ts";
+import { buildPromptForSchema } from "./prompt-for-json.ts";
 import extractJSON from "./json/extract-json.ts";
 import { Validator } from "jsonschema";
 
@@ -43,12 +43,32 @@ export interface LangOptions {
 }
 
 /**
+ * Type for a single chat message
+ */
+export interface LangChatMessage {
+  role: "user" | "assistant" | "tool";
+  content: string | any;
+}
+
+/**
  * Type for chat messages
  */
-export type LangChatMessages = {
-  role: string;
-  content: string | any;
-}[];
+export class LangChatMessageCollection extends Array<LangChatMessage> {
+  addUserMessage(content: string): this {
+    this.push({ role: "user", content });
+    return this;
+  }
+
+  addAssistantMessage(content: string): this {
+    this.push({ role: "assistant", content });
+    return this;
+  }
+
+  addToolUseMessage(toolResults: any): this {
+    this.push({ role: "tool", content: toolResults });
+    return this;
+  }
+}
 
 /**
  * Unified result class for all language model operations
@@ -64,7 +84,7 @@ export class LangResult {
   tools: ToolRequest[] | null = null;
   
   // The full conversation history including the AI's response
-  messages: LangChatMessages;
+  messages: LangChatMessageCollection;
   
   // Whether the processing is finished
   finished: boolean = false;
@@ -72,7 +92,7 @@ export class LangResult {
   // Thinking/reasoning output (if available)
   thinking?: string;
 
-  constructor(messages: LangChatMessages) {
+  constructor(messages: LangChatMessageCollection) {
     this.messages = messages;
   }
 
@@ -80,15 +100,21 @@ export class LangResult {
    * Add a user message to the conversation history
    */
   addUserMessage(content: string): void {
-    this.messages.push({ role: "user", content });
+    this.messages.addUserMessage(content);
   }
   
   /**
    * Add tool execution results back to the conversation
    */
   addToolUseMessage(toolResults: ToolResult[]): void {
-    // @TODO: Implement proper tool results handling based on provider format
-    this.messages.push({ role: "tool", content: toolResults });
+    this.messages.addToolUseMessage(toolResults);
+  }
+
+  /**
+   * Add assistant message to the conversation history
+   */
+  addAssistantMessage(content: string): void {
+    this.messages.addAssistantMessage(content);
   }
 
   toString(): string {
@@ -126,7 +152,7 @@ export abstract class LanguageProvider {
    * Continue a conversation
    */
   abstract chat(
-    messages: LangChatMessages,
+    messages: LangChatMessage[],
     options?: LangOptions,
   ): Promise<LangResult>;
 
@@ -223,12 +249,13 @@ export abstract class LanguageProvider {
   /**
    * Validate that a target conforms to a schema
    */
-  private validateSchema(schema: any, target: any): { valid: boolean, errors: any[] } {
+  private validateSchema(schema: object | object[], target: object | object[]): { valid: boolean, errors: any[] } {
     const validator = new Validator();
     
     // Check if the schema is already in JSON Schema format
-    const isJsonSchema = schema && typeof schema === 'object' && 
-      (schema.type !== undefined || (schema.properties !== undefined && !Array.isArray(schema.properties)));
+    const isJsonSchema = typeof schema === 'object' && 
+      !Array.isArray(schema) && 
+      ('type' in schema || ('properties' in schema && !Array.isArray((schema as any).properties)));
     
     const jsonSchema = isJsonSchema
       ? schema  // Already in JSON Schema format
@@ -242,27 +269,32 @@ export abstract class LanguageProvider {
     };
   }
 
+  // @TODO: consider calling askWithSchema instead?
   /**
-   * Directly get structured data from a language model
-   * Uses a schema-based approach for better output consistency
+   * Get structured answer from a language model
+   * Uses a schema-based approach
    */
-  async askForObject<T extends object>(
-    prompt: string | LangChatMessages,
-    schema: T,
+  async askForObject(
+    prompt: string | LangChatMessage[],
+    schema: object | object[],
     options?: LangOptions,
   ): Promise<LangResult> {
-    // @TODO: Support the messages overload for askForObject
-
+    // Handle message array prompts
+    if (Array.isArray(prompt)) {
+      const messages = prompt as LangChatMessageCollection;
+      // @TODO: Implement proper messaging for structured output
+      throw new Error("askForObject with message array is not implemented yet");
+    }
+    
     // For now, we only support string prompts
     if (typeof prompt !== 'string') {
       throw new Error("askForObject with message array is not implemented yet");
     }
-
-    // Convert schema to SchemaType
-    const schemaObj: SchemaType = schema as SchemaType;
     
+    // @TODO: check if the model supports structured output and use that instead of the prompt
+
     // Build a prompt with the schema
-    const jsonPrompt = buildPromptForSchema(prompt, schemaObj);
+    const jsonPrompt = buildPromptForSchema(prompt, schema);
     
     // Create options with the callback if provided
     const askOptions: LangOptions = {
@@ -291,7 +323,7 @@ export abstract class LanguageProvider {
       }
 
       // Validate the response against the schema
-      const { valid, errors } = this.validateSchema(schemaObj, result.object);
+      const { valid, errors } = this.validateSchema(schema, result.object);
 
       if (!valid && trialsLeft <= 0) {
         const errorDetails = errors.length > 0 

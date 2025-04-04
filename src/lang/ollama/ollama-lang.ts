@@ -1,4 +1,4 @@
-import { LangChatMessages, LangOptions, LangResult,  LanguageProvider } from "../language-provider.ts";
+import { LangChatMessageCollection, LangOptions, LangResult,  LanguageProvider } from "../language-provider.ts";
 import { httpRequestWithRetry as fetch } from "../../http-request.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
 import { models, Model } from 'aimodels';
@@ -59,7 +59,11 @@ export class OllamaLang extends LanguageProvider {
     prompt: string,
     options?: LangOptions,
   ): Promise<LangResult> {
-    const result = new LangResult([{ role: "user", content: prompt }]);
+    // Create a proper message collection
+    const messages = new LangChatMessageCollection();
+    messages.addUserMessage(prompt);
+    
+    const result = new LangResult(messages);
 
     // Try to get model info and calculate max tokens
     let requestMaxTokens = this._config.maxTokens;
@@ -143,7 +147,7 @@ export class OllamaLang extends LanguageProvider {
     return result;
   }
 
-  async chat(messages: LangChatMessages, options?: LangOptions): Promise<LangResult> {
+  async chat(messages: LangChatMessageCollection, options?: LangOptions): Promise<LangResult> {
     const result = new LangResult(messages);
 
     // Try to get model info and calculate max tokens

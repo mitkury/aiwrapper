@@ -4,7 +4,8 @@ import {
 } from "../../http-request.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
 import {
-  LangChatMessages,
+  LangChatMessageCollection,
+  LangChatMessage,
   LangOptions,
   LangResult,
   LanguageProvider,
@@ -54,11 +55,11 @@ export class AnthropicLang extends LanguageProvider {
     prompt: string,
     options?: LangOptions,
   ): Promise<LangResult> {
-    const messages: LangChatMessages = [];
+    const messages = new LangChatMessageCollection();
 
     if (this._config.systemPrompt) {
       messages.push({
-        role: "system",
+        role: "user" as "user", // Cast to appropriate role, using user for system-like behavior
         content: this._config.systemPrompt,
       });
     }
@@ -72,24 +73,29 @@ export class AnthropicLang extends LanguageProvider {
   }
 
   async chat(
-    messages: LangChatMessages,
+    messages: LangChatMessage[],
     options?: LangOptions,
   ): Promise<LangResult> {
+    // Cast to collection
+    const messageCollection = messages as LangChatMessageCollection;
     
-    // Remove all system messages, save the first one if it exists.
-    let detectedSystemMessage = "";
-    messages = messages.filter((message) => {
-      if (message.role === "system") {
-        if (!detectedSystemMessage) {
-          // Saving the first system message.
-          detectedSystemMessage = message.content;
-        }
-        return false;
+    // Initialize result
+    const result = new LangResult(messageCollection);
+    
+    // Convert messages for Anthropic format
+    // Filter out system messages and handle them differently
+    const processedMessages = [];
+    let systemContent = '';
+    
+    // Extract system messages and convert to Anthropic format
+    for (const message of messages) {
+      // Check if message has role as "system" (using type assertion)
+      if ((message as any).role === "system") {
+        systemContent += (message as any).content + '\n';
+      } else {
+        processedMessages.push(message);
       }
-      return true;
-    });
-
-    const result = new LangResult(messages);
+    }
 
     // Get model info and calculate max tokens
     const modelInfo = models.id(this._config.model);
@@ -99,7 +105,7 @@ export class AnthropicLang extends LanguageProvider {
 
     const requestMaxTokens = calculateModelResponseTokens(
       modelInfo,
-      messages,
+      processedMessages,
       this._config.maxTokens
     );
 
@@ -205,9 +211,9 @@ export class AnthropicLang extends LanguageProvider {
     // Prepare request body
     const requestBody: any = {
       model: this._config.model,
-      messages: messages,
+      messages: processedMessages,
       max_tokens: requestMaxTokens,
-      system: this._config.systemPrompt ? this._config.systemPrompt : detectedSystemMessage,
+      system: systemContent,
       stream: true,
     };
 

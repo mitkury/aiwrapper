@@ -1,9 +1,11 @@
 import {
-  LangChatMessages,
+  LangChatMessageCollection,
+  LangChatMessage,
   LangOptions,
   LangResult,
   LanguageProvider,
   ToolRequest,
+  Tool,
 } from "../language-provider.ts";
 import {
   DecisionOnNotOkResponse,
@@ -91,11 +93,11 @@ export class OpenAILikeLang extends LanguageProvider {
     prompt: string,
     options?: LangOptions,
   ): Promise<LangResult> {
-    const messages: LangChatMessages = [];
+    const messages = new LangChatMessageCollection();
 
     if (this._config.systemPrompt) {
       messages.push({
-        role: "system",
+        role: "user" as "user",
         content: this._config.systemPrompt,
       });
     }
@@ -106,11 +108,6 @@ export class OpenAILikeLang extends LanguageProvider {
     });
 
     return await this.chat(messages, options);
-  }
-
-  protected transformMessages(messages: LangChatMessages): LangChatMessages {
-    // By default, no transformation
-    return messages;
   }
 
   protected transformBody(body: Record<string, unknown>): Record<string, unknown> {
@@ -142,18 +139,20 @@ export class OpenAILikeLang extends LanguageProvider {
   }
 
   async chat(
-    messages: LangChatMessages,
+    messages: LangChatMessage[],
     options?: LangOptions,
   ): Promise<LangResult> {
-    const result = new LangResult(messages);
+    // Cast the array directly to LangChatMessageCollection
+    const messageCollection = messages as LangChatMessageCollection;
+    
+    const result = new LangResult(messageCollection);
     const onResult = options?.onResult;
-    const transformedMessages = this.transformMessages(messages);
 
     // Calculate max tokens for the request, using model info if available
     const requestMaxTokens = this.modelInfo 
       ? calculateModelResponseTokens(
           this.modelInfo,
-          transformedMessages,
+          messages,
           this._config.maxTokens
         )
       : this._config.maxTokens || 4000; // Default if no model info or maxTokens
@@ -165,13 +164,13 @@ export class OpenAILikeLang extends LanguageProvider {
     }
 
     const onData = (data: any) => {
-      this.handleStreamData(data, result, messages, onResult);
+      this.handleStreamData(data, result, messageCollection, onResult);
     };
 
     // @TODO: Add tools to the request body if provided in options
     const body = this.transformBody({
       model: this._config.model,
-      messages: transformedMessages,
+      messages: messages,
       stream: true,
       max_tokens: requestMaxTokens,
       ...this._config.bodyProperties,
@@ -225,7 +224,7 @@ export class OpenAILikeLang extends LanguageProvider {
   protected handleStreamData(
     data: any, 
     result: LangResult,
-    messages: LangChatMessages,
+    messages: LangChatMessageCollection,
     onResult?: (result: LangResult) => void
   ): void {
     if (data.finished) {

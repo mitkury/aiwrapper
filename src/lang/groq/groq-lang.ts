@@ -2,8 +2,9 @@ import { OpenAILikeLang } from "../openai-like/openai-like-lang.ts";
 import { models } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
 import { 
-  LangChatMessages, 
-  LangOptions, LangResult 
+  LangChatMessageCollection, 
+  LangOptions, LangResult, 
+  LangChatMessage
 } from "../language-provider.ts";
 
 export type GroqLangOptions = {
@@ -28,12 +29,14 @@ export class GroqLang extends OpenAILikeLang {
   }
 
   override async chat(
-    messages: LangChatMessages,
+    messages: LangChatMessage[],
     options?: LangOptions,
   ): Promise<LangResult> {
+    // Cast the array directly to LangChatMessageCollection
+    const messageCollection = messages as LangChatMessageCollection;
+    
     // Initialize the result
-    const result = new LangResult(messages);
-    const transformedMessages = this.transformMessages(messages);
+    const result = new LangResult(messageCollection);
     
     // Get the model info and check if it can reason
     const modelInfo = models.id(this._config.model);
@@ -56,7 +59,7 @@ export class GroqLang extends OpenAILikeLang {
       const body = {
         ...this.transformBody({
           model: this._config.model,
-          messages: transformedMessages,
+          messages: messages,
           stream: false,
           max_tokens: this._config.maxTokens || 4000,
         }),
@@ -75,6 +78,7 @@ export class GroqLang extends OpenAILikeLang {
       
       const data = await response.json();
       
+      // Add to messages
       if (data.choices && data.choices.length > 0) {
         const message = data.choices[0].message;
         
@@ -96,11 +100,8 @@ export class GroqLang extends OpenAILikeLang {
           }
         }
         
-        // Add to messages
-        result.messages = [...messages, {
-          role: "assistant",
-          content: result.answer,
-        }];
+        // Add assistant message to result
+        result.addAssistantMessage(result.answer);
       }
       
       return result;
@@ -156,11 +157,17 @@ export class GroqLang extends OpenAILikeLang {
           }
         }
         
-        // Update messages
-        result.messages = [...messages, {
-          role: "assistant",
-          content: result.answer,
-        }];
+        // Update the result answer
+        result.answer = result.thinking ? result.answer : visibleContent;
+        
+        // For streaming, we need to update the messages
+        if (result.messages.length > 0 && result.messages[result.messages.length - 1].role === "assistant") {
+          // Replace the last message if it's from the assistant
+          result.messages[result.messages.length - 1].content = result.answer;
+        } else {
+          // Add a new assistant message
+          result.addAssistantMessage(result.answer);
+        }
         
         options?.onResult?.(result);
       }
@@ -170,7 +177,7 @@ export class GroqLang extends OpenAILikeLang {
     const streamingBody = {
       ...this.transformBody({
         model: this._config.model,
-        messages: transformedMessages,
+        messages: messages,
         stream: true,
         max_tokens: this._config.maxTokens || 4000,
       }),
