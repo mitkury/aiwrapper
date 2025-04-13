@@ -27,16 +27,22 @@ export async function getEnvVar(name: string): Promise<string | undefined> {
   if (typeof Deno !== 'undefined') {
     // Load .env file in Deno
     try {
+      // Log current working directory for debugging path issues
+      console.log(`🦕 Current working directory: ${Deno.cwd()}`);
       const { config } = await import("https://deno.land/x/dotenv@v3.2.2/mod.ts");
+      const envPath = ".env"; // Explicitly define the path we expect
+      console.log(`🦕 Attempting to load environment variables from: ${envPath}`);
       try {
-        await config({ export: true, path: ".env" });
-        console.log("Environment variables loaded from .env file");
+        await config({ export: true, path: envPath });
+        console.log(`✅ Successfully loaded environment variables from ${envPath}`);
       } catch (error) {
-        console.warn("Warning: Could not load .env file, using existing environment variables");
+        console.warn(`⚠️ Warning: Could not load ${envPath} file. Error: ${error.message}. Using existing environment variables.`);
       }
-      return Deno.env.get(name);
+      const value = Deno.env.get(name);
+      console.log(`🦕 Value for ${name}: ${value ? 'found' : 'not found'}`);
+      return value;
     } catch (error) {
-      console.error("Error loading environment:", error);
+      console.error("❌ Error during environment setup:", error);
       return undefined;
     }
   } else {
