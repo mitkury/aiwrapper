@@ -127,7 +127,7 @@ export class GoogleLang extends LanguageProvider {
     };
 
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1/models/${this._model}:streamGenerateContent?alt=sse&key=${this._apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${this._model}:streamGenerateContent?alt=sse&key=${this._apiKey}`,
       {
         method: "POST",
         headers: {
