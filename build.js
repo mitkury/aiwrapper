@@ -24,6 +24,7 @@ async function build() {
   try {
     // Build with esbuild for Node.js (with .js extensions in imports)
     console.log('📦 Building...');
+    
     const result = await esbuild.build({
       entryPoints,
       outdir: 'dist',

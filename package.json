@@ -32,12 +32,14 @@
     "dist/",
     "LICENSE"
   ],
-  "main": "./dist/npm-entry.js",
+  "main": "./dist/index.js",
   "allowJs": true,
   "scripts": {
     "prebuild": "rm -rf dist",
     "build": "node build.js",
-    "serve": "npx serve ."
+    "serve": "npx serve .",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "aimodels": "^0.4.11",
@@ -52,6 +54,7 @@
     "esbuild": "^0.25.2",
     "glob": "^11.0.1",
     "ts-node": "^10.9.2",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "vitest": "^1.2.1"
   }
 }
