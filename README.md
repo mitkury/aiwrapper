@@ -9,21 +9,14 @@ Use LLMs from anywhere—servers, browsers and web-apps. AIWrapper works in anyt
 ## Features
 - Generate plain text or JSON objects with a simple API
 - Use different LLM providers: OpenAI, Anthropic, Groq, DeepSeek, Ollama and any OpenAI-compatible services
-- Output objects based on needed schemas
+- Output objects based on Zod schemas or JSON Schema
 - Swap models quickly or chain different models together
 - Use it with JavaScript or TypeScript from anywhere
 
 ## Installation
-Install with npm or import in Deno by URL.
 
-### NPM
 ```bash
 npm install aiwrapper
-```
-
-### Deno
-```typescript
-import * as aiwrapper from "https://deno.land/x/aiwrapper/mod.ts";
 ```
 
 ## Quick Start
@@ -117,33 +110,81 @@ console.log(newResult.answer);
 newResult.addUserMessage("What can you help me with?");
 const finalResult = await lang.chat(newResult.messages);
 console.log(finalResult.answer);
+
+// You can also create message collections directly
+import { LangChatMessageCollection } from "aiwrapper";
+
+const messages = new LangChatMessageCollection();
+messages.addSystemMessage("You are a helpful assistant.");
+messages.addUserMessage("Tell me about TypeScript.");
+
+const chatResult = await lang.chat(messages);
+console.log(chatResult.answer);
 ```
 
 ### Getting Objects from LLMs
 ```javascript
 // We can ask for an object with a particular schema
-// Use standard JSON Schema to define the expected structure
+// You can use either Zod schemas or JSON Schema
+
+// Option 1: Using Zod schema (recommended for TypeScript users)
+import { z } from "aiwrapper";
 
 // Schema for an array of strings
-const companyNamesSchema = {
-  type: "array",
-  items: {
-    type: "string"
-  }
-};
+const companyNamesSchema = z.array(z.string());
 
 const result = await lang.askForObject(
   "You are a naming consultant for new companies. What are 3 good names for a company that makes colorful socks?",
   companyNamesSchema
 );
 
+// TypeScript automatically infers the type as string[]
 console.log(result.object); // ["Chromatic Toe", "SockSpectra", "VividStep"]
+
+// Option 2: Using JSON Schema (compatible with existing code)
+const jsonSchema = {
+  type: "array",
+  items: {
+    type: "string"
+  }
+};
+
+const result2 = await lang.askForObject(
+  "You are a naming consultant for new companies. What are 3 good names for a company that makes colorful socks?",
+  jsonSchema
+);
+
+console.log(result2.object); // ["Chromatic Toe", "SockSpectra", "VividStep"]
 ```
 
 ### Getting Complex Objects
 ```javascript
-// Define a schema using standard JSON Schema format
-const companySchema = {
+
+// Option 1: Using Zod schema
+import { z } from "aiwrapper";
+
+// Define a schema using Zod
+const companySchema = z.object({
+  name: z.string(),
+  tagline: z.string(),
+  marketingStrategy: z.object({
+    target: z.string(),
+    channels: z.array(z.string()),
+    budget: z.number()
+  })
+});
+
+// TypeScript automatically infers the correct type
+const result = await lang.askForObject(
+  "Create a company profile for a business that makes colorful socks",
+  companySchema
+);
+
+console.log(result.object);
+// The object is fully typed with TypeScript!
+
+// Option 2: Using JSON Schema
+const jsonSchema = {
   type: "object",
   properties: {
     name: { type: "string" },
@@ -163,12 +204,12 @@ const companySchema = {
   required: ["name", "tagline", "marketingStrategy"]
 };
 
-const result = await lang.askForObject(
+const result2 = await lang.askForObject(
   "Create a company profile for a business that makes colorful socks",
-  companySchema
+  jsonSchema
 );
 
-console.log(result.object);
+console.log(result2.object);
 /* Example output:
 {
   "name": "ChromaSocks",
@@ -181,5 +222,3 @@ console.log(result.object);
 }
 */
 ```
-
-> **Important:** AIWrapper uses standard [JSON Schema](https://json-schema.org/) to define the structure of expected outputs. Make sure to use the official schema format with `type`, `properties`, and other JSON Schema keywords.
