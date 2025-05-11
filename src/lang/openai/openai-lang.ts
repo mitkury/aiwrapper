@@ -147,7 +147,7 @@ export class OpenAILang extends OpenAILikeLang {
 
   protected override transformBody(body: Record<string, unknown>): Record<string, unknown> {
     // Apply parent transformations first
-    let transformedBody = super.transformBody(body);
+    const transformedBody = super.transformBody(body);
     
     // OpenAI now uses max_completion_tokens instead of max_tokens
     if (transformedBody.max_tokens) {

@@ -2,7 +2,6 @@
 
 import * as esbuild from 'esbuild';
 import { glob } from 'glob';
-import * as path from 'path';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
 
@@ -17,14 +16,14 @@ if (!fs.existsSync('dist')) {
 }
 
 async function build() {
-  console.log('🔨 Building with esbuild for both Node.js and Deno compatibility...');
+  console.log('🔨 Build with esbuild for Node.js, Deno and browsers compatibility...');
   
   const entryPoints = await getEntryPoints();
   console.log(`Found ${entryPoints.length} TypeScript files to build.`);
   
   try {
     // Build with esbuild for Node.js (with .js extensions in imports)
-    console.log('📦 Building for Node.js...');
+    console.log('📦 Building...');
     const result = await esbuild.build({
       entryPoints,
       outdir: 'dist',
@@ -39,7 +38,7 @@ async function build() {
     
     console.log('✅ Build completed successfully.');
     
-    // Fix imports in the output files to use .js extension for Node.js
+    // Fix imports in the output files to use .js extension
     console.log('🔧 Adding .js extensions to imports for Node.js compatibility...');
     const jsFiles = await glob('dist/**/*.js');
     for (const file of jsFiles) {

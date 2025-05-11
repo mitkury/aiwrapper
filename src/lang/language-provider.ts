@@ -1,8 +1,7 @@
 // Import necessary utilities
 import extractJSON from "./json/extract-json.ts";
 import { z } from 'zod';
-import { 
-  schemaToDescription, 
+import {  
   validateAgainstSchema 
 } from "./schema/schema-utils.ts";
 
@@ -294,7 +293,7 @@ export abstract class LanguageProvider {
    * Get structured answer from a language model
    * Supports both Zod schemas and JSON Schema objects
    */
-  async askForObject<T>(
+  async askForObject(
     prompt: string | LangChatMessage[] | LangChatMessageCollection,
     schema: Schema,
     options?: LangOptions,
@@ -304,12 +303,8 @@ export abstract class LanguageProvider {
     
     if (typeof prompt === 'string') {
       messages = new LangChatMessageCollection();
-      
-      // Convert the schema to a human-readable description
-      const schemaDesc = schemaToDescription(schema);
-      
-      // Create a prompt that includes the schema description
-      messages.addUserMessage(`Generate a JSON object that is ${schemaDesc}. The JSON should be valid and follow this request: ${prompt}`);
+    
+      // @TODO: implement
     } else if (Array.isArray(prompt)) {
       // Convert to LangChatMessageCollection if it's a regular array
       if (prompt instanceof LangChatMessageCollection) {
@@ -317,10 +312,7 @@ export abstract class LanguageProvider {
       } else {
         messages = new LangChatMessageCollection(...prompt);
       }
-      
-      // Add a message asking for structured output
-      const schemaDesc = schemaToDescription(schema);
-      messages.addUserMessage(`Please provide your response as a JSON object that is ${schemaDesc}.`);
+      // @TODO: implement
     } else {
       throw new Error("Prompt must be a string or an array of messages");
     }
@@ -336,6 +328,8 @@ export abstract class LanguageProvider {
         const validation = validateAgainstSchema(jsonObj, schema);
         
         if (validation.valid) {
+          // @TODO: if we use zod - do we need to do anything extra here?
+          
           result.object = jsonObj;
         } else {
           console.warn(`Schema validation failed: ${validation.errors.join(', ')}`);
