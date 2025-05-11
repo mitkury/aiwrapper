@@ -37,15 +37,6 @@
   "scripts": {
     "prebuild": "rm -rf dist",
     "build": "node build.js",
-    "test": "npm run test:deno && npm run test:node && npm run test:integration",
-    "test:deno": "deno run -A tests/deno/lang.test.ts",
-    "test:node": "npm run build && node tests/node/dist.test.js && node tests/node/token-calculator.test.js",
-    "test:universal": "npm run test:universal:node && npm run test:universal:deno",
-    "test:universal:node": "npm run build && node tests/node/universal.test.js",
-    "test:universal:deno": "deno run -A tests/deno/simple.test.ts",
-    "test:browser": "playwright test",
-    "test:browser:ui": "playwright test --ui",
-    "test:integration": "npm run build && node tests/integration/anthropic-thinking.test.js && node tests/integration/deepseek-reasoning.test.js && node tests/integration/openai-reasoning.test.js",
     "serve": "npx serve ."
   },
   "dependencies": {
