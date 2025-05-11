@@ -1,9 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { Lang, LangChatMessageCollection } from '../dist/index.js';
-import dotenv from 'dotenv';
-
-// Load environment variables from .env file
-dotenv.config();
 
 // Skip tests if no API key is available
 const apiKey = process.env.OPENAI_API_KEY;

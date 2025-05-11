@@ -6,6 +6,7 @@ export default defineConfig({
     include: ['tests/**/*.test.js'],
     exclude: ['tests-old/**/*'],
     globals: true,
-    testTimeout: 30000 // 30 seconds timeout
+    testTimeout: 30000, // 30 seconds timeout
+    setupFiles: ['./tests/setup.js'] // Setup file to load environment variables
   }
 });
