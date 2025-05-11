@@ -8,7 +8,7 @@
   ],
   "output": {
     "cursor": true,
-    "windsurf": false,
+    "windsurf": true,
     "copilot": false,
     "cline": false
   }
