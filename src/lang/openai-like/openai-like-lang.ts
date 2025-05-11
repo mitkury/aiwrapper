@@ -94,7 +94,6 @@ export class OpenAILikeLang extends LanguageProvider {
     options?: LangOptions,
   ): Promise<LangResult> {
     const messages = new LangChatMessageCollection();
-
     if (this._config.systemPrompt) {
       messages.push({
         role: "user" as "user",

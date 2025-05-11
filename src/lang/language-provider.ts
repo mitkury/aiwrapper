@@ -46,6 +46,8 @@ export interface Tool {
 export interface LangOptions {
   // Available tools
   tools?: Tool[];
+
+  schema?: Schema;
   
   // Streaming callback
   onResult?: (result: LangResult) => void;
@@ -181,115 +183,6 @@ export abstract class LanguageProvider {
   ): Promise<LangResult>;
 
   /**
-   * Converts our simplified schema to a JSON Schema for validation
-   * @deprecated Will be replaced with zod in the future
-   */
-  private schemaToJsonSchema(schema: any): any {
-    // Handle array schema
-    if (Array.isArray(schema)) {
-      if (schema.length === 0) {
-        return {
-          type: "array",
-          items: {}
-        };
-      }
-      
-      // Use the first item as the template for array items
-      return {
-        type: "array",
-        items: this.convertObjectToJsonSchema(schema[0])
-      };
-    }
-    
-    // Handle object schema
-    return this.convertObjectToJsonSchema(schema);
-  }
-  
-  /**
-   * Recursive helper to convert object properties to JSON Schema
-   * @deprecated Will be replaced with zod in the future
-   */
-  private convertObjectToJsonSchema(obj: any): any {
-    if (obj === null || typeof obj !== 'object') {
-      return this.getTypeSchema(obj);
-    }
-    
-    const properties: Record<string, any> = {};
-    const required: string[] = [];
-    
-    Object.entries(obj).forEach(([key, value]) => {
-      properties[key] = this.getPropertySchema(value);
-      required.push(key);
-    });
-    
-    return {
-      type: "object",
-      properties,
-      required,
-      additionalProperties: false
-    };
-  }
-  
-  /**
-   * Get JSON Schema for a property based on value type
-   * @deprecated Will be replaced with zod in the future
-   */
-  private getPropertySchema(value: any): any {
-    if (value === null) {
-      return { type: "null" };
-    }
-    
-    if (Array.isArray(value)) {
-      if (value.length === 0) {
-        return { type: "array" };
-      }
-      
-      return {
-        type: "array",
-        items: this.getPropertySchema(value[0])
-      };
-    }
-    
-    if (typeof value === 'object') {
-      return this.convertObjectToJsonSchema(value);
-    }
-    
-    return this.getTypeSchema(value);
-  }
-  
-  /**
-   * Get JSON Schema type definition based on the type of value
-   * @deprecated Will be replaced with zod in the future
-   */
-  private getTypeSchema(value: any): any {
-    switch (typeof value) {
-      case 'string':
-        return { type: "string" };
-      case 'number':
-        return { type: "number" };
-      case 'boolean':
-        return { type: "boolean" };
-      default:
-        return {};
-    }
-  }
-  
-  /**
-   * Validate that a target conforms to a schema
-   * @deprecated Will be replaced with zod in the future
-   */
-  private validateSchema(_schema: object | object[], _target: object | object[]): { valid: boolean, errors: any[] } {
-    // Simple validation stub for now
-    // This will be replaced with zod in the future
-    
-    // Just return valid for now since this is a stub
-    return {
-      valid: true,
-      errors: []
-    };
-  }
-
-  /**
    * Get structured answer from a language model
    * Supports both Zod schemas and JSON Schema objects
    */
@@ -303,76 +196,22 @@ export abstract class LanguageProvider {
     
     if (typeof prompt === 'string') {
       messages = new LangChatMessageCollection();
-    
-      // @TODO: implement
+      messages.addUserMessage(prompt);
     } else if (Array.isArray(prompt)) {
-      // Convert to LangChatMessageCollection if it's a regular array
       if (prompt instanceof LangChatMessageCollection) {
         messages = prompt;
       } else {
         messages = new LangChatMessageCollection(...prompt);
       }
-      // @TODO: implement
     } else {
       throw new Error("Prompt must be a string or an array of messages");
     }
     
-    // Process the request
-    const result = await this.chat(messages, options);
-    
-    // Try to extract JSON from the response
-    try {
-      const jsonObj = extractJSON(result.answer);
-      if (jsonObj !== null) {
-        // Validate the extracted JSON against the schema
-        const validation = validateAgainstSchema(jsonObj, schema);
-        
-        if (validation.valid) {
-          // @TODO: if we use zod - do we need to do anything extra here?
-          
-          result.object = jsonObj;
-        } else {
-          console.warn(`Schema validation failed: ${validation.errors.join(', ')}`);
-          // Still set the object even if validation fails
-          result.object = jsonObj;
-        }
-      }
-    } catch (error) {
-      console.error("Failed to extract or validate JSON", error);
-    }
-    
-    result.finished = true;
-    options?.onResult?.(result);
-    
-    return result;
-  }
-  
-  /**
-   * Helper method to process object extraction requests
-   * @deprecated Will be replaced with zod in the future
-   */
-  private async processObjectRequest(
-    messages: LangChatMessageCollection,
-    _schema: object | object[],
-    options?: LangOptions,
-  ): Promise<LangResult> {
-    // Simplified implementation for now
-    // Just use the chat method directly
-    const result = await this.chat(messages, options);
-    
-    // Try to extract JSON from the response
-    try {
-      const jsonObj = extractJSON(result.answer);
-      if (jsonObj !== null) {
-        result.object = jsonObj;
-      }
-    } catch (error) {
-      console.error("Failed to extract JSON", error);
-    }
-    
-    result.finished = true;
-    options?.onResult?.(result);
-    
+    const result = await this.chat(messages, {
+      ...options,
+      schema,
+    });
+
     return result;
   }
 }
