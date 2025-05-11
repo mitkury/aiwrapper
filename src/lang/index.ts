@@ -4,6 +4,7 @@ import {
   LanguageProvider, 
   LangResult, 
   LangOptions, 
+  LangChatMessage,
   LangChatMessageCollection,
   Tool,
   ToolRequest,
@@ -11,7 +12,10 @@ import {
 } from "./language-provider.ts";
 
 // Export classes
-export { Lang, LangVecs, LanguageProvider, LangResult };
+export { Lang, LangVecs, LanguageProvider, LangResult, LangChatMessageCollection };
 
 // Export types
-export type { LangOptions, LangChatMessageCollection as LangChatMessages, Tool, ToolRequest, ToolResult };
+export type { LangOptions, LangChatMessage, Tool, ToolRequest, ToolResult };
+
+// For backward compatibility
+export type LangChatMessages = LangChatMessageCollection;

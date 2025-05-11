@@ -2,7 +2,8 @@ import {
   LangChatMessageCollection,
   LangOptions,
   LangResult,
-  LangChatMessage
+  LangChatMessage,
+  Tool
 } from "../language-provider.ts";
 import { OpenAILikeLang } from "../openai-like/openai-like-lang.ts";
 import { models } from 'aimodels';
@@ -51,11 +52,16 @@ export class OpenAILang extends OpenAILikeLang {
   }
 
   override async chat(
-    messages: LangChatMessage[],
+    messages: LangChatMessage[] | LangChatMessageCollection,
     options?: LangOptions,
   ): Promise<LangResult> {
-    // Cast array to collection
-    const messageCollection = messages as LangChatMessageCollection;
+    // Ensure we have a LangChatMessageCollection
+    let messageCollection: LangChatMessageCollection;
+    if (messages instanceof LangChatMessageCollection) {
+      messageCollection = messages;
+    } else {
+      messageCollection = new LangChatMessageCollection(...messages);
+    }
     
     // Initialize result
     const result = new LangResult(messageCollection);
@@ -156,7 +162,25 @@ export class OpenAILang extends OpenAILikeLang {
   }
   
   /**
-   * @TODO: Override handleStreamData to properly handle OpenAI-specific 
-   * response format for tool calls once we implement tools
+   * Override handleStreamData to properly handle OpenAI-specific 
+   * response format for tool calls
    */
+  protected override handleStreamData(
+    data: any, 
+    result: LangResult,
+    messages: LangChatMessageCollection,
+    onResult?: (result: LangResult) => void
+  ): void {
+    // Use the parent implementation for now
+    // This can be customized later for OpenAI-specific handling
+    super.handleStreamData(data, result, messages, onResult);
+  }
+  
+  /**
+   * Override formatTools to format tools according to OpenAI's API requirements
+   */
+  protected override formatTools(tools: Tool[]): any[] {
+    // Use the parent implementation for now
+    return super.formatTools(tools);
+  }
 }

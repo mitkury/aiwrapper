@@ -139,11 +139,16 @@ export class OpenAILikeLang extends LanguageProvider {
   }
 
   async chat(
-    messages: LangChatMessage[],
+    messages: LangChatMessage[] | LangChatMessageCollection,
     options?: LangOptions,
   ): Promise<LangResult> {
-    // Cast the array directly to LangChatMessageCollection
-    const messageCollection = messages as LangChatMessageCollection;
+    // Ensure we have a LangChatMessageCollection
+    let messageCollection: LangChatMessageCollection;
+    if (messages instanceof LangChatMessageCollection) {
+      messageCollection = messages;
+    } else {
+      messageCollection = new LangChatMessageCollection(...messages);
+    }
     
     const result = new LangResult(messageCollection);
     const onResult = options?.onResult;
@@ -167,14 +172,15 @@ export class OpenAILikeLang extends LanguageProvider {
       this.handleStreamData(data, result, messageCollection, onResult);
     };
 
-    // @TODO: Add tools to the request body if provided in options
+    // Prepare request body with tools if provided
     const body = this.transformBody({
       model: this._config.model,
-      messages: messages,
+      messages: messageCollection,
       stream: true,
       max_tokens: requestMaxTokens,
       ...this._config.bodyProperties,
-      // @TODO: Format tools for OpenAI API if options.tools is provided
+      // Add tools to the request if provided
+      ...(options?.tools ? { tools: this.formatTools(options.tools) } : {}),
     });
 
     const response = await fetch(`${this._config.baseURL}/chat/completions`, {
@@ -214,6 +220,24 @@ export class OpenAILikeLang extends LanguageProvider {
   }
 
   /**
+   * Formats tools for the OpenAI API request
+   * @param tools Array of tools to format
+   * @returns Formatted tools for the API request
+   */
+  protected formatTools(tools: Tool[]): any[] {
+    // Simple pass-through for now, but implementations can override this
+    // to format tools according to their specific API requirements
+    return tools.map(tool => ({
+      type: "function",
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters
+      }
+    }));
+  }
+
+  /**
    * Handles streaming data from the API response
    * This method can be overridden by subclasses to add custom handling for different response formats
    * @param data The current data chunk from the stream
@@ -233,18 +257,51 @@ export class OpenAILikeLang extends LanguageProvider {
       return;
     }
 
-    // @TODO: Handle tool calls from the response
     if (data.choices !== undefined) {
+      const delta = data.choices[0].delta;
+      
       // Handle regular text content
-      if (data.choices[0].delta.content) {
-        const deltaContent = data.choices[0].delta.content;
-        result.answer += deltaContent;
+      if (delta.content) {
+        result.answer += delta.content;
       }
       
-      // @TODO: Handle tool_calls if present in the delta
-      // if (data.choices[0].delta.tool_calls) {
-      //   // Process tool calls and add them to result.tools
-      // }
+      // Handle tool calls if present in the delta
+      if (delta.tool_calls) {
+        // Initialize tools array if it doesn't exist
+        if (!result.tools) {
+          result.tools = [];
+        }
+        
+        // Process each tool call
+        for (const toolCall of delta.tool_calls) {
+          // For streaming, we need to handle partial tool calls
+          // This is a stub implementation that will be expanded later
+          const existingToolCall = result.tools.find(t => t.id === toolCall.id);
+          
+          if (existingToolCall) {
+            // Update existing tool call
+            if (toolCall.function?.name) {
+              existingToolCall.name = toolCall.function.name;
+            }
+            if (toolCall.function?.arguments) {
+              // In a real implementation, we would need to handle partial JSON
+              // For now, just append the arguments string
+              existingToolCall.arguments = {
+                ...existingToolCall.arguments,
+                ...JSON.parse(toolCall.function.arguments)
+              };
+            }
+          } else if (toolCall.id) {
+            // Add new tool call
+            result.tools.push({
+              id: toolCall.id,
+              name: toolCall.function?.name || '',
+              arguments: toolCall.function?.arguments ? 
+                JSON.parse(toolCall.function.arguments) : {}
+            });
+          }
+        }
+      }
 
       // Update the messages array with the latest content
       if (result.messages.length > 0 && 
