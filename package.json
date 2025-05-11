@@ -38,6 +38,7 @@
     "prebuild": "rm -rf dist",
     "build": "node build.js",
     "serve": "npx serve .",
+    "pretest": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest"
   },
