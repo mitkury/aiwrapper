@@ -84,7 +84,7 @@
       "dependencies": [
         "npm:@playwright/test@^1.42.1",
         "npm:@types/node@^20.11.16",
-        "npm:aimodels@~0.4.10",
+        "npm:aimodels@~0.4.11",
         "npm:dotenv@^16.4.1",
         "npm:dts-bundle-generator@^9.5.1",
         "npm:esbuild@~0.25.2",
