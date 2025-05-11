@@ -50,7 +50,8 @@
   },
   "dependencies": {
     "aimodels": "^0.4.11",
-    "jsonic": "^2.16.0"
+    "jsonic": "^2.16.0",
+    "zod": "^3.24.4"
   },
   "devDependencies": {
     "@playwright/test": "^1.42.1",

@@ -1,17 +1,19 @@
 // Import necessary utilities
-import { buildPromptForSchema as _buildPromptForSchema } from "./prompt-for-json.ts";
 import extractJSON from "./json/extract-json.ts";
+import { z } from 'zod';
+import { 
+  schemaToDescription, 
+  validateAgainstSchema 
+} from "./schema/schema-utils.ts";
 
-// Note: Object extraction functionality is stubbed for now
-// We'll implement it using zod in the future
+// Export zod for convenience
+export { z };
 
-// Stub for future zod integration
-// TODO: Replace with actual zod implementation
-const _validateWithZod = (_data: unknown, _schema: unknown): { valid: boolean, errors: string[] } => {
-  // This is just a stub that always returns valid for now
-  console.log('Schema validation is stubbed and will be implemented with zod');
-  return { valid: true, errors: [] };
-};
+/**
+ * Type for any supported schema (Zod or JSON Schema)
+ */
+export type Schema = z.ZodType | Record<string, unknown>;
+
 
 /**
  * Interface for tool requests that can be sent to language models
@@ -290,35 +292,65 @@ export abstract class LanguageProvider {
 
   /**
    * Get structured answer from a language model
-   * Uses a schema-based approach
-   * @deprecated Current implementation will be replaced with zod in the future
+   * Supports both Zod schemas and JSON Schema objects
    */
   async askForObject<T>(
     prompt: string | LangChatMessage[] | LangChatMessageCollection,
-    _schema: object | object[],
+    schema: Schema,
     options?: LangOptions,
   ): Promise<LangResult> {
-    // Simplified implementation for now
-    // This will be replaced with zod in the future
-    
     // Create a message collection with the prompt
-    const messages = new LangChatMessageCollection();
+    let messages: LangChatMessageCollection;
     
     if (typeof prompt === 'string') {
-      messages.addUserMessage(`Generate JSON with this structure: ${JSON.stringify(_schema)}. Prompt: ${prompt}`);
+      messages = new LangChatMessageCollection();
+      
+      // Convert the schema to a human-readable description
+      const schemaDesc = schemaToDescription(schema);
+      
+      // Create a prompt that includes the schema description
+      messages.addUserMessage(`Generate a JSON object that is ${schemaDesc}. The JSON should be valid and follow this request: ${prompt}`);
     } else if (Array.isArray(prompt)) {
-      // Just use the messages as is for now
+      // Convert to LangChatMessageCollection if it's a regular array
       if (prompt instanceof LangChatMessageCollection) {
-        return this.ask("This API is being updated to use zod. Please use the regular ask method for now.", options);
+        messages = prompt;
       } else {
-        // Create a collection but don't use it - just for demonstration
-        const _collection = new LangChatMessageCollection(...prompt);
-        return this.ask("This API is being updated to use zod. Please use the regular ask method for now.", options);
+        messages = new LangChatMessageCollection(...prompt);
       }
+      
+      // Add a message asking for structured output
+      const schemaDesc = schemaToDescription(schema);
+      messages.addUserMessage(`Please provide your response as a JSON object that is ${schemaDesc}.`);
+    } else {
+      throw new Error("Prompt must be a string or an array of messages");
     }
     
-    // Just use the regular ask method for now
-    return this.ask("This API is being updated to use zod. Please use the regular ask method for now.", options);
+    // Process the request
+    const result = await this.chat(messages, options);
+    
+    // Try to extract JSON from the response
+    try {
+      const jsonObj = extractJSON(result.answer);
+      if (jsonObj !== null) {
+        // Validate the extracted JSON against the schema
+        const validation = validateAgainstSchema(jsonObj, schema);
+        
+        if (validation.valid) {
+          result.object = jsonObj;
+        } else {
+          console.warn(`Schema validation failed: ${validation.errors.join(', ')}`);
+          // Still set the object even if validation fails
+          result.object = jsonObj;
+        }
+      }
+    } catch (error) {
+      console.error("Failed to extract or validate JSON", error);
+    }
+    
+    result.finished = true;
+    options?.onResult?.(result);
+    
+    return result;
   }
   
   /**
