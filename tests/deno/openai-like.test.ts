@@ -21,12 +21,12 @@ Deno.test({
     // Setup both standard OpenRouter and openaiLike with OpenRouter
     const standardLang = Lang.openrouter({
       apiKey: openRouterKey,
-      model: "openai/gpt-3.5-turbo"
+      model: "openai/gpt-4o-mini"
     });
 
     const customLang = Lang.openaiLike({
       apiKey: openRouterKey,
-      model: "openai/gpt-3.5-turbo",
+      model: "openai/gpt-4o-mini",
       baseURL: "https://openrouter.ai/api/v1",
       // OpenRouter requires these headers
       headers: {
@@ -62,7 +62,7 @@ Deno.test({
   async fn() {
     const customParamsLang = Lang.openaiLike({
       apiKey: openRouterKey,
-      model: "openai/gpt-3.5-turbo",
+      model: "openai/gpt-4o-mini",
       baseURL: "https://openrouter.ai/api/v1",
       headers: {
         "HTTP-Referer": "https://aiwrapper.dev",

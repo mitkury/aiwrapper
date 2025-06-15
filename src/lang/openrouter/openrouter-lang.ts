@@ -5,18 +5,40 @@ export type OpenRouterLangOptions = {
   model?: string;
   systemPrompt?: string;
   maxTokens?: number;
+  maxCompletionTokens?: number;
+  siteUrl?: string; // Optional. Site URL for rankings on openrouter.ai
+  siteName?: string; // Optional. Site title for rankings on openrouter.ai
+  headers?: Record<string, string>; // Additional custom headers
+  bodyProperties?: Record<string, unknown>; // Additional request body properties
 };
 
 export class OpenRouterLang extends OpenAILikeLang {
   constructor(options: OpenRouterLangOptions) {
-    const modelName = options.model || "openai/gpt-3.5-turbo";
+    const modelName = options.model || "openai/gpt-4o-mini"; // Updated to a more recent default
+    
+    // Build headers with OpenRouter-specific optional headers
+    const headers: Record<string, string> = {
+      ...options.headers,
+    };
+    
+    // Add OpenRouter-specific headers if provided
+    if (options.siteUrl) {
+      headers["HTTP-Referer"] = options.siteUrl;
+    }
+    
+    if (options.siteName) {
+      headers["X-Title"] = options.siteName;
+    }
     
     super({
       apiKey: options.apiKey,
       model: modelName,
       systemPrompt: options.systemPrompt || "",
       maxTokens: options.maxTokens,
+      maxCompletionTokens: options.maxCompletionTokens,
       baseURL: "https://openrouter.ai/api/v1",
+      headers,
+      bodyProperties: options.bodyProperties,
     });
   }
 } 

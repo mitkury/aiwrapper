@@ -63,7 +63,7 @@ const CONFIG = {
     enabled: true,
     options: {
       apiKey: Deno.env.get("OPENROUTER_API_KEY") || "",
-      model: "openai/gpt-3.5-turbo",
+      model: "openai/gpt-4o-mini",
     },
   },
   ollama: {

@@ -8,7 +8,7 @@ Use LLMs from anywhere—servers, browsers and web-apps. AIWrapper works in anyt
 
 ## Features
 - Generate plain text or JSON objects with a simple API
-- Use different LLM providers: OpenAI, Anthropic, Groq, DeepSeek, Ollama and any OpenAI-compatible services
+- Use different LLM providers: OpenAI, Anthropic, Groq, DeepSeek, Ollama, OpenRouter and any OpenAI-compatible services
 - Output objects based on needed schemas
 - Swap models quickly or chain different models together
 - Use it with JavaScript or TypeScript from anywhere
@@ -74,6 +74,30 @@ const lang = Lang.openaiLike({
 // Use it just like any other LLM provider
 const result = await lang.ask("Hello!");
 console.log(result);
+```
+
+### Use OpenRouter (Access 100+ Models)
+```javascript
+import { Lang } from "aiwrapper";
+
+// Basic OpenRouter usage
+const lang = Lang.openrouter({
+  apiKey: "YOUR_OPENROUTER_API_KEY",
+  model: "openai/gpt-4o", // Or any model from OpenRouter's catalog
+});
+
+// With optional site information for rankings
+const langWithSiteInfo = Lang.openrouter({
+  apiKey: "YOUR_OPENROUTER_API_KEY",
+  model: "anthropic/claude-3.5-sonnet",
+  siteUrl: "https://your-app.com", // Optional: appears on OpenRouter leaderboards
+  siteName: "Your App Name", // Optional: appears on OpenRouter leaderboards
+  systemPrompt: "You are a helpful assistant.",
+  maxTokens: 4000,
+});
+
+const result = await langWithSiteInfo.ask("Explain quantum computing in simple terms");
+console.log(result.answer);
 ```
 
 ### Stream Results
