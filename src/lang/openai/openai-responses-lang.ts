@@ -135,6 +135,11 @@ export class OpenAIResponsesLang extends LanguageProvider {
           result.answer += item.text;
         } else if (item?.type === 'text' && typeof item.text === 'string') {
           result.answer += item.text;
+        } else if (Array.isArray(item?.content)) {
+          const first = item.content[0];
+          if (first?.type === 'output_text' && typeof first.text === 'string') {
+            result.answer += first.text;
+          }
         }
         if (item?.type === 'output_image') {
           if (item.image_url) {
@@ -162,7 +167,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
     // If all contents are plain strings and no images, return a single concatenated string
     let hasStructured = false;
     let hasImage = false;
-    const plainParts: string[] = [];
+    const roleLines: string[] = [];
     for (const m of messages) {
       const content = (m as any).content;
       if (Array.isArray(content)) {
@@ -171,13 +176,11 @@ export class OpenAIResponsesLang extends LanguageProvider {
           if (part.type === 'image') hasImage = true;
         }
       } else {
-        plainParts.push(String(content));
+        roleLines.push(`${m.role}: ${String(content)}`);
       }
     }
-    if (!hasStructured && !hasImage && plainParts.length > 0) {
-      // Prefer the last user message if present; otherwise join
-      const last = plainParts[plainParts.length - 1];
-      return last;
+    if (!hasStructured && !hasImage && roleLines.length > 0) {
+      return roleLines.join("\n\n");
     }
 
     // Build role/content entries with input_text and input_image
