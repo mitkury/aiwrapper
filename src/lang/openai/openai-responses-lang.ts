@@ -159,6 +159,28 @@ export class OpenAIResponsesLang extends LanguageProvider {
   }
 
   private transformMessagesToResponsesInput(messages: LangChatMessageCollection): any {
+    // If all contents are plain strings and no images, return a single concatenated string
+    let hasStructured = false;
+    let hasImage = false;
+    const plainParts: string[] = [];
+    for (const m of messages) {
+      const content = (m as any).content;
+      if (Array.isArray(content)) {
+        hasStructured = true;
+        for (const part of content as LangContentPart[]) {
+          if (part.type === 'image') hasImage = true;
+        }
+      } else {
+        plainParts.push(String(content));
+      }
+    }
+    if (!hasStructured && !hasImage && plainParts.length > 0) {
+      // Prefer the last user message if present; otherwise join
+      const last = plainParts[plainParts.length - 1];
+      return last;
+    }
+
+    // Build role/content entries with input_text and input_image
     const input: any[] = [];
     for (const m of messages) {
       const entry: any = { role: m.role === 'assistant' ? 'assistant' : m.role, content: [] as any[] };
@@ -184,13 +206,13 @@ export class OpenAIResponsesLang extends LanguageProvider {
     const kind: any = (image as any).kind;
     if (kind === 'url') {
       const url = (image as any).url as string;
-      return { type: 'input_image', image_url: { url } };
+      return { type: 'input_image', image_url: url };
     }
     if (kind === 'base64') {
       const base64 = (image as any).base64 as string;
       const mimeType = (image as any).mimeType || 'image/png';
       const dataUrl = `data:${mimeType};base64,${base64}`;
-      return { type: 'input_image', image_url: { url: dataUrl } };
+      return { type: 'input_image', image_url: dataUrl };
     }
     throw new Error('Unsupported image kind for Responses mapping');
   }
