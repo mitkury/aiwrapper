@@ -11,6 +11,7 @@ import {
   DecisionOnNotOkResponse,
   httpRequestWithRetry as fetch,
 } from "../../http-request.ts";
+import { processResponseStream } from "../../process-response-stream.ts";
 
 export type OpenAIResponsesOptions = {
   apiKey: string;
@@ -54,23 +55,26 @@ export class OpenAIResponsesLang extends LanguageProvider {
     // Map generic messages into Responses API messages format (OpenAI-compatible content parts)
     const providerMessages = this.transformMessages(messageCollection);
 
-    // If image output requested, include image in modalities
     const wantsImageOutput = options?.imageOutput && options.imageOutput !== "auto";
+    const stream = typeof options?.onResult === 'function';
 
     const body: any = {
       model: this._model,
       messages: providerMessages,
       ...(wantsImageOutput ? { modalities: ["text", "image"] } : {}),
+      ...(stream ? { stream: true } : {}),
     };
 
-    const response = await fetch(`${this._baseURL}/responses`, {
+    const url = `${this._baseURL}/responses${stream ? '?stream=true' : ''}`;
+
+    const common = {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${this._apiKey}`,
       },
       body: JSON.stringify(body),
-      onNotOkResponse: async (res, decision): Promise<DecisionOnNotOkResponse> => {
+      onNotOkResponse: async (res: Response, decision: DecisionOnNotOkResponse): Promise<DecisionOnNotOkResponse> => {
         if (res.status === 401) {
           decision.retry = false;
           throw new Error("Authentication failed. Please check your credentials and try again.");
@@ -82,12 +86,62 @@ export class OpenAIResponsesLang extends LanguageProvider {
         }
         return decision;
       },
-    });
+    } as const;
 
+    if (stream) {
+      const response = await fetch(url, common as any);
+
+      const onData = (data: any) => {
+        if (data.finished) {
+          result.finished = true;
+          options?.onResult?.(result);
+          return;
+        }
+        // Try to parse Responses API streaming deltas
+        // Heuristic: look for output items (text or image)
+        const parts = data?.delta?.output || data?.output || data?.content || [];
+        const arr = Array.isArray(parts) ? parts : [parts];
+        for (const item of arr) {
+          if (!item) continue;
+          if (item.type === 'output_text' && typeof item.text === 'string') {
+            result.answer += item.text;
+          }
+          if (item.type === 'text' && typeof item.text === 'string') {
+            result.answer += item.text;
+          }
+          if (item.type === 'output_image') {
+            if (item.image_url) {
+              result.images = result.images || [];
+              result.images.push({ url: item.image_url, provider: this.name, model: this._model });
+            }
+            if (item.b64_json || item.base64 || item.data) {
+              const base64 = item.b64_json || item.base64 || item.data;
+              const mimeType = item.mime_type || item.mimeType || 'image/png';
+              result.images = result.images || [];
+              result.images.push({ base64, mimeType, provider: this.name, model: this._model });
+            }
+          }
+        }
+
+        if (result.answer) {
+          if (result.messages.length > 0 && result.messages[result.messages.length - 1].role === 'assistant') {
+            result.messages[result.messages.length - 1].content = result.answer;
+          } else {
+            result.messages.push({ role: 'assistant', content: result.answer });
+          }
+        }
+
+        options?.onResult?.(result);
+      };
+
+      await processResponseStream(response, onData);
+      return result;
+    }
+
+    // Non-streaming
+    const response = await fetch(`${this._baseURL}/responses`, common as any);
     const data: any = await response.json();
 
-    // Heuristic parse: try Responses API shapes
-    // Prefer structured output arrays
     const outputs = (data?.output || data?.response?.output || data?.content || []);
 
     const appendAssistantText = (text: string) => {
@@ -100,14 +154,12 @@ export class OpenAIResponsesLang extends LanguageProvider {
     };
 
     const tryExtractFromContent = (contentItem: any) => {
-      // Common variants
       if (contentItem?.type === 'output_text' && typeof contentItem.text === 'string') {
         appendAssistantText(contentItem.text);
       }
       if (contentItem?.type === 'text' && typeof contentItem.text === 'string') {
         appendAssistantText(contentItem.text);
       }
-      // Image outputs
       if (contentItem?.type === 'output_image') {
         if (contentItem.image_url) {
           result.images = result.images || [];
@@ -126,7 +178,6 @@ export class OpenAIResponsesLang extends LanguageProvider {
       }
     };
 
-    // Parse different possible containers
     if (Array.isArray(outputs)) {
       for (const item of outputs) {
         if (item?.type === 'message' && Array.isArray(item.content)) {
