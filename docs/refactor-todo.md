@@ -18,7 +18,7 @@
   - [x] Add mock provider support to simulate streaming `tool_calls` via `mockToolCalls` in `src/lang/mock/mock-openai-like-lang.ts`.
   - [x] Add a test covering partial argument assembly in `tests/tools.test.ts`.
   - [ ] Provider-specific `formatTools` overrides and request wiring (Anthropic, Google, Cohere, Mistral, OpenRouter).
-  - [ ] Provide helper workflow for executing tools externally and merging results via `LangResult.addToolUseMessage`, plus examples and docs.
+  - [x] Provide helper workflow for executing tools externally and merging results via `LangResult.addToolUseMessage`, plus examples and docs (see `docs/dev/tools.md`).
 
 - **Providers**
   - [ ] Ensure schema-aware request formatting per provider (enable native structured output where available).

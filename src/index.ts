@@ -12,3 +12,5 @@ export * from "./speech2text/index.ts";
 export * from "./text2speech/index.ts";
 // Re-export everything from aimodels
 export * from 'aimodels';
+// Tools helpers
+export * from "./lang/tools/tools-helpers.ts";

@@ -77,6 +77,8 @@ export class MockOpenAILikeLang extends OpenAILikeLang {
       }
       // Finished
       (this as any).handleStreamData({ finished: true }, result, messageCollection, onResult, toolArgBuffers);
+      // Consume mockToolCalls so subsequent chats produce a normal answer
+      this.mockConfig.mockToolCalls = [];
       return result;
     }
 
