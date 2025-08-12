@@ -15,6 +15,23 @@ export type Schema = z.ZodType | Record<string, unknown>;
 
 
 /**
+ * Image input types for multimodal prompts
+ */
+export type LangImageInput =
+  | { kind: "url"; url: string }
+  | { kind: "base64"; base64: string; mimeType?: string }
+  | { kind: "bytes"; bytes: ArrayBuffer | Uint8Array; mimeType?: string }
+  | { kind: "blob"; blob: Blob; mimeType?: string };
+
+/**
+ * Mixed content parts for messages (text + images)
+ */
+export type LangContentPart =
+  | { type: "text"; text: string }
+  | { type: "image"; image: LangImageInput; alt?: string };
+
+
+/**
  * Interface for tool requests that can be sent to language models
  */
 export interface ToolRequest {
@@ -61,7 +78,8 @@ export interface LangOptions {
  */
 export interface LangChatMessage {
   role: "user" | "assistant" | "tool" | "system";
-  content: string | any;
+  // Supports simple string content for backward compatibility, or a list of structured parts
+  content: string | LangContentPart[] | any;
 }
 
 /**
@@ -73,8 +91,23 @@ export class LangChatMessageCollection extends Array<LangChatMessage> {
     return this;
   }
 
+  addUserContent(parts: LangContentPart[]): this {
+    this.push({ role: "user", content: parts });
+    return this;
+  }
+
+  addUserImage(image: LangImageInput, alt?: string): this {
+    const parts: LangContentPart[] = [{ type: "image", image, alt }];
+    return this.addUserContent(parts);
+  }
+
   addAssistantMessage(content: string): this {
     this.push({ role: "assistant", content });
+    return this;
+  }
+
+  addAssistantContent(parts: LangContentPart[]): this {
+    this.push({ role: "assistant", content: parts });
     return this;
   }
 

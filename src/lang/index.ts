@@ -20,6 +20,9 @@ export { Lang, LangVecs, LanguageProvider, LangResult, LangChatMessageCollection
 // Export types
 export type { LangOptions, LangChatMessage, Tool, ToolRequest, ToolResult, Schema };
 
+// Re-export image and content part types
+export type { LangImageInput, LangContentPart } from "./language-provider.ts";
+
 // For backward compatibility
 export type LangChatMessages = LangChatMessageCollection;
 

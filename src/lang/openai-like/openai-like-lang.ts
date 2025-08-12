@@ -6,6 +6,8 @@ import {
   LanguageProvider,
   ToolRequest,
   Tool,
+  LangContentPart,
+  LangImageInput,
 } from "../language-provider.ts";
 import {
   DecisionOnNotOkResponse,
@@ -271,9 +273,50 @@ export class OpenAILikeLang extends LanguageProvider {
           continue;
         }
       }
+      // Support structured content parts (text + images)
+      const content = (msg as any).content;
+      if (Array.isArray(content)) {
+        const parts = this.mapContentPartsToOpenAI(content as LangContentPart[]);
+        out.push({ role: msg.role, content: parts });
+        continue;
+      }
       out.push(msg);
     }
     return out;
+  }
+
+  private mapContentPartsToOpenAI(parts: LangContentPart[]): any[] {
+    const out: any[] = [];
+    for (const part of parts) {
+      if (part.type === "text") {
+        out.push({ type: "text", text: part.text });
+      } else if (part.type === "image") {
+        const mapped = this.mapImageInputToOpenAI(part.image);
+        out.push(mapped);
+      }
+    }
+    return out;
+  }
+
+  private mapImageInputToOpenAI(image: LangImageInput): any {
+    // Prefer image_url mapping for OpenAI-like chat/completions
+    if ((image as any).kind === "url") {
+      const url = (image as any).url as string;
+      return { type: "image_url", image_url: { url } };
+    }
+    if ((image as any).kind === "base64") {
+      const base64 = (image as any).base64 as string;
+      const mimeType = (image as any).mimeType || "image/png";
+      const dataUrl = `data:${mimeType};base64,${base64}`;
+      return { type: "image_url", image_url: { url: dataUrl } };
+    }
+    if ((image as any).kind === "bytes") {
+      throw new Error("LangImageInput kind 'bytes' is not supported in OpenAI-like adapter yet. Please provide base64 or URL.");
+    }
+    if ((image as any).kind === "blob") {
+      throw new Error("LangImageInput kind 'blob' is not supported in OpenAI-like adapter yet. Please provide base64 or URL.");
+    }
+    throw new Error("Unknown LangImageInput kind");
   }
 
   /**
