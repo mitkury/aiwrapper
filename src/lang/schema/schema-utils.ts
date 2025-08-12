@@ -1,4 +1,14 @@
 import { z } from 'zod';
+import Ajv, { ErrorObject } from 'ajv';
+
+// Lazy singleton Ajv instance to avoid repeated construction
+let ajvInstance: Ajv | null = null;
+function getAjv(): Ajv {
+  if (!ajvInstance) {
+    ajvInstance = new Ajv({ allErrors: true, strict: false });
+  }
+  return ajvInstance;
+}
 
 /**
  * Type guard to check if a value is a Zod schema
@@ -37,11 +47,22 @@ export function validateAgainstSchema(value: unknown, schema: unknown): { valid:
     }
   } else if (isJsonSchema(schema)) {
     try {
-      // @TODO: implement
-      
-      return { valid: true, errors: [] };
+      const ajv = getAjv();
+      const validate = ajv.compile(schema);
+      const ok = validate(value);
+      if (ok) {
+        return { valid: true, errors: [] };
+      }
+      const errors: ErrorObject[] | null | undefined = validate.errors;
+      const messages = (errors || []).map(e => {
+        const instancePath = e.instancePath || '';
+        const path = instancePath.startsWith('/') ? instancePath.slice(1).replace(/\//g, '.') : instancePath;
+        const msg = e.message || 'validation error';
+        return path ? `${path}: ${msg}` : msg;
+      });
+      return { valid: false, errors: messages };
     } catch (_error) {
-      return { valid: false, errors: ["Invalid schema or value"] };
+      return { valid: false, errors: ["Invalid JSON Schema or value"] };
     }
   } else {
     return { valid: false, errors: ["Invalid schema"] };
