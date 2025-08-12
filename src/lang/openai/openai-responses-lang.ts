@@ -60,7 +60,6 @@ export class OpenAIResponsesLang extends LanguageProvider {
     const body: any = {
       model: this._model,
       input,
-      modalities: ["text"],
       max_output_tokens: typeof (options as any)?.maxTokens === 'number' ? (options as any).maxTokens : 512,
       ...(stream ? { stream: true } : {}),
     };
