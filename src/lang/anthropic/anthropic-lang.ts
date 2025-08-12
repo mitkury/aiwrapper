@@ -13,6 +13,12 @@ import {
 import { models } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
 
+type AnthropicTool = {
+  name: string;
+  description: string;
+  input_schema: Record<string, any>;
+};
+
 export type AnthropicLangOptions = {
   apiKey: string;
   model?: string;
@@ -84,18 +90,19 @@ export class AnthropicLang extends LanguageProvider {
     
     // Convert messages for Anthropic format
     // Filter out system messages and handle them differently
-    const processedMessages = [];
+    const processedMessages = [] as any[];
     let systemContent = '';
     
-    // Extract system messages and convert to Anthropic format
     for (const message of messages) {
-      // Check if message has role as "system" (using type assertion)
       if ((message as any).role === "system") {
         systemContent += (message as any).content + '\n';
       } else {
         processedMessages.push(message);
       }
     }
+
+    // Transform messages for Anthropic, including tool results mapping
+    const providerMessages = this.transformMessagesForProvider(processedMessages as any);
 
     // Get model info and calculate max tokens
     const modelInfo = models.id(this._config.model);
@@ -109,21 +116,113 @@ export class AnthropicLang extends LanguageProvider {
       this._config.maxTokens
     );
 
-    // Track if we're receiving thinking content
+    // Track thinking and tool use
     let isReceivingThinking = false;
     let thinkingContent = "";
+    const pendingToolInputs = new Map<string, { name: string; buffer: string }>();
 
     const onResult = options?.onResult;
     const onData = (data: any) => {
       if (data.type === "message_stop") {
-        // Store the thinking content in the result object before finishing
+        // finalize any pending tool inputs
+        if (result.tools && result.tools.length > 0) {
+          for (const [id, acc] of pendingToolInputs) {
+            const entry = result.tools.find(t => t.id === id);
+            if (!entry) continue;
+            try {
+              (entry as any).arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
+            } catch {}
+          }
+        }
         result.thinking = thinkingContent;
         result.finished = true;
         onResult?.(result);
         return;
       }
 
-      // Handle thinking content
+      // Handle tool_use start
+      if (data.type === "content_block_start" && data.content_block?.type === "tool_use") {
+        const id = data.content_block?.id;
+        const name = data.content_block?.name || '';
+        if (!result.tools) result.tools = [];
+        result.tools.push({ id, name, arguments: {} } as any);
+        pendingToolInputs.set(id, { name, buffer: '' });
+        return;
+      }
+
+      // Handle tool_use input deltas (best-effort for various shapes)
+      if (data.type === "content_block_delta") {
+        // Thinking content
+        if (data.delta?.type === "thinking_delta" && data.delta.thinking) {
+          isReceivingThinking = true;
+          thinkingContent += data.delta.thinking;
+          result.thinking = thinkingContent;
+          onResult?.(result);
+          return;
+        }
+
+        const toolUseId = data.content_block_id;
+        if (toolUseId && pendingToolInputs.has(toolUseId)) {
+          const acc = pendingToolInputs.get(toolUseId)!;
+          // Common variants in Anthropic streaming for tool input
+          if (typeof data.delta?.partial_json === 'string') {
+            acc.buffer += data.delta.partial_json;
+            try {
+              const parsed = JSON.parse(acc.buffer);
+              const entry = result.tools?.find(t => t.id === toolUseId);
+              if (entry) (entry as any).arguments = parsed;
+            } catch {}
+            return;
+          }
+          if (data.delta?.input_json_delta && typeof data.delta.input_json_delta === 'string') {
+            acc.buffer += data.delta.input_json_delta;
+            try {
+              const parsed = JSON.parse(acc.buffer);
+              const entry = result.tools?.find(t => t.id === toolUseId);
+              if (entry) (entry as any).arguments = parsed;
+            } catch {}
+            return;
+          }
+          if (data.delta?.text) {
+            // Fallback text accumulation
+            acc.buffer += data.delta.text;
+            return;
+          }
+        }
+
+        // Regular text delta
+        const deltaContent = data.delta.text ? data.delta.text : "";
+        if (!toolUseId) {
+          if (isReceivingThinking) {
+            thinkingContent += deltaContent;
+            result.thinking = thinkingContent;
+            onResult?.(result);
+            return;
+          }
+          result.answer += deltaContent;
+          if (result.messages.length > 0 && 
+              result.messages[result.messages.length - 1].role === "assistant") {
+            result.messages[result.messages.length - 1].content = result.answer;
+          } else {
+            result.messages.push({ role: "assistant", content: result.answer });
+          }
+          onResult?.(result);
+          return;
+        }
+      }
+
+      if (data.type === "content_block_stop" && data.content_block?.type === "tool_use") {
+        const id = data.content_block?.id;
+        if (id && pendingToolInputs.has(id)) {
+          const acc = pendingToolInputs.get(id)!;
+          const entry = result.tools?.find(t => t.id === id);
+          if (entry) {
+            try { (entry as any).arguments = acc.buffer ? JSON.parse(acc.buffer) : {}; } catch {}
+          }
+        }
+        return;
+      }
+
       if (data.type === "content_block_start" && data.content_block?.type === "thinking") {
         isReceivingThinking = true;
         return;
@@ -131,7 +230,6 @@ export class AnthropicLang extends LanguageProvider {
 
       if (data.type === "content_block_stop" && isReceivingThinking) {
         isReceivingThinking = false;
-        // Update the thinking content in the result object
         result.thinking = thinkingContent;
         onResult?.(result);
         return;
@@ -147,106 +245,37 @@ export class AnthropicLang extends LanguageProvider {
             : "";
           result.answer += deltaContent;
           
-          // Update the existing assistant message or add a new one
           if (result.messages.length > 0 && 
               result.messages[result.messages.length - 1].role === "assistant") {
-            // Update the existing assistant message
             result.messages[result.messages.length - 1].content = result.answer;
           } else {
-            // Add a new assistant message
-            result.messages.push({
-              role: "assistant",
-              content: result.answer,
-            });
+            result.messages.push({ role: "assistant", content: result.answer });
           }
           
           onResult?.(result);
         }
       }
-
-      if (data.type === "content_block_delta") {
-        // Handle thinking content delta
-        if (data.delta.type === "thinking_delta" && data.delta.thinking) {
-          thinkingContent += data.delta.thinking;
-          // Update the thinking content in the result object
-          result.thinking = thinkingContent;
-          onResult?.(result);
-          return;
-        }
-        
-        // Handle regular text delta
-        const deltaContent = data.delta.text ? data.delta.text : "";
-        
-        // If we're receiving thinking content, store it separately
-        if (isReceivingThinking) {
-          thinkingContent += deltaContent;
-          // Update the thinking content in the result object
-          result.thinking = thinkingContent;
-          onResult?.(result);
-          return;
-        }
-        
-        result.answer += deltaContent;
-        
-        // Update the existing assistant message or add a new one
-        if (result.messages.length > 0 && 
-            result.messages[result.messages.length - 1].role === "assistant") {
-          // Update the existing assistant message
-          result.messages[result.messages.length - 1].content = result.answer;
-        } else {
-          // Add a new assistant message
-          result.messages.push({
-            role: "assistant",
-            content: result.answer,
-          });
-        }
-        
-        onResult?.(result);
-      }
     };
 
-    // Check if the model supports extended thinking by looking for the "reason" capability
-    const supportsExtendedThinking = modelInfo.can && modelInfo.can("reason");
+    // Prepare tools if provided
+    let tools: AnthropicTool[] | undefined;
+    if (options?.tools && options.tools.length > 0) {
+      tools = options.tools.map(t => ({
+        name: t.name,
+        description: t.description,
+        input_schema: t.parameters
+      }));
+    }
     
     // Prepare request body
     const requestBody: any = {
       model: this._config.model,
-      messages: processedMessages,
+      messages: providerMessages,
       max_tokens: requestMaxTokens,
       system: systemContent,
       stream: true,
+      ...(tools ? { tools } : {}),
     };
-
-    // Add extended thinking if enabled and supported
-    if (this._config.extendedThinking && supportsExtendedThinking) {
-      // Calculate a reasonable thinking budget
-      // According to Anthropic's docs, max_tokens must be greater than thinking.budget_tokens
-      // So we'll set thinking budget to be 75% of max_tokens
-      let thinkingBudget = Math.floor(requestMaxTokens * 0.75);
-      
-      // Check if the model has extended reasoning info
-      // Using type assertion to avoid TypeScript errors since the aimodels types might not include the extended property
-      const contextObj = modelInfo.context as any;
-      if (contextObj && contextObj.extended && contextObj.extended.reasoning && contextObj.extended.reasoning.maxOutput) {
-        // Make sure thinking budget doesn't exceed the model's capabilities
-        thinkingBudget = Math.min(
-          thinkingBudget,
-          Math.floor(contextObj.extended.reasoning.maxOutput * 0.75)
-        );
-      }
-      
-      // Make sure thinking budget is at least 1000 tokens for meaningful reasoning
-      thinkingBudget = Math.max(thinkingBudget, 1000);
-      
-      // Ensure max_tokens is greater than thinking.budget_tokens
-      requestBody.max_tokens = Math.max(requestMaxTokens, thinkingBudget + 1000);
-      
-      // According to the Anthropic API, we need to use 'enabled' as the type
-      requestBody.thinking = {
-        type: "enabled",
-        budget_tokens: thinkingBudget
-      };
-    }
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -290,5 +319,30 @@ export class AnthropicLang extends LanguageProvider {
     await processResponseStream(response, onData);
 
     return result;
+  }
+
+  /**
+   * Transform generic messages (including tool results) into Anthropic message format.
+   */
+  protected transformMessagesForProvider(messages: LangChatMessage[]): any[] {
+    const out: any[] = [];
+    for (const m of messages) {
+      if (m.role === 'tool') {
+        const contentAny = m.content as any;
+        if (Array.isArray(contentAny)) {
+          // Emit tool_result blocks as a user message
+          const blocks = contentAny.map(tr => ({
+            type: 'tool_result',
+            tool_use_id: tr.toolId,
+            content: typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result)
+          }));
+          out.push({ role: 'user', content: blocks });
+          continue;
+        }
+      }
+      // Default: pass through as simple text content
+      out.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content });
+    }
+    return out;
   }
 }

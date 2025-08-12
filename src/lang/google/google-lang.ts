@@ -11,6 +11,7 @@ import {
 import { processResponseStream } from "../../process-response-stream.ts";
 import { models, Model } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
+import { LangChatMessage } from "../language-provider.ts";
 
 export type GoogleLangOptions = {
   apiKey: string;
@@ -71,22 +72,7 @@ export class GoogleLang extends LanguageProvider {
     const result = new LangResult(messages);
 
     // Transform messages into Google's format
-    const contents = messages.map(msg => {
-      // Use type assertion for potential system messages
-      const msgAny = msg as any;
-      
-      if (msgAny.role === "system") {
-        // For system messages, we'll send them as user messages with a clear prefix
-        return {
-          role: "user",
-          parts: [{ text: `System instruction: ${msgAny.content}` }]
-        };
-      }
-      return {
-        role: msg.role === "assistant" ? "model" : "user",
-        parts: [{ text: msg.content }]
-      };
-    });
+    const contents = this.transformMessagesForProvider(messages);
 
     // Calculate max tokens if we have model info
     let maxOutputTokens = this._maxTokens;
@@ -98,14 +84,27 @@ export class GoogleLang extends LanguageProvider {
       );
     }
 
-    const requestBody = {
+    // Map tools -> functionDeclarations
+    let tools: any | undefined;
+    if (options?.tools && options.tools.length > 0) {
+      tools = {
+        functionDeclarations: options.tools.map(t => ({
+          name: t.name,
+          description: t.description,
+          parameters: t.parameters
+        }))
+      };
+    }
+
+    const requestBody: any = {
       contents,
       generationConfig: {
         maxOutputTokens: maxOutputTokens,
         temperature: 0.7,
         topP: 0.8,
         topK: 40,
-      }
+      },
+      ...(tools ? { tools } : {}),
     };
 
     const onResult = options?.onResult;
@@ -116,16 +115,26 @@ export class GoogleLang extends LanguageProvider {
         return;
       }
 
-      // Handle Google's streaming format
-      if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
-        const text = data.candidates[0].content.parts[0].text;
-        result.answer += text;
-
-        // Create a new collection with existing messages plus the new one
-        result.addAssistantMessage(result.answer);
-
-        options?.onResult?.(result);
+      // Handle Google's streaming format: detect functionCall parts
+      const candidate = data.candidates?.[0];
+      const parts = candidate?.content?.parts || [];
+      for (const p of parts) {
+        if (p.text) {
+          result.answer += p.text;
+        }
+        if (p.functionCall) {
+          if (!result.tools) result.tools = [];
+          const { name, args } = p.functionCall;
+          // Google often sends full args object; ensure shape
+          result.tools.push({ id: name, name, arguments: args || {} } as any);
+        }
       }
+
+      if (result.answer) {
+        result.addAssistantMessage(result.answer);
+      }
+
+      options?.onResult?.(result);
     };
 
     const response = await fetch(
@@ -163,5 +172,29 @@ export class GoogleLang extends LanguageProvider {
     await processResponseStream(response, onData);
 
     return result;
+  }
+
+  /**
+   * Transform generic messages into Gemini format, mapping tool results
+   */
+  protected transformMessagesForProvider(messages: LangChatMessageCollection): any[] {
+    return messages.map((msg: any) => {
+      if (msg.role === 'tool' && Array.isArray(msg.content)) {
+        // Emit as functionResponse parts in a user role
+        return {
+          role: 'user',
+          parts: msg.content.map((tr: any) => ({
+            functionResponse: {
+              name: tr.toolId, // Use toolId (should be function name in Gemini responses)
+              response: typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result)
+            }
+          }))
+        };
+      }
+      return {
+        role: msg.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: msg.content }]
+      };
+    });
   }
 } 
