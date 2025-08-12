@@ -14,6 +14,12 @@ export type MockOpenAILikeOptions = {
   mockResponseObject?: any;
   stream?: boolean;
   chunkSize?: number;
+  // Simulate tool_calls streaming with partial JSON arguments
+  mockToolCalls?: Array<{
+    id?: string;
+    name: string;
+    argumentsChunks: string[];
+  }>;
 };
 
 /**
@@ -53,6 +59,28 @@ export class MockOpenAILikeLang extends OpenAILikeLang {
 
     const result = new LangResult(messageCollection);
     const onResult = options?.onResult;
+    const toolArgBuffers = new Map<string, { name: string; buffer: string }>();
+
+    // If mockToolCalls provided, emit tool_calls deltas instead of plain content
+    if (this.mockConfig.mockToolCalls && this.mockConfig.mockToolCalls.length > 0) {
+      let index = 0;
+      for (const call of this.mockConfig.mockToolCalls) {
+        const id = call.id || `call_${index++}`;
+        // Emit name first chunk (OpenAI may send name separately)
+        const nameDelta = { choices: [{ delta: { tool_calls: [{ id, function: { name: call.name } }] } }] } as any;
+        (this as any).handleStreamData(nameDelta, result, messageCollection, onResult, toolArgBuffers);
+        // Emit argument chunks
+        for (const chunk of call.argumentsChunks) {
+          const delta = { choices: [{ delta: { tool_calls: [{ id, function: { arguments: chunk } }] } }] } as any;
+          (this as any).handleStreamData(delta, result, messageCollection, onResult, toolArgBuffers);
+        }
+      }
+      // Finished
+      (this as any).handleStreamData({ finished: true }, result, messageCollection, onResult, toolArgBuffers);
+      // Consume mockToolCalls so subsequent chats produce a normal answer
+      this.mockConfig.mockToolCalls = [];
+      return result;
+    }
 
     // Decide content to emit
     let fullContent = "Hello from MockOpenAI";
@@ -78,11 +106,11 @@ export class MockOpenAILikeLang extends OpenAILikeLang {
         ]
       } as any;
       // Use parent handler to process deltas
-      (this as any).handleStreamData(deltaPayload, result, messageCollection, onResult);
+      (this as any).handleStreamData(deltaPayload, result, messageCollection, onResult, toolArgBuffers);
     }
 
     // Emit finished signal similar to SSE end
-    (this as any).handleStreamData({ finished: true }, result, messageCollection, onResult);
+    (this as any).handleStreamData({ finished: true }, result, messageCollection, onResult, toolArgBuffers);
 
     return result;
   }

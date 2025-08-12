@@ -67,16 +67,13 @@ export class OpenAILang extends OpenAILikeLang {
     const result = new LangResult(messageCollection);
     
     // Transform OpenAI-specific message roles
-    const transformedMessages = messages.map((message) => {
-      const msg = { ...message };
-      // Cast to any to handle the system role which isn't in the LangChatMessage type
-      const roleAny = (msg as any).role;
-      
+    const transformedMessages = messageCollection.map((message) => {
+      const msg = { ...message } as any;
+      const roleAny = msg.role;
       if (roleAny === "system" && this._config.model.includes("o1")) {
-        return { ...msg, role: "user" as const };
-      }
-      else if (roleAny === "system") {
-        return { ...msg, role: "developer" as any };
+        return { ...msg, role: "user" };
+      } else if (roleAny === "system") {
+        return { ...msg, role: "developer" };
       }
       return msg;
     });
@@ -93,22 +90,29 @@ export class OpenAILang extends OpenAILikeLang {
         )
       : this._config.maxTokens || 4000;
       
-    // For reasoning models, ensure there's enough space
     if (this.supportsReasoning() && this._config.maxCompletionTokens === undefined) {
       this._config.maxCompletionTokens = Math.max(requestMaxTokens, 25000);
     }
 
+    // Local accumulator for streaming tool arguments
+    const toolArgBuffers = new Map<string, { name: string; buffer: string }>();
+
     const onData = (data: any) => {
-      this.handleStreamData(data, result, messageCollection, onResult);
+      this.handleStreamData(data, result, messageCollection, onResult, toolArgBuffers);
     };
+    
+    // Use base transformer to map tool result messages
+    const providerMessages = this.transformMessagesForProvider(transformedMessages as any);
     
     // Create request body
     const body = this.transformBody({
       model: this._config.model,
-      messages: transformedMessages,
+      messages: providerMessages,
       stream: true,
       max_tokens: requestMaxTokens,
       ...this._config.bodyProperties,
+      ...(options?.tools ? { tools: this.formatTools(options.tools) } : {}),
+      ...(options?.schema ? { response_format: { type: 'json_object' } } : {}),
     });
 
     const response = await fetch(`${this._config.baseURL}/chat/completions`, {
@@ -142,6 +146,19 @@ export class OpenAILang extends OpenAILikeLang {
 
     await processResponseStream(response, onData);
 
+    // Finalize tool arguments parsing on completion
+    if ((result as any)._hasPendingToolArgs && toolArgBuffers.size > 0) {
+      for (const [id, acc] of toolArgBuffers) {
+        const entry = result.tools?.find(t => t.id === id);
+        if (!entry) continue;
+        try {
+          entry.arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
+        } catch {
+          // ignore
+        }
+      }
+    }
+
     return result;
   }
 
@@ -169,11 +186,12 @@ export class OpenAILang extends OpenAILikeLang {
     data: any, 
     result: LangResult,
     messages: LangChatMessageCollection,
-    onResult?: (result: LangResult) => void
+    onResult?: (result: LangResult) => void,
+    toolArgBuffers?: Map<string, { name: string; buffer: string }>
   ): void {
     // Use the parent implementation for now
     // This can be customized later for OpenAI-specific handling
-    super.handleStreamData(data, result, messages, onResult);
+    super.handleStreamData(data, result, messages, onResult, toolArgBuffers);
   }
   
   /**

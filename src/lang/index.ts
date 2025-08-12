@@ -22,3 +22,4 @@ export type { LangOptions, LangChatMessage, Tool, ToolRequest, ToolResult, Schem
 
 // For backward compatibility
 export type LangChatMessages = LangChatMessageCollection;
+
