@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Lang } from '../dist/index.js';
+import { Lang } from '../../dist/index.js';
 
 describe('Tool calling - streaming argument assembly (mock provider)', () => {
   it('assembles partial JSON arguments across tool_call deltas', async () => {

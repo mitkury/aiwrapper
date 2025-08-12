@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { Lang, LangChatMessageCollection } from '../dist/index.js';
-import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
+import { Lang, LangChatMessageCollection } from '../../dist/index.js';
+import { readImageBase64 } from '../utils/test-images.ts';
 
 const apiKey = process.env.OPENAI_API_KEY;
 const run = !!apiKey;
@@ -11,15 +9,12 @@ describe.skipIf(!run)('OpenAI vision (integration)', () => {
   it('accepts base64 image + text and returns an answer', async () => {
     const lang = Lang.openai({ apiKey: apiKey as string, model: 'gpt-4o-mini' });
 
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = path.dirname(__filename);
-    const catPath = path.resolve(__dirname, 'img', 'cat.jpg');
-    const base64 = (await readFile(catPath)).toString('base64');
+    const { base64, mimeType } = await readImageBase64(import.meta.url, 'image-in-test', 'cat.jpg');
 
     const messages = new LangChatMessageCollection();
     messages.addUserContent([
       { type: 'text', text: 'Name the animal in one word' },
-      { type: 'image', image: { kind: 'base64', base64, mimeType: 'image/jpeg' } }
+      { type: 'image', image: { kind: 'base64', base64, mimeType } }
     ]);
 
     const res = await lang.chat(messages);

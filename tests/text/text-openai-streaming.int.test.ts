@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Lang } from '../dist/index.js';
+import { Lang } from '../../dist/index.js';
 
 const apiKey = process.env.OPENAI_API_KEY;
 const run = !!apiKey;

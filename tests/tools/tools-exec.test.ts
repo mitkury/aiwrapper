@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Lang, executeToolsAndContinue } from '../dist/index.js';
+import { Lang, executeToolsAndContinue } from '../../dist/index.js';
 
 /**
  * This test verifies that we can:

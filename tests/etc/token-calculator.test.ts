@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 // Import internal util from built output (pretest builds dist)
-import { calculateModelResponseTokens } from '../dist/lang/utils/token-calculator.js';
+import { calculateModelResponseTokens } from '../../dist/lang/utils/token-calculator.js';
 
 type AnyModel = any;
 

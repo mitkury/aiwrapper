@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Lang, z } from '../dist/index.js';
+import { Lang, z } from '../../dist/index.js';
 
 describe('Structured output with Zod and JSON Schema using Mock OpenAI', () => {
   it('validates Zod schema and populates result.object', async () => {

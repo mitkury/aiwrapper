@@ -40,9 +40,9 @@
     "serve": "npx serve .",
     "pretest": "npm run build",
     "test": "vitest run",
-    "test:text": "vitest run tests/lang.test.js tests/structured-output.test.ts tests/openai-streaming.int.test.ts tests/deepseek-reasoning.int.test.ts",
-    "test:tools": "vitest run tests/tools*.test.ts",
-    "test:img-in": "vitest run tests/images-in-input.test.ts tests/*vision*.int.test.ts",
+    "test:text": "vitest run tests/text/*.test.{js,ts}",
+    "test:tools": "vitest run tests/tools/*.test.ts",
+    "test:img-in": "vitest run tests/img/*.test.ts",
     "test:img-out": "vitest run tests/images-out-*.test.ts",
     "test:watch:img-in": "vitest tests/images-in-input.test.ts tests/*vision*.int.test.ts",
     "test:watch": "vitest"
