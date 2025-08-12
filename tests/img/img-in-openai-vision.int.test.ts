@@ -7,7 +7,7 @@ const run = !!apiKey;
 
 describe.skipIf(!run)('OpenAI vision (integration)', () => {
   it('accepts base64 image + text and returns an answer', async () => {
-    const lang = Lang.openai({ apiKey: apiKey as string, model: 'gpt-4o-mini' });
+    const lang = Lang.openai({ apiKey: apiKey as string, model: 'gpt-5' });
 
     const { base64, mimeType } = await readImageBase64(import.meta.url, 'image-in-test', 'cat.jpg');
 
