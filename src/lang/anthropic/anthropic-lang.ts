@@ -365,7 +365,7 @@ export class AnthropicLang extends LanguageProvider {
     });
   }
 
-  private imageInputToAnthropicSource(image: LangImageInput): { type: 'base64'; media_type: string; data: string } {
+  private imageInputToAnthropicSource(image: LangImageInput): any {
     const kind: any = (image as any).kind;
     if (kind === 'base64') {
       const base64 = (image as any).base64 as string;
@@ -382,7 +382,8 @@ export class AnthropicLang extends LanguageProvider {
         const data = match[2];
         return { type: 'base64', media_type, data };
       }
-      throw new Error("Anthropic image input requires base64 or data URL. Provide base64+mimeType or a data: URL.");
+      // Remote URL supported per Anthropic docs
+      return { type: 'url', url };
     }
     if (kind === 'bytes' || kind === 'blob') {
       throw new Error("Anthropic image input requires base64. Convert bytes/blob to base64 first.");

@@ -6,6 +6,12 @@ Test categories
 - Image output tests: files matching `images-out-*.test.*` (placeholder for future)
   - Run once: `npm run test:img-out`
 
+- Text tests (regular, structured, reasoning):
+  - Run once: `npm run test:text`
+
+- Tools/function calling tests:
+  - Run once: `npm run test:tools`
+
 Notes
 - Integration vision tests require API keys and sometimes regional access. They are skipped unless keys are present (and for some providers may still be skipped until enabled).
 
