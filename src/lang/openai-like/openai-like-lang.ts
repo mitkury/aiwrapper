@@ -152,7 +152,7 @@ export class OpenAILikeLang extends LanguageProvider {
      const result = new LangResult(messageCollection);
      const onResult = options?.onResult;
  
-     // Calculate max tokens for the request, using model info if available
+     // Token calculation
      const requestMaxTokens = this.modelInfo 
        ? calculateModelResponseTokens(
            this.modelInfo,
@@ -161,28 +161,30 @@ export class OpenAILikeLang extends LanguageProvider {
          )
        : this._config.maxTokens || 4000; // Default if no model info or maxTokens
        
-     // For reasoning models, ensure there's enough space for reasoning
-     // if maxCompletionTokens is not explicitly set
      if (this.supportsReasoning() && this._config.maxCompletionTokens === undefined) {
        this._config.maxCompletionTokens = Math.max(requestMaxTokens, 25000);
      }
- 
-     const onData = (data: any) => {
-       this.handleStreamData(data, result, messageCollection, onResult);
-     };
- 
-     // Prepare request body with tools if provided and structured output if schema is present
-     const body = this.transformBody({
-       model: this._config.model,
-       messages: messageCollection,
-       stream: true,
-       max_tokens: requestMaxTokens,
-       ...this._config.bodyProperties,
-       // Add tools to the request if provided
-       ...(options?.tools ? { tools: this.formatTools(options.tools) } : {}),
-       // If schema requested, ask for JSON object format (generic OpenAI-like)
-       ...(options?.schema ? { response_format: { type: 'json_object' } } : {}),
-     });
+
+    // Local accumulator for streaming tool arguments
+    const toolArgBuffers = new Map<string, { name: string; buffer: string }>();
+
+    const onData = (data: any) => {
+      this.handleStreamData(data, result, messageCollection, onResult, toolArgBuffers);
+    };
+
+    // Prepare provider-formatted messages (including tool result mapping)
+    const providerMessages = this.transformMessagesForProvider(messageCollection);
+
+    // Prepare request body with tools and structured output if requested
+    const body = this.transformBody({
+      model: this._config.model,
+      messages: providerMessages,
+      stream: true,
+      max_tokens: requestMaxTokens,
+      ...this._config.bodyProperties,
+      ...(options?.tools ? { tools: this.formatTools(options.tools) } : {}),
+      ...(options?.schema ? { response_format: { type: 'json_object' } } : {}),
+    });
  
      const response = await fetch(`${this._config.baseURL}/chat/completions`, {
        method: "POST",
@@ -216,18 +218,27 @@ export class OpenAILikeLang extends LanguageProvider {
      });
  
      await processResponseStream(response, onData);
- 
+
+    // Finalize tool arguments in case the stream finished without parsing final buffers
+    if ((result as any)._hasPendingToolArgs && toolArgBuffers.size > 0) {
+      for (const [id, acc] of toolArgBuffers) {
+        const entry = result.tools?.find(t => t.id === id);
+        if (!entry) continue;
+        try {
+          entry.arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
+        } catch {
+          // Leave as last successfully parsed state
+        }
+      }
+    }
+
      return result;
    }
 
   /**
    * Formats tools for the OpenAI API request
-   * @param tools Array of tools to format
-   * @returns Formatted tools for the API request
    */
   protected formatTools(tools: Tool[]): any[] {
-    // Simple pass-through for now, but implementations can override this
-    // to format tools according to their specific API requirements
     return tools.map(tool => ({
       type: "function",
       function: {
@@ -239,20 +250,56 @@ export class OpenAILikeLang extends LanguageProvider {
   }
 
   /**
-   * Handles streaming data from the API response
-   * This method can be overridden by subclasses to add custom handling for different response formats
-   * @param data The current data chunk from the stream
-   * @param result The result object being built
-   * @param messages The original messages array
-   * @param onResult Optional callback for streaming results
+   * Transform generic messages into provider-specific format.
+   * - Maps generic tool result messages (role: "tool", content: ToolResult[]) into
+   *   an array of OpenAI-compatible tool messages with tool_call_id and string content.
+   */
+  protected transformMessagesForProvider(messages: LangChatMessage[] | LangChatMessageCollection): any[] {
+    const arr = messages instanceof Array ? messages : [...messages];
+    const out: any[] = [];
+    for (const msg of arr) {
+      if (msg.role === "tool") {
+        const contentAny = msg.content as any;
+        if (Array.isArray(contentAny)) {
+          for (const tr of contentAny) {
+            out.push({
+              role: "tool",
+              tool_call_id: tr.toolId,
+              content: typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result)
+            });
+          }
+          continue;
+        }
+      }
+      out.push(msg);
+    }
+    return out;
+  }
+
+  /**
+   * Handles streaming data from the API response with safe tool_call accumulation
    */
   protected handleStreamData(
     data: any, 
     result: LangResult,
     messages: LangChatMessageCollection,
-    onResult?: (result: LangResult) => void
+    onResult?: (result: LangResult) => void,
+    toolArgBuffers?: Map<string, { name: string; buffer: string }>
   ): void {
     if (data.finished) {
+      // Finalize tool arg buffers if present
+      if (toolArgBuffers && toolArgBuffers.size > 0 && result.tools) {
+        for (const [id, acc] of toolArgBuffers) {
+          const entry = result.tools.find(t => t.id === id);
+          if (!entry) continue;
+          try {
+            entry.arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
+          } catch {
+            // ignore parse errors on finish
+          }
+        }
+      }
+      (result as any)._hasPendingToolArgs = false;
       result.finished = true;
       onResult?.(result);
       return;
@@ -261,56 +308,54 @@ export class OpenAILikeLang extends LanguageProvider {
     if (data.choices !== undefined) {
       const delta = data.choices[0].delta;
       
-      // Handle regular text content
       if (delta.content) {
         result.answer += delta.content;
       }
       
-      // Handle tool calls if present in the delta
       if (delta.tool_calls) {
-        // Initialize tools array if it doesn't exist
         if (!result.tools) {
           result.tools = [];
         }
-        
-        // Process each tool call
+        // Mark that we may have pending buffers to finalize
+        (result as any)._hasPendingToolArgs = true;
+
         for (const toolCall of delta.tool_calls) {
-          // For streaming, we need to handle partial tool calls
-          // This is a stub implementation that will be expanded later
-          const existingToolCall = result.tools.find(t => t.id === toolCall.id);
-          
-          if (existingToolCall) {
-            // Update existing tool call
-            if (toolCall.function?.name) {
-              existingToolCall.name = toolCall.function.name;
+          const id: string = toolCall.id || String(toolCall.index ?? "");
+          const name: string | undefined = toolCall.function?.name;
+          const argChunk: string | undefined = toolCall.function?.arguments;
+
+          let existing = result.tools.find(t => t.id === id);
+          if (!existing && id) {
+            existing = { id, name: name || '', arguments: {} } as unknown as ToolRequest;
+            result.tools.push(existing);
+          }
+          if (existing && name) {
+            (existing as any).name = name;
+          }
+
+          if (!toolArgBuffers) continue;
+          if (!toolArgBuffers.has(id)) {
+            toolArgBuffers.set(id, { name: name || (existing as any)?.name || '', buffer: '' });
+          }
+          if (argChunk) {
+            const acc = toolArgBuffers.get(id)!;
+            acc.buffer += argChunk;
+            // Try to parse incrementally; ignore errors until complete
+            try {
+              const parsed = JSON.parse(acc.buffer);
+              existing && (existing.arguments = parsed);
+            } catch {
+              // keep buffering
             }
-            if (toolCall.function?.arguments) {
-              // In a real implementation, we would need to handle partial JSON
-              // For now, just append the arguments string
-              existingToolCall.arguments = {
-                ...existingToolCall.arguments,
-                ...JSON.parse(toolCall.function.arguments)
-              };
-            }
-          } else if (toolCall.id) {
-            // Add new tool call
-            result.tools.push({
-              id: toolCall.id,
-              name: toolCall.function?.name || '',
-              arguments: toolCall.function?.arguments ? 
-                JSON.parse(toolCall.function.arguments) : {}
-            });
           }
         }
       }
 
-      // Update the messages array with the latest content
+      // Update assistant message content in the conversation
       if (result.messages.length > 0 && 
           result.messages[result.messages.length - 1].role === "assistant") {
-        // Update the existing assistant message
         result.messages[result.messages.length - 1].content = result.answer;
-      } else {
-        // Add a new assistant message
+      } else if (result.answer) {
         result.messages.push({
           role: "assistant",
           content: result.answer,
