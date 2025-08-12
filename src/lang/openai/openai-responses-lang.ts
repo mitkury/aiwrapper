@@ -52,16 +52,14 @@ export class OpenAIResponsesLang extends LanguageProvider {
 
     const result = new LangResult(messageCollection);
 
-    // Map generic messages into Responses API messages format (OpenAI-compatible content parts)
-    const providerMessages = this.transformMessages(messageCollection);
+    // Build a single text input for Responses API for maximum compatibility
+    const input = this.messagesToInputText(messageCollection);
 
-    const wantsImageOutput = options?.imageOutput && options.imageOutput !== "auto";
     const stream = typeof options?.onResult === 'function';
 
     const body: any = {
       model: this._model,
-      messages: providerMessages,
-      ...(wantsImageOutput ? { modalities: ["text", "image"] } : {}),
+      input,
       ...(stream ? { stream: true } : {}),
     };
 
@@ -97,40 +95,11 @@ export class OpenAIResponsesLang extends LanguageProvider {
           options?.onResult?.(result);
           return;
         }
-        // Try to parse Responses API streaming deltas
-        // Heuristic: look for output items (text or image)
-        const parts = data?.delta?.output || data?.output || data?.content || [];
-        const arr = Array.isArray(parts) ? parts : [parts];
-        for (const item of arr) {
-          if (!item) continue;
-          if (item.type === 'output_text' && typeof item.text === 'string') {
-            result.answer += item.text;
-          }
-          if (item.type === 'text' && typeof item.text === 'string') {
-            result.answer += item.text;
-          }
-          if (item.type === 'output_image') {
-            if (item.image_url) {
-              result.images = result.images || [];
-              result.images.push({ url: item.image_url, provider: this.name, model: this._model });
-            }
-            if (item.b64_json || item.base64 || item.data) {
-              const base64 = item.b64_json || item.base64 || item.data;
-              const mimeType = item.mime_type || item.mimeType || 'image/png';
-              result.images = result.images || [];
-              result.images.push({ base64, mimeType, provider: this.name, model: this._model });
-            }
-          }
+        // Heuristic for Responses streaming
+        const textDelta = data?.delta?.output_text || data?.output_text || data?.content?.[0]?.text;
+        if (typeof textDelta === 'string') {
+          result.answer += textDelta;
         }
-
-        if (result.answer) {
-          if (result.messages.length > 0 && result.messages[result.messages.length - 1].role === 'assistant') {
-            result.messages[result.messages.length - 1].content = result.answer;
-          } else {
-            result.messages.push({ role: 'assistant', content: result.answer });
-          }
-        }
-
         options?.onResult?.(result);
       };
 
@@ -142,98 +111,51 @@ export class OpenAIResponsesLang extends LanguageProvider {
     const response = await fetch(`${this._baseURL}/responses`, common as any);
     const data: any = await response.json();
 
-    const outputs = (data?.output || data?.response?.output || data?.content || []);
-
-    const appendAssistantText = (text: string) => {
-      result.answer += text;
-      if (result.messages.length > 0 && result.messages[result.messages.length - 1].role === 'assistant') {
-        result.messages[result.messages.length - 1].content = result.answer;
-      } else {
-        result.messages.push({ role: 'assistant', content: result.answer });
-      }
-    };
-
-    const tryExtractFromContent = (contentItem: any) => {
-      if (contentItem?.type === 'output_text' && typeof contentItem.text === 'string') {
-        appendAssistantText(contentItem.text);
-      }
-      if (contentItem?.type === 'text' && typeof contentItem.text === 'string') {
-        appendAssistantText(contentItem.text);
-      }
-      if (contentItem?.type === 'output_image') {
-        if (contentItem.image_url) {
-          result.images = result.images || [];
-          result.images.push({ url: contentItem.image_url, provider: this.name, model: this._model });
+    let outputText = data?.output_text || data?.content?.[0]?.text || data?.choices?.[0]?.message?.content?.[0]?.text;
+    if (typeof outputText === 'string') {
+      result.answer = outputText;
+      result.addAssistantMessage(result.answer);
+    } else if (Array.isArray(data?.output)) {
+      for (const item of data.output) {
+        if (item?.type === 'output_text' && typeof item.text === 'string') {
+          result.answer += item.text;
+        } else if (item?.type === 'text' && typeof item.text === 'string') {
+          result.answer += item.text;
         }
-        if (contentItem.b64_json || contentItem.base64 || contentItem.data) {
-          const base64 = contentItem.b64_json || contentItem.base64 || contentItem.data;
-          const mimeType = contentItem.mime_type || contentItem.mimeType || 'image/png';
-          result.images = result.images || [];
-          result.images.push({ base64, mimeType, provider: this.name, model: this._model });
+        if (item?.type === 'output_image') {
+          if (item.image_url) {
+            result.images = result.images || [];
+            result.images.push({ url: item.image_url, provider: this.name, model: this._model });
+          }
+          if (item.b64_json || item.base64 || item.data) {
+            const base64 = item.b64_json || item.base64 || item.data;
+            const mimeType = item.mime_type || item.mimeType || 'image/png';
+            result.images = result.images || [];
+            result.images.push({ base64, mimeType, provider: this.name, model: this._model });
+          }
         }
       }
-      if (contentItem?.type === 'image_url' && contentItem.image_url?.url) {
-        result.images = result.images || [];
-        result.images.push({ url: contentItem.image_url.url, provider: this.name, model: this._model });
+      if (result.answer) {
+        result.addAssistantMessage(result.answer);
       }
-    };
-
-    if (Array.isArray(outputs)) {
-      for (const item of outputs) {
-        if (item?.type === 'message' && Array.isArray(item.content)) {
-          for (const c of item.content) tryExtractFromContent(c);
-        } else if (Array.isArray(item)) {
-          for (const c of item) tryExtractFromContent(c);
-        } else {
-          tryExtractFromContent(item);
-        }
-      }
-    } else if (Array.isArray(data?.message?.content)) {
-      for (const c of data.message.content) tryExtractFromContent(c);
-    } else if (Array.isArray(data?.choices?.[0]?.message?.content)) {
-      for (const c of data.choices[0].message.content) tryExtractFromContent(c);
-    } else if (typeof data?.output_text === 'string') {
-      appendAssistantText(data.output_text);
     }
 
     result.finished = true;
     return result;
   }
 
-  private transformMessages(messages: LangChatMessageCollection): any[] {
-    return messages.map((msg: any) => {
-      const content = msg.content as any;
+  private messagesToInputText(messages: LangChatMessageCollection): string {
+    const parts: string[] = [];
+    for (const m of messages) {
+      const role = m.role;
+      const content = (m as any).content;
       if (Array.isArray(content)) {
-        return { role: msg.role === 'assistant' ? 'assistant' : msg.role, content: this.mapParts(content as LangContentPart[]) };
+        // Caller should avoid Responses path when images/structured content present
+        // Fallback in OpenAILang
+        continue;
       }
-      return { role: msg.role === 'assistant' ? 'assistant' : msg.role, content: [{ type: 'text', text: String(content) }] };
-    });
-  }
-
-  private mapParts(parts: LangContentPart[]): any[] {
-    const out: any[] = [];
-    for (const p of parts) {
-      if (p.type === 'text') {
-        out.push({ type: 'text', text: p.text });
-      } else if (p.type === 'image') {
-        out.push(this.mapImage(p.image));
-      }
+      parts.push(`${role}: ${String(content)}`);
     }
-    return out;
-  }
-
-  private mapImage(image: LangImageInput): any {
-    const kind: any = (image as any).kind;
-    if (kind === 'url') {
-      const url = (image as any).url as string;
-      return { type: 'image_url', image_url: { url } };
-    }
-    if (kind === 'base64') {
-      const base64 = (image as any).base64 as string;
-      const mimeType = (image as any).mimeType || 'image/png';
-      const dataUrl = `data:${mimeType};base64,${base64}`;
-      return { type: 'image_url', image_url: { url: dataUrl } };
-    }
-    throw new Error("Unsupported image kind for Responses mapping. Use url or base64.");
+    return parts.join("\n\n");
   }
 }

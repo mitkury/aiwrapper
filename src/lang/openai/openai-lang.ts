@@ -47,12 +47,10 @@ export class OpenAILang extends OpenAILikeLang {
       baseURL: "https://api.openai.com/v1",
     });
     
-    // For OpenAI, we require the model to be in aimodels database
     if (!this.modelInfo) {
       console.error(`Invalid OpenAI model: ${modelName}. Model not found in aimodels database.`);
     }
 
-    // Prefer Responses API path by default (non-streaming for now)
     this._responses = new OpenAIResponsesLang({ apiKey: options.apiKey, model: modelName, systemPrompt: options.systemPrompt });
   }
 
@@ -61,24 +59,34 @@ export class OpenAILang extends OpenAILikeLang {
     return super.generateImage(prompt, options);
   }
 
+  private isResponsesPreferred(model: string): boolean {
+    return /^(gpt-4o|o1|o3|gpt-image-1)/i.test(model);
+  }
+
   override async chat(
     messages: LangChatMessage[] | LangChatMessageCollection,
     options?: LangOptions,
   ): Promise<LangResult> {
+    if (this._responses && this.isResponsesPreferred(this.name)) {
+      try {
+        return await this._responses.chat(messages, options);
+      } catch (err: any) {
+        // Fallback on unsupported parameter errors
+        if (String(err?.message || '').includes("Unsupported parameter") || String(err?.message || '').includes("invalid_request_error")) {
+          return super.chat(messages as any, options);
+        }
+        throw err;
+      }
+    }
     return super.chat(messages as any, options);
   }
 
   protected override transformBody(body: Record<string, unknown>): Record<string, unknown> {
     const transformedBody = super.transformBody(body);
-    
     if (transformedBody.max_tokens) {
       const { max_tokens, ...rest } = transformedBody;
-      return {
-        ...rest,
-        max_completion_tokens: max_tokens
-      };
+      return { ...rest, max_completion_tokens: max_tokens };
     }
-    
     return transformedBody;
   }
   
