@@ -14,3 +14,5 @@ export * from "./text2speech/index.ts";
 export * from 'aimodels';
 // Tools helpers
 export * from "./lang/tools/tools-helpers.ts";
+// Img
+export * from "./img/img.ts";

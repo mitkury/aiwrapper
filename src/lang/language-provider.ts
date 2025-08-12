@@ -24,6 +24,20 @@ export type LangImageInput =
   | { kind: "blob"; blob: Blob; mimeType?: string };
 
 /**
+ * Image output type for providers that can generate images
+ */
+export type LangImageOutput = {
+  url?: string;
+  base64?: string;
+  mimeType?: string;
+  width?: number;
+  height?: number;
+  provider?: string;
+  model?: string;
+  metadata?: Record<string, unknown>;
+};
+
+/**
  * Mixed content parts for messages (text + images)
  */
 export type LangContentPart =
@@ -68,6 +82,9 @@ export interface LangOptions {
   
   // Streaming callback
   onResult?: (result: LangResult) => void;
+  
+  // Preferred image output format if the provider can generate images
+  imageOutput?: "auto" | "url" | "base64";
   
   // Other options (temperature, etc.)
   [key: string]: any;
@@ -146,6 +163,9 @@ export class LangResult {
 
   // Schema validation errors, if any
   validationErrors: string[] = [];
+
+  // Images generated/returned by the model (if any)
+  images?: LangImageOutput[];
 
   constructor(messages: LangChatMessageCollection) {
     this.messages = messages;

@@ -21,8 +21,11 @@ export { Lang, LangVecs, LanguageProvider, LangResult, LangChatMessageCollection
 export type { LangOptions, LangChatMessage, Tool, ToolRequest, ToolResult, Schema };
 
 // Re-export image and content part types
-export type { LangImageInput, LangContentPart } from "./language-provider.ts";
+export type { LangImageInput, LangContentPart, LangImageOutput } from "./language-provider.ts";
 
 // For backward compatibility
 export type LangChatMessages = LangChatMessageCollection;
+
+// Img API
+export { Img } from "../img/img.ts";
 

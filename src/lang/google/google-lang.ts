@@ -126,6 +126,17 @@ export class GoogleLang extends LanguageProvider {
         if (p.text) {
           result.answer += p.text;
         }
+        // Detect image parts
+        if (p.inlineData && (p.inlineData.data || p.inlineData.b64_json)) {
+          const base64 = p.inlineData.data || p.inlineData.b64_json;
+          const mimeType = p.inlineData.mimeType || 'image/png';
+          result.images = result.images || [];
+          result.images.push({ base64, mimeType, provider: this.name, model: this._model });
+        }
+        if (p.fileData && p.fileData.fileUri) {
+          result.images = result.images || [];
+          result.images.push({ url: p.fileData.fileUri, provider: this.name, model: this._model });
+        }
         if (p.functionCall) {
           if (!result.tools) result.tools = [];
           const { name, args } = p.functionCall;

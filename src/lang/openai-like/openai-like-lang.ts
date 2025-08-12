@@ -352,7 +352,27 @@ export class OpenAILikeLang extends LanguageProvider {
       const delta = data.choices[0].delta;
       
       if (delta.content) {
-        result.answer += delta.content;
+        // OpenAI-like may stream content as a string or as structured parts
+        if (typeof delta.content === 'string') {
+          result.answer += delta.content;
+        } else if (Array.isArray(delta.content)) {
+          for (const part of delta.content) {
+            if (part?.type === 'text' && typeof part.text === 'string') {
+              result.answer += part.text;
+            }
+            // Detect image-like parts from providers that include them in chat responses
+            if (part?.type === 'image_url' && part.image_url?.url) {
+              result.images = result.images || [];
+              result.images.push({ url: part.image_url.url, provider: this.name, model: this._config.model });
+            }
+            if ((part?.type === 'output_image' || part?.type === 'inline_data') && (part.b64_json || part.data)) {
+              const base64 = part.b64_json || part.data;
+              const mimeType = part.mime_type || part.mimeType || 'image/png';
+              result.images = result.images || [];
+              result.images.push({ base64, mimeType, provider: this.name, model: this._config.model });
+            }
+          }
+        }
       }
       
       if (delta.tool_calls) {
