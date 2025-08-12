@@ -52,8 +52,8 @@ export class OpenAIResponsesLang extends LanguageProvider {
 
     const result = new LangResult(messageCollection);
 
-    // Build a single text input for Responses API for maximum compatibility
-    const input = this.messagesToInputText(messageCollection);
+    // Build structured input for Responses API
+    const input = this.transformMessagesToResponsesInput(messageCollection);
 
     const stream = typeof options?.onResult === 'function';
 
@@ -144,18 +144,40 @@ export class OpenAIResponsesLang extends LanguageProvider {
     return result;
   }
 
-  private messagesToInputText(messages: LangChatMessageCollection): string {
-    const parts: string[] = [];
+  private transformMessagesToResponsesInput(messages: LangChatMessageCollection): any {
+    const input: any[] = [];
     for (const m of messages) {
-      const role = m.role;
+      const entry: any = { role: m.role === 'assistant' ? 'assistant' : m.role, content: [] as any[] };
       const content = (m as any).content;
       if (Array.isArray(content)) {
-        // Caller should avoid Responses path when images/structured content present
-        // Fallback in OpenAILang
-        continue;
+        for (const part of content as LangContentPart[]) {
+          if (part.type === 'text') {
+            entry.content.push({ type: 'input_text', text: part.text });
+          } else if (part.type === 'image') {
+            const mapped = this.mapImageInput(part.image);
+            entry.content.push(mapped);
+          }
+        }
+      } else {
+        entry.content.push({ type: 'input_text', text: String(content) });
       }
-      parts.push(`${role}: ${String(content)}`);
+      input.push(entry);
     }
-    return parts.join("\n\n");
+    return input;
+  }
+
+  private mapImageInput(image: LangImageInput): any {
+    const kind: any = (image as any).kind;
+    if (kind === 'url') {
+      const url = (image as any).url as string;
+      return { type: 'image_url', image_url: { url } };
+    }
+    if (kind === 'base64') {
+      const base64 = (image as any).base64 as string;
+      const mimeType = (image as any).mimeType || 'image/png';
+      const dataUrl = `data:${mimeType};base64,${base64}`;
+      return { type: 'image_url', image_url: { url: dataUrl } };
+    }
+    throw new Error('Unsupported image kind for Responses mapping');
   }
 }
