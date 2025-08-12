@@ -11,6 +11,7 @@ import {
   LanguageProvider,
 } from "../language-provider.ts";
 import { models } from 'aimodels';
+import { LangContentPart, LangImageInput } from "../language-provider.ts";
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
 
 type AnthropicTool = {
@@ -340,9 +341,52 @@ export class AnthropicLang extends LanguageProvider {
           continue;
         }
       }
+      // Map structured parts if provided
+      const contentAny = m.content as any;
+      if (Array.isArray(contentAny)) {
+        const blocks = this.mapPartsToAnthropicBlocks(contentAny as LangContentPart[]);
+        out.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: blocks });
+        continue;
+      }
       // Default: pass through as simple text content
       out.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content });
     }
     return out;
+  }
+
+  private mapPartsToAnthropicBlocks(parts: LangContentPart[]): any[] {
+    return parts.map(p => {
+      if (p.type === 'text') {
+        return { type: 'text', text: p.text };
+      }
+      // Images must be base64 for Anthropic
+      const src = this.imageInputToAnthropicSource(p.image);
+      return { type: 'image', source: src } as any;
+    });
+  }
+
+  private imageInputToAnthropicSource(image: LangImageInput): { type: 'base64'; media_type: string; data: string } {
+    const kind: any = (image as any).kind;
+    if (kind === 'base64') {
+      const base64 = (image as any).base64 as string;
+      const media_type = (image as any).mimeType || 'image/png';
+      return { type: 'base64', media_type, data: base64 };
+    }
+    if (kind === 'url') {
+      const url = (image as any).url as string;
+      if (url.startsWith('data:')) {
+        // data URL: data:mime;base64,DATA
+        const match = url.match(/^data:([^;]+);base64,(.*)$/);
+        if (!match) throw new Error('Invalid data URL for Anthropic image');
+        const media_type = match[1];
+        const data = match[2];
+        return { type: 'base64', media_type, data };
+      }
+      throw new Error("Anthropic image input requires base64 or data URL. Provide base64+mimeType or a data: URL.");
+    }
+    if (kind === 'bytes' || kind === 'blob') {
+      throw new Error("Anthropic image input requires base64. Convert bytes/blob to base64 first.");
+    }
+    throw new Error('Unknown image input kind for Anthropic');
   }
 }

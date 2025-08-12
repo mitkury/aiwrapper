@@ -1,4 +1,4 @@
-import { LangChatMessageCollection, LangOptions, LangResult,  LanguageProvider } from "../language-provider.ts";
+import { LangChatMessageCollection, LangOptions, LangResult,  LanguageProvider, LangContentPart } from "../language-provider.ts";
 import { httpRequestWithRetry as fetch } from "../../http-request.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
 import { models, Model } from 'aimodels';
@@ -202,11 +202,36 @@ export class OllamaLang extends LanguageProvider {
       options?.onResult?.(result);
     };
 
+    // Extract base64 images for models that support vision via images array.
+    const images: string[] = [];
+    const mappedMessages = messages.map((m: any) => {
+      if (Array.isArray(m.content)) {
+        for (const part of m.content as LangContentPart[]) {
+          if (part.type === 'image') {
+            const img: any = part.image;
+            if (img.kind === 'base64') images.push(img.base64);
+            if (img.kind === 'url' && typeof img.url === 'string' && img.url.startsWith('data:')) {
+              const match = img.url.match(/^data:([^;]+);base64,(.*)$/);
+              if (match) images.push(match[2]);
+            }
+          }
+        }
+        // Replace structured parts with concatenated text for message content
+        const text = (m.content as LangContentPart[])
+          .filter(p => p.type === 'text')
+          .map(p => (p as any).text)
+          .join('\n');
+        return { role: m.role, content: text };
+      }
+      return m;
+    });
+
     const response = await fetch(`${this._config.baseURL}/api/chat`, {
       method: "POST",
       body: JSON.stringify({
         model: this._config.model,
-        messages,
+        messages: mappedMessages,
+        ...(images.length > 0 ? { images } : {}),
         stream: true,
         ...(requestMaxTokens && { num_predict: requestMaxTokens }),
       })
