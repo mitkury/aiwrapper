@@ -26,3 +26,6 @@ export type { LangImageInput, LangContentPart, LangImageOutput } from "./languag
 // For backward compatibility
 export type LangChatMessages = LangChatMessageCollection;
 
+// Img API
+export { Img } from "../img/img.ts";
+

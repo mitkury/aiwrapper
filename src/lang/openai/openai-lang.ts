@@ -55,23 +55,12 @@ export class OpenAILang extends OpenAILikeLang {
     this._responses = new OpenAIResponsesLang({ apiKey: options.apiKey, model: modelName, systemPrompt: options.systemPrompt });
   }
 
-  // Expose generateImage from base class
-  async generateImage(prompt: string, options?: any) {
-    return super.generateImage(prompt, options);
-  }
+  // Image generation/editing moved to Img API
 
-  /**
-   * Edit an existing image using OpenAI Images Edit API.
-   */
-  async editImage(params: {
-    prompt: string;
-    image: LangImageInput;
-    mask?: LangImageInput;
-    size?: "1024x1024" | "1024x1536" | "1536x1024" | "auto";
-    n?: number;
-    quality?: "standard" | "hd";
-    responseFormat?: "url" | "b64_json";
-  }): Promise<LangResult> {
+  // Removed: editImage (use Img.openai().edit(...))
+  // Removed: varyImage (use Img.openai().vary(...))
+
+  private isResponsesPreferred(model: string): boolean {
     const messages = new LangChatMessageCollection();
     messages.addUserMessage(`Edit image: ${params.prompt}`);
     const result = new LangResult(messages);
