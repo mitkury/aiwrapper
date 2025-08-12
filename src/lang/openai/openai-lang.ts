@@ -65,7 +65,7 @@ export class OpenAILang extends OpenAILikeLang {
     messages: LangChatMessage[] | LangChatMessageCollection,
     options?: LangOptions,
   ): Promise<LangResult> {
-    return this._responses!.chat(messages, options);
+    return super.chat(messages as any, options);
   }
 
   protected override transformBody(body: Record<string, unknown>): Record<string, unknown> {
