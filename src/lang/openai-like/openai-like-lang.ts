@@ -137,86 +137,88 @@ export class OpenAILikeLang extends LanguageProvider {
     return false;
   }
 
-  async chat(
-    messages: LangChatMessage[] | LangChatMessageCollection,
-    options?: LangOptions,
-  ): Promise<LangResult> {
-    // Ensure we have a LangChatMessageCollection
-    let messageCollection: LangChatMessageCollection;
-    if (messages instanceof LangChatMessageCollection) {
-      messageCollection = messages;
-    } else {
-      messageCollection = new LangChatMessageCollection(...messages);
-    }
-    
-    const result = new LangResult(messageCollection);
-    const onResult = options?.onResult;
-
-    // Calculate max tokens for the request, using model info if available
-    const requestMaxTokens = this.modelInfo 
-      ? calculateModelResponseTokens(
-          this.modelInfo,
-          messages,
-          this._config.maxTokens
-        )
-      : this._config.maxTokens || 4000; // Default if no model info or maxTokens
-      
-    // For reasoning models, ensure there's enough space for reasoning
-    // if maxCompletionTokens is not explicitly set
-    if (this.supportsReasoning() && this._config.maxCompletionTokens === undefined) {
-      this._config.maxCompletionTokens = Math.max(requestMaxTokens, 25000);
-    }
-
-    const onData = (data: any) => {
-      this.handleStreamData(data, result, messageCollection, onResult);
-    };
-
-    // Prepare request body with tools if provided
-    const body = this.transformBody({
-      model: this._config.model,
-      messages: messageCollection,
-      stream: true,
-      max_tokens: requestMaxTokens,
-      ...this._config.bodyProperties,
-      // Add tools to the request if provided
-      ...(options?.tools ? { tools: this.formatTools(options.tools) } : {}),
-    });
-
-    const response = await fetch(`${this._config.baseURL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(this._config.apiKey ? { "Authorization": `Bearer ${this._config.apiKey}` } : {}),
-        ...this._config.headers,
-      },
-      body: JSON.stringify(body),
-      onNotOkResponse: async (
-        res,
-        decision,
-      ): Promise<DecisionOnNotOkResponse> => {
-        if (res.status === 401) {
-          decision.retry = false;
-          throw new Error(
-            "Authentication failed. Please check your credentials and try again.",
-          );
-        }
-
-        if (res.status === 400) {
-          const data = await res.text();
-          decision.retry = false;
-          throw new Error(data);
-        }
-
-        return decision;
-      },
-    }).catch((err) => {
-      throw new Error(err);
-    });
-
-    await processResponseStream(response, onData);
-
-    return result;
-  }
+    async chat(
+     messages: LangChatMessage[] | LangChatMessageCollection,
+     options?: LangOptions,
+   ): Promise<LangResult> {
+     // Ensure we have a LangChatMessageCollection
+     let messageCollection: LangChatMessageCollection;
+     if (messages instanceof LangChatMessageCollection) {
+       messageCollection = messages;
+     } else {
+       messageCollection = new LangChatMessageCollection(...messages);
+     }
+     
+     const result = new LangResult(messageCollection);
+     const onResult = options?.onResult;
+ 
+     // Calculate max tokens for the request, using model info if available
+     const requestMaxTokens = this.modelInfo 
+       ? calculateModelResponseTokens(
+           this.modelInfo,
+           messages,
+           this._config.maxTokens
+         )
+       : this._config.maxTokens || 4000; // Default if no model info or maxTokens
+       
+     // For reasoning models, ensure there's enough space for reasoning
+     // if maxCompletionTokens is not explicitly set
+     if (this.supportsReasoning() && this._config.maxCompletionTokens === undefined) {
+       this._config.maxCompletionTokens = Math.max(requestMaxTokens, 25000);
+     }
+ 
+     const onData = (data: any) => {
+       this.handleStreamData(data, result, messageCollection, onResult);
+     };
+ 
+     // Prepare request body with tools if provided and structured output if schema is present
+     const body = this.transformBody({
+       model: this._config.model,
+       messages: messageCollection,
+       stream: true,
+       max_tokens: requestMaxTokens,
+       ...this._config.bodyProperties,
+       // Add tools to the request if provided
+       ...(options?.tools ? { tools: this.formatTools(options.tools) } : {}),
+       // If schema requested, ask for JSON object format (generic OpenAI-like)
+       ...(options?.schema ? { response_format: { type: 'json_object' } } : {}),
+     });
+ 
+     const response = await fetch(`${this._config.baseURL}/chat/completions`, {
+       method: "POST",
+       headers: {
+         "Content-Type": "application/json",
+         ...(this._config.apiKey ? { "Authorization": `Bearer ${this._config.apiKey}` } : {}),
+         ...this._config.headers,
+       },
+       body: JSON.stringify(body),
+       onNotOkResponse: async (
+         res,
+         decision,
+       ): Promise<DecisionOnNotOkResponse> => {
+         if (res.status === 401) {
+           decision.retry = false;
+           throw new Error(
+             "Authentication failed. Please check your credentials and try again.",
+           );
+         }
+ 
+         if (res.status === 400) {
+           const data = await res.text();
+           decision.retry = false;
+           throw new Error(data);
+         }
+ 
+         return decision;
+       },
+     }).catch((err) => {
+       throw new Error(err);
+     });
+ 
+     await processResponseStream(response, onData);
+ 
+     return result;
+   }
 
   /**
    * Formats tools for the OpenAI API request

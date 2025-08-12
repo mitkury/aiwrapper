@@ -10,6 +10,7 @@ import { CohereLang, CohereLangOptions } from "./cohere/cohere-lang.ts";
 import { OpenRouterLang, OpenRouterLangOptions } from "./openrouter/openrouter-lang.ts";
 import { MistralLang, MistralLangOptions } from "./mistral/mistral-lang.ts";
 import { OpenAILikeLang } from "./openai-like/openai-like-lang.ts";
+import { MockOpenAILikeLang, MockOpenAILikeOptions } from "./mock/mock-openai-like-lang.ts";
 
 /**
  * Lang is a factory class for using language models from different providers. 
@@ -85,6 +86,11 @@ export abstract class Lang {
     bodyProperties?: Record<string, unknown>;
   }): OpenAILikeLang {
     return OpenAILikeLang.custom(options);
+  }
+
+  /** Create a Mock OpenAI-like provider (no network) */
+  static mockOpenAI(options: MockOpenAILikeOptions = {}): MockOpenAILikeLang {
+    return new MockOpenAILikeLang(options);
   }
 
   // Dynamic provider access

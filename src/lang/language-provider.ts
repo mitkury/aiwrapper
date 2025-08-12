@@ -111,6 +111,9 @@ export class LangResult {
   // Thinking/reasoning output (if available)
   thinking?: string;
 
+  // Schema validation errors, if any
+  validationErrors: string[] = [];
+
   constructor(messages: LangChatMessageCollection) {
     this.messages = messages;
   }
@@ -206,11 +209,26 @@ export abstract class LanguageProvider {
     } else {
       throw new Error("Prompt must be a string or an array of messages");
     }
-    
-    const result = await this.chat(messages, {
-      ...options,
-      schema,
-    });
+
+    // Call chat with schema to allow providers to use native structured output options
+    const result = await this.chat(messages, { ...options, schema });
+
+    // Post-process: try to parse JSON object from the answer and validate
+    const maybeObject = extractJSON(result.answer);
+    if (maybeObject !== null) {
+      const validation = validateAgainstSchema(maybeObject, schema);
+      if (validation.valid) {
+        result.object = maybeObject;
+        result.validationErrors = [];
+      } else {
+        result.object = null;
+        result.validationErrors = validation.errors;
+      }
+    } else {
+      // Could not parse JSON
+      result.object = null;
+      result.validationErrors = ["Failed to parse JSON from the model response"];
+    }
 
     return result;
   }
