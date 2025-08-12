@@ -14,8 +14,10 @@
   - [ ] Verify Node streaming compatibility and update the comment in `src/process-response-stream.ts` if Node support is confirmed.
 
 - **Tools support**
-  - [ ] Finalize tool request formatting per provider (override `formatTools` where needed: OpenAI, Anthropic, Google, Cohere, Mistral, OpenRouter).
-  - [ ] Improve streaming parsing of `tool_calls` (handle partial/incremental JSON arguments safely instead of naive `JSON.parse` per delta).
+  - [x] Improve streaming parsing of `tool_calls` (handle partial/incremental JSON arguments safely instead of naive `JSON.parse` per delta). Implemented in `src/lang/openai-like/openai-like-lang.ts` with buffer accumulation and finalization on stream end.
+  - [x] Add mock provider support to simulate streaming `tool_calls` via `mockToolCalls` in `src/lang/mock/mock-openai-like-lang.ts`.
+  - [x] Add a test covering partial argument assembly in `tests/tools.test.ts`.
+  - [ ] Provider-specific `formatTools` overrides and request wiring (Anthropic, Google, Cohere, Mistral, OpenRouter).
   - [ ] Provide helper workflow for executing tools externally and merging results via `LangResult.addToolUseMessage`, plus examples and docs.
 
 - **Providers**
@@ -28,7 +30,7 @@
   - [ ] Add streaming tests (ensure incremental `answer`, final `finished`, object parsing & validation).
   - [ ] Add tests for `validateAgainstSchema` (Zod and JSON Schema) and `extract-json` edge cases.
   - [ ] Migrate or rewrite essential cases from `tests-old/` to `tests/`.
-  - [ ] Add tests for tool call detection and argument assembly during streaming.
+  - [x] Add tests for tool call detection and argument assembly during streaming.
 
 - **Documentation**
   - [ ] Update README structured output section once JSON Schema validation is implemented and providers support native formats.

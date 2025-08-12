@@ -111,6 +111,8 @@ export class OpenAILang extends OpenAILikeLang {
       stream: true,
       max_tokens: requestMaxTokens,
       ...this._config.bodyProperties,
+      ...(options?.tools ? { tools: this.formatTools(options.tools) } : {}),
+      ...(options?.schema ? { response_format: { type: 'json_object' } } : {}),
     });
 
     const response = await fetch(`${this._config.baseURL}/chat/completions`, {
