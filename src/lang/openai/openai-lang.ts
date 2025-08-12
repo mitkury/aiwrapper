@@ -65,10 +65,6 @@ export class OpenAILang extends OpenAILikeLang {
     messages: LangChatMessage[] | LangChatMessageCollection,
     options?: LangOptions,
   ): Promise<LangResult> {
-    if (this._responses) {
-      return this._responses.chat(messages, options);
-    }
-    // Fallback to chat/completions
     return super.chat(messages as any, options);
   }
 
