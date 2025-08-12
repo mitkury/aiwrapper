@@ -184,13 +184,13 @@ export class OpenAIResponsesLang extends LanguageProvider {
     const kind: any = (image as any).kind;
     if (kind === 'url') {
       const url = (image as any).url as string;
-      return { type: 'image_url', image_url: { url } };
+      return { type: 'input_image', image_url: { url } };
     }
     if (kind === 'base64') {
       const base64 = (image as any).base64 as string;
       const mimeType = (image as any).mimeType || 'image/png';
       const dataUrl = `data:${mimeType};base64,${base64}`;
-      return { type: 'image_url', image_url: { url: dataUrl } };
+      return { type: 'input_image', image_url: { url: dataUrl } };
     }
     throw new Error('Unsupported image kind for Responses mapping');
   }
