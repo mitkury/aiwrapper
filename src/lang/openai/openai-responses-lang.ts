@@ -60,6 +60,8 @@ export class OpenAIResponsesLang extends LanguageProvider {
     const body: any = {
       model: this._model,
       input,
+      modalities: ["text"],
+      max_output_tokens: typeof (options as any)?.maxTokens === 'number' ? (options as any).maxTokens : 512,
       ...(stream ? { stream: true } : {}),
     };
 
@@ -90,12 +92,25 @@ export class OpenAIResponsesLang extends LanguageProvider {
       const response = await fetch(url, common as any);
 
       const onData = (data: any) => {
-        if (data.finished) {
+        if (data.finished || data.type === 'response.completed') {
           result.finished = true;
           options?.onResult?.(result);
           return;
         }
-        // Heuristic for Responses streaming
+        // Handle typed events
+        if (typeof data?.type === 'string') {
+          if (data.type === 'response.output_text.delta' && typeof data.delta === 'string') {
+            result.answer += data.delta;
+            options?.onResult?.(result);
+            return;
+          }
+          if (data.type === 'response.output_text.done' && typeof data.output_text === 'string') {
+            // finalize segment
+            options?.onResult?.(result);
+            return;
+          }
+        }
+        // Fallback heuristic
         const textDelta = data?.delta?.output_text || data?.output_text || data?.content?.[0]?.text;
         if (typeof textDelta === 'string') {
           result.answer += textDelta;

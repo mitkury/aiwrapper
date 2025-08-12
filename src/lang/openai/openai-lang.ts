@@ -65,17 +65,7 @@ export class OpenAILang extends OpenAILikeLang {
     messages: LangChatMessage[] | LangChatMessageCollection,
     options?: LangOptions,
   ): Promise<LangResult> {
-    if (this._responses && this.isResponsesPreferred(this.name)) {
-      try {
-        return await this._responses.chat(messages, options);
-      } catch (err: any) {
-        if (String(err?.message || '').includes("Unsupported parameter") || String(err?.message || '').includes("invalid_request_error")) {
-          return super.chat(messages as any, options);
-        }
-        throw err;
-      }
-    }
-    return super.chat(messages as any, options);
+    return this._responses!.chat(messages, options);
   }
 
   protected override transformBody(body: Record<string, unknown>): Record<string, unknown> {
