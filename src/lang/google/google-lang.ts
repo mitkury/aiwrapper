@@ -11,7 +11,7 @@ import {
 import { processResponseStream } from "../../process-response-stream.ts";
 import { models, Model } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
-import { LangChatMessage } from "../language-provider.ts";
+import { LangChatMessage, LangChatMessageCollection } from "../language-provider.ts";
 
 export type GoogleLangOptions = {
   apiKey: string;
@@ -66,20 +66,23 @@ export class GoogleLang extends LanguageProvider {
   }
 
   async chat(
-    messages: LangChatMessageCollection,
+    messages: LangChatMessage[] | LangChatMessageCollection,
     options?: LangOptions,
   ): Promise<LangResult> {
-    const result = new LangResult(messages);
+    const messageCollection = messages instanceof LangChatMessageCollection
+      ? messages
+      : new LangChatMessageCollection(...messages);
+    const result = new LangResult(messageCollection);
 
     // Transform messages into Google's format
-    const contents = this.transformMessagesForProvider(messages);
+    const contents = this.transformMessagesForProvider(messageCollection);
 
     // Calculate max tokens if we have model info
     let maxOutputTokens = this._maxTokens;
     if (this.modelInfo && !maxOutputTokens) {
       maxOutputTokens = calculateModelResponseTokens(
         this.modelInfo,
-        messages,
+        messageCollection,
         this._maxTokens
       );
     }
@@ -186,7 +189,7 @@ export class GoogleLang extends LanguageProvider {
           parts: msg.content.map((tr: any) => ({
             functionResponse: {
               name: tr.toolId, // Use toolId (should be function name in Gemini responses)
-              response: typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result)
+              response: typeof tr.result === 'object' && tr.result !== null ? tr.result : { result: tr.result }
             }
           }))
         };
