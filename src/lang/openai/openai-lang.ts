@@ -51,6 +51,11 @@ export class OpenAILang extends OpenAILikeLang {
     }
   }
 
+  // Expose generateImage from base class
+  async generateImage(prompt: string, options?: any) {
+    return super.generateImage(prompt, options);
+  }
+
   override async chat(
     messages: LangChatMessage[] | LangChatMessageCollection,
     options?: LangOptions,

@@ -445,4 +445,76 @@ export class OpenAILikeLang extends LanguageProvider {
   getMaxCompletionTokens(): number | undefined {
     return this._config.maxCompletionTokens;
   }
+
+  /**
+   * Generate a single image using an OpenAI-compatible Images API.
+   * Returns a LangResult with images[0] populated as url or base64 depending on options.imageOutput.
+   */
+  async generateImage(
+    prompt: string,
+    options?: (LangOptions & { size?: string; quality?: "standard" | "hd"; format?: "png" | "webp" | "jpeg" })
+  ): Promise<LangResult> {
+    const messages = new LangChatMessageCollection();
+    messages.addUserMessage(prompt);
+    const result = new LangResult(messages);
+
+    // Decide desired output
+    const wantBase64 = options?.imageOutput === "base64";
+    const responseFormat = wantBase64 ? "b64_json" : undefined;
+
+    // Choose model: prefer configured if it looks like an image model, otherwise default to gpt-image-1
+    const configuredModel = this._config.model || "";
+    const isImageModel = /image|dall-e/i.test(configuredModel);
+    const modelForImages = isImageModel ? configuredModel : "gpt-image-1";
+
+    const body: Record<string, unknown> = {
+      model: modelForImages,
+      prompt,
+      n: 1,
+      ...(options?.size ? { size: options.size } : {}),
+      ...(options?.quality ? { quality: options.quality } : {}),
+      ...(responseFormat ? { response_format: responseFormat } : {}),
+    };
+
+    const response = await fetch(`${this._config.baseURL}/images/generations`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(this._config.apiKey ? { Authorization: `Bearer ${this._config.apiKey}` } : {}),
+        ...this._config.headers,
+      },
+      body: JSON.stringify(body),
+      onNotOkResponse: async (res, decision): Promise<DecisionOnNotOkResponse> => {
+        if (res.status === 401) {
+          decision.retry = false;
+          throw new Error("Authentication failed. Please check your credentials and try again.");
+        }
+        if (res.status === 400) {
+          const data = await res.text();
+          decision.retry = false;
+          throw new Error(data);
+        }
+        return decision;
+      },
+    });
+
+    const json: any = await response.json();
+    const dataItem = json?.data?.[0];
+
+    if (!dataItem) {
+      throw new Error("Image generation returned no data");
+    }
+
+    result.images = result.images || [];
+    if (dataItem.b64_json) {
+      result.images.push({ base64: dataItem.b64_json, mimeType: options?.format ? `image/${options.format}` : "image/png", provider: this.name, model: modelForImages, metadata: { created: json?.created } });
+      result.answer = "image://base64";
+    } else if (dataItem.url) {
+      result.images.push({ url: dataItem.url, provider: this.name, model: modelForImages, metadata: { created: json?.created } });
+      result.answer = dataItem.url;
+    }
+
+    result.finished = true;
+    return result;
+  }
 }

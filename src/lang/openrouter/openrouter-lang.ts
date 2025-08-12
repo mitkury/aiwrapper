@@ -19,4 +19,8 @@ export class OpenRouterLang extends OpenAILikeLang {
       baseURL: "https://openrouter.ai/api/v1",
     });
   }
+
+  async generateImage(prompt: string, options?: any) {
+    return super.generateImage(prompt, options);
+  }
 } 
