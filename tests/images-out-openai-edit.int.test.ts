@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Lang } from '../dist/index.js';
+import { Img } from '../dist/index.js';
 
 const apiKey = process.env.OPENAI_API_KEY;
 const run = !!apiKey && process.env.RUN_IMAGE_OUT_TESTS === '1';
@@ -10,9 +10,9 @@ const TINY_PNG_BASE64 =
 
 describe.skipIf(!run)('OpenAI image edit (integration)', () => {
   it('edits an image and returns url or base64', async () => {
-    const openai = Lang.openai({ apiKey: apiKey as string, model: 'gpt-image-1' });
+    const openai = Img.openai({ apiKey: apiKey as string, model: 'gpt-image-1' });
 
-    const res = await (openai as any).editImage({
+    const res = await openai.edit({
       prompt: 'make it red',
       image: { kind: 'base64', base64: TINY_PNG_BASE64, mimeType: 'image/png' },
       responseFormat: 'url'

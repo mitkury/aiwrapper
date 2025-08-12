@@ -20,7 +20,5 @@ export class OpenRouterLang extends OpenAILikeLang {
     });
   }
 
-  async generateImage(prompt: string, options?: any) {
-    return super.generateImage(prompt, options);
-  }
-} 
+}
+ 
