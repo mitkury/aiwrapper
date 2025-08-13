@@ -3,9 +3,9 @@ import { Lang, LangChatMessageCollection } from '../../dist/index.js';
 import { readImageBase64 } from '../utils/test-images.ts';
 
 const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
-const run = !!apiKey && process.env.RUN_VISION_TESTS === '1';
-
-describe.skipIf(!run)('Google Gemini vision (integration)', () => {
+const run = !!apiKey;
+ 
+ describe.skipIf(!run)('Google Gemini vision (integration)', () => {
   it('accepts base64 image + text and returns an answer', async () => {
     const lang = Lang.google({ apiKey: apiKey as string, model: 'gemini-2.0-flash' });
 

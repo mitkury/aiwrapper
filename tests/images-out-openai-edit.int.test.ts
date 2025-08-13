@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { Img } from '../dist/index.js';
 
 const apiKey = process.env.OPENAI_API_KEY;
-const run = !!apiKey && process.env.RUN_IMAGE_OUT_TESTS === '1';
+const run = !!apiKey;
 
 // 1x1 transparent PNG
 const TINY_PNG_BASE64 =

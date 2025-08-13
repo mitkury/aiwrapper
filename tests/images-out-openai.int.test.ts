@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { Img } from '../dist/index.js';
 
 const apiKey = process.env.OPENAI_API_KEY;
-const run = !!apiKey && process.env.RUN_IMAGE_OUT_TESTS === '1';
-
+const run = !!apiKey;
+ 
 describe.skipIf(!run)('OpenAI image generation (integration)', () => {
   it('generates an image URL or base64', async () => {
     const openai = Img.openai({ apiKey: apiKey as string, model: 'gpt-image-1' });
