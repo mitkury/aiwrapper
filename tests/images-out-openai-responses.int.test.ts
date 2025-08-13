@@ -9,19 +9,7 @@ describe.skipIf(!run)('OpenAI image generation via Responses API (integration)',
     const lang = Lang.openai({ apiKey: apiKey as string, model: 'gpt-4o' });
 
     const res = await (lang as any).ask('Generate an image of a gray tabby cat hugging an otter with an orange scarf', {
-      tools: [
-        {
-          type: 'function',
-          function: {
-            name: 'image_generation',
-            description: 'Generate an image with the requested content',
-            parameters: {
-              type: 'object',
-              properties: {},
-            }
-          }
-        }
-      ]
+      tools: [ { type: 'image_generation' } ]
     });
 
     expect(res.images && res.images.length).toBeGreaterThan(0);

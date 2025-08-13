@@ -65,9 +65,12 @@ export class OpenAILang extends OpenAILikeLang {
     if (!options) return false;
     const toolsAny = (options as any).tools;
     if (Array.isArray(toolsAny)) {
-      // If any tool is declared as the built-in Responses image_generation tool
-      if (toolsAny.some((t) => t && typeof t === 'object' && (t.type === 'image_generation' || t.type === 'image_generation_call'))) {
-        return true;
+      for (const t of toolsAny) {
+        if (t && typeof t === 'object') {
+          const typ = (t as any).type;
+          if (typ === 'image_generation' || typ === 'image_generation_call') return true;
+          if (typ === 'function' && (t as any).function && (t as any).function.name === 'image_generation') return true;
+        }
       }
     }
     return false;
