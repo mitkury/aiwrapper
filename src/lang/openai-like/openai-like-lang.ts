@@ -177,64 +177,111 @@ export class OpenAILikeLang extends LanguageProvider {
     // Prepare provider-formatted messages (including tool result mapping)
     const providerMessages = this.transformMessagesForProvider(messageCollection);
 
+    const isStreaming = typeof onResult === 'function';
+
     // Prepare request body with tools and structured output if requested
     const body = this.transformBody({
       model: this._config.model,
       messages: providerMessages,
-      stream: true,
+      ...(isStreaming ? { stream: true } : {}),
       max_tokens: requestMaxTokens,
       ...this._config.bodyProperties,
       ...(options?.tools ? { tools: this.formatTools(options.tools) } : {}),
       ...(options?.schema ? { response_format: { type: 'json_object' } } : {}),
     });
  
-     const response = await fetch(`${this._config.baseURL}/chat/completions`, {
-       method: "POST",
-       headers: {
-         "Content-Type": "application/json",
-         ...(this._config.apiKey ? { "Authorization": `Bearer ${this._config.apiKey}` } : {}),
-         ...this._config.headers,
-       },
-       body: JSON.stringify(body),
-       onNotOkResponse: async (
-         res,
-         decision,
-       ): Promise<DecisionOnNotOkResponse> => {
-         if (res.status === 401) {
-           decision.retry = false;
-           throw new Error(
-             "Authentication failed. Please check your credentials and try again.",
-           );
-         }
- 
-         if (res.status === 400) {
-           const data = await res.text();
-           decision.retry = false;
-           throw new Error(data);
-         }
- 
-         return decision;
-       },
-     }).catch((err) => {
-       throw new Error(err);
-     });
- 
-     await processResponseStream(response, onData);
+    const commonRequest = {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(isStreaming ? { "Accept": "text/event-stream" } : {}),
+        ...(this._config.apiKey ? { "Authorization": `Bearer ${this._config.apiKey}` } : {}),
+        ...this._config.headers,
+      },
+      body: JSON.stringify(body),
+      onNotOkResponse: async (
+        res,
+        decision,
+      ): Promise<DecisionOnNotOkResponse> => {
+        if (res.status === 401) {
+          decision.retry = false;
+          throw new Error(
+            "Authentication failed. Please check your credentials and try again.",
+          );
+        }
 
-    // Finalize tool arguments in case the stream finished without parsing final buffers
-    if ((result as any)._hasPendingToolArgs && toolArgBuffers.size > 0) {
-      for (const [id, acc] of toolArgBuffers) {
-        const entry = result.tools?.find(t => t.id === id);
-        if (!entry) continue;
-        try {
-          entry.arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
-        } catch {
-          // Leave as last successfully parsed state
+        if (res.status === 400) {
+          const data = await res.text();
+          decision.retry = false;
+          throw new Error(data);
+        }
+
+        return decision;
+      },
+    } as const;
+
+    // Streaming path
+    if (isStreaming) {
+      const response = await fetch(`${this._config.baseURL}/chat/completions`, commonRequest as any).catch((err) => {
+        throw new Error(err);
+      });
+
+      await processResponseStream(response, onData);
+
+      // Finalize tool arguments in case the stream finished without parsing final buffers
+      if ((result as any)._hasPendingToolArgs && toolArgBuffers.size > 0) {
+        for (const [id, acc] of toolArgBuffers) {
+          const entry = result.tools?.find(t => t.id === id);
+          if (!entry) continue;
+          try {
+            entry.arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
+          } catch {
+            // Leave as last successfully parsed state
+          }
+        }
+      }
+
+      return result;
+    }
+
+    // Non-streaming path
+    const response = await fetch(`${this._config.baseURL}/chat/completions`, commonRequest as any).catch((err) => {
+      throw new Error(err);
+    });
+
+    const data: any = await response.json();
+    const choice = data?.choices?.[0];
+    const msg = choice?.message;
+    let accumulated = '';
+
+    // Handle content which may be a string or array of parts
+    if (typeof msg?.content === 'string') {
+      accumulated = msg.content;
+    } else if (Array.isArray(msg?.content)) {
+      for (const part of msg.content) {
+        if (typeof part === 'string') {
+          accumulated += part;
+        } else if (part?.type === 'text' && typeof part.text === 'string') {
+          accumulated += part.text;
+        } else if (part?.type === 'image_url' && part.image_url?.url) {
+          result.images = result.images || [];
+          result.images.push({ url: part.image_url.url, provider: this.name, model: this._config.model });
+        } else if ((part?.type === 'output_image' || part?.type === 'inline_data') && (part.b64_json || part.data)) {
+          const base64 = part.b64_json || part.data;
+          const mimeType = part.mime_type || part.mimeType || 'image/png';
+          result.images = result.images || [];
+          result.images.push({ base64, mimeType, provider: this.name, model: this._config.model });
         }
       }
     }
 
-     return result;
+    if (accumulated) {
+      result.answer = accumulated;
+      result.addAssistantMessage(result.answer);
+    }
+
+    result.finished = true;
+    return result;
    }
 
   /**

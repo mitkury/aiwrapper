@@ -29,7 +29,7 @@ export class OpenAIImg {
       n: 1,
       ...(options?.size ? { size: options.size } : {}),
       ...(options?.quality ? { quality: options.quality } : {}),
-      ...(options?.responseFormat ? { response_format: options.responseFormat } : {}),
+      // response_format is no longer sent to avoid unknown parameter errors in newer API versions
     };
 
     const response = await fetch(`${this._baseURL}/images/generations`, {
@@ -145,7 +145,7 @@ export class OpenAIImg {
     if (args.size) form.append('size', args.size);
     if (args.n) form.append('n', String(args.n));
     if (args.quality) form.append('quality', args.quality);
-    if (args.response_format) form.append('response_format', args.response_format);
+    // Do not append response_format to avoid unknown parameter errors
     return form;
   }
 
@@ -157,7 +157,7 @@ export class OpenAIImg {
     if (args.size) form.append('size', args.size);
     if (args.n) form.append('n', String(args.n));
     if (args.quality) form.append('quality', args.quality);
-    if (args.response_format) form.append('response_format', args.response_format);
+    // Do not append response_format to avoid unknown parameter errors
     return form;
   }
 

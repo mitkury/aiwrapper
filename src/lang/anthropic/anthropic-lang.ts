@@ -123,6 +123,8 @@ export class AnthropicLang extends LanguageProvider {
     const pendingToolInputs = new Map<string, { name: string; buffer: string }>();
 
     const onResult = options?.onResult;
+    const isStreaming = typeof onResult === 'function';
+
     const onData = (data: any) => {
       if (data.type === "message_stop") {
         // finalize any pending tool inputs
@@ -257,7 +259,7 @@ export class AnthropicLang extends LanguageProvider {
         }
       }
     };
-
+    
     // Prepare tools if provided
     let tools: AnthropicTool[] | undefined;
     if (options?.tools && options.tools.length > 0) {
@@ -274,11 +276,11 @@ export class AnthropicLang extends LanguageProvider {
       messages: providerMessages,
       max_tokens: requestMaxTokens,
       system: systemContent,
-      stream: true,
+      ...(isStreaming ? { stream: true } : {}),
       ...(tools ? { tools } : {}),
     };
 
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const commonRequest = {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -312,13 +314,33 @@ export class AnthropicLang extends LanguageProvider {
 
         return decision;
       },
-    })
-      .catch((err) => {
-        throw new Error(err);
-      });
+    } as const;
 
-    await processResponseStream(response, onData);
+    if (isStreaming) {
+      const response = await fetch("https://api.anthropic.com/v1/messages", commonRequest as any)
+        .catch((err) => { throw new Error(err); });
 
+      await processResponseStream(response, onData);
+      return result;
+    }
+
+    // Non-streaming
+    const response = await fetch("https://api.anthropic.com/v1/messages", commonRequest as any)
+      .catch((err) => { throw new Error(err); });
+
+    const data: any = await response.json();
+    // Accumulate text content from content blocks
+    if (Array.isArray(data?.content)) {
+      for (const block of data.content) {
+        if (block?.type === 'text' && typeof block.text === 'string') {
+          result.answer += block.text;
+        }
+      }
+    }
+    if (result.answer) {
+      result.addAssistantMessage(result.answer);
+    }
+    result.finished = true;
     return result;
   }
 
