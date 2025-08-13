@@ -6,6 +6,7 @@ const run = !!apiKey;
 
 describe.skipIf(!run)('OpenAI streaming (integration)', () => {
   it('streams answer via onResult callback', async () => {
+    // Prefer a commonly available streaming-capable model
     const lang = Lang.openai({ apiKey: apiKey as string, model: 'gpt-4o' });
     let updates = 0;
     const res = await lang.ask('Say hello and then give me one fun fact.', {
