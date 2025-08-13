@@ -61,10 +61,26 @@ export class OpenAILang extends OpenAILikeLang {
     return /^(gpt-4o|o1|o3|gpt-image-1)/i.test(model);
   }
 
+  private shouldUseResponses(options?: LangOptions): boolean {
+    if (!options) return false;
+    const toolsAny = (options as any).tools;
+    if (Array.isArray(toolsAny)) {
+      // If any tool is declared as the built-in Responses image_generation tool
+      if (toolsAny.some((t) => t && typeof t === 'object' && (t.type === 'image_generation' || t.type === 'image_generation_call'))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   override async chat(
     messages: LangChatMessage[] | LangChatMessageCollection,
     options?: LangOptions,
   ): Promise<LangResult> {
+    // Route to Responses API if image_generation tool is requested
+    if (this._responses && this.shouldUseResponses(options)) {
+      return this._responses.chat(messages as any, options);
+    }
     return super.chat(messages as any, options);
   }
 
