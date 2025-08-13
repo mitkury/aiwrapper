@@ -62,6 +62,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
       input,
       max_output_tokens: typeof (options as any)?.maxTokens === 'number' ? (options as any).maxTokens : 512,
       ...(stream ? { stream: true } : {}),
+      ...(options && (options as any).tools ? { tools: (options as any).tools } : {}),
     };
 
     const url = `${this._baseURL}/responses${stream ? '?stream=true' : ''}`;
@@ -135,6 +136,11 @@ export class OpenAIResponsesLang extends LanguageProvider {
           result.answer += item.text;
         } else if (item?.type === 'text' && typeof item.text === 'string') {
           result.answer += item.text;
+        } else if (item?.type === 'image_generation_call' && typeof item.result === 'string') {
+          // Newer Responses API image generation output
+          const base64 = item.result;
+          result.images = result.images || [];
+          result.images.push({ base64, mimeType: 'image/png', provider: this.name, model: this._model });
         } else if (Array.isArray(item?.content)) {
           const first = item.content[0];
           if (first?.type === 'output_text' && typeof first.text === 'string') {
