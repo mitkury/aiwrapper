@@ -194,6 +194,7 @@ export class OpenAILikeLang extends LanguageProvider {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...(isStreaming ? { "Accept": "text/event-stream" } : {}),
         ...(this._config.apiKey ? { "Authorization": `Bearer ${this._config.apiKey}` } : {}),
         ...this._config.headers,
       },
