@@ -186,7 +186,7 @@ export class OpenAILikeLang extends LanguageProvider {
       ...(isStreaming ? { stream: true } : {}),
       max_tokens: requestMaxTokens,
       ...this._config.bodyProperties,
-      ...(options?.tools ? { tools: this.formatTools(options.tools) } : {}),
+      ...(options?.tools ? { tools: this.formatTools(options.tools), tool_choice: 'required' } : {}),
       ...(options?.schema ? { response_format: { type: 'json_object' } } : {}),
     });
  
@@ -250,8 +250,37 @@ export class OpenAILikeLang extends LanguageProvider {
     });
 
     const data: any = await response.json();
+    try {
+      // eslint-disable-next-line no-undef
+      const dbg = (typeof process !== 'undefined' && process?.env?.DEBUG_OPENAI_TOOLS) || '';
+      if (dbg === '1' || dbg === 'true') {
+        const preview = JSON.stringify(data);
+        // eslint-disable-next-line no-console
+        console.log('[OpenAILike][nonstream-response]', preview.length > 4000 ? preview.slice(0, 4000) + '…' : preview);
+      }
+    } catch {}
     const choice = data?.choices?.[0];
     const msg = choice?.message;
+
+    // Capture tool calls (non-streaming)
+    const toolCalls = msg?.tool_calls;
+    if (Array.isArray(toolCalls) && toolCalls.length > 0) {
+      result.tools = [];
+      for (const tc of toolCalls) {
+        const id: string = tc?.id || '';
+        const name: string = tc?.function?.name || '';
+        const rawArgs: string = tc?.function?.arguments || '';
+        let parsedArgs: Record<string, unknown> = {};
+        if (typeof rawArgs === 'string' && rawArgs.trim().length > 0) {
+          try {
+            parsedArgs = JSON.parse(rawArgs);
+          } catch {
+            // leave as empty object if parsing fails
+          }
+        }
+        result.tools.push({ id, name, arguments: parsedArgs } as unknown as ToolRequest);
+      }
+    }
     let accumulated = '';
 
     // Handle content which may be a string or array of parts
