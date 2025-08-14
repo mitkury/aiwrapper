@@ -5,7 +5,7 @@ const apiKey = process.env.DEEPSEEK_API_KEY;
 const run = !!apiKey;
  
  // These are integration tests; they will be skipped unless DEEPSEEK_API_KEY is present
- describe.skipIf(!run)('DeepSeek reasoning (integration)', () => {
+  describe.skipIf(!run)('DeepSeek reasoning (integration)', () => {
    it('streams reasoning content when using a reasoning-capable model', async () => {
     const lang = Lang.deepseek({ apiKey: apiKey as string, model: 'deepseek-reasoner' });
     let sawThinking = false;
@@ -22,7 +22,7 @@ const run = !!apiKey;
     expect(updates).toBeGreaterThan(0);
     // We accept either presence or absence based on provider behavior, but ensure callback worked
     expect(typeof sawThinking).toBe('boolean');
-  }, 60000);
+  }, 120000);
 });
 
 
