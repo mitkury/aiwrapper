@@ -22,7 +22,10 @@ describe('Structured output with OpenAI (integration)', () => {
       age: z.number().int().nonnegative(),
     });
 
-    const res = await lang.askForObject('Give a random person name and age', schema);
+    const res = await lang.askForObject(
+      'Return a JSON object with two fields: name (string) and age (integer). Only output valid JSON.',
+      schema
+    );
 
     expect(res.object).not.toBeNull();
     expect(res.validationErrors).toEqual([]);
