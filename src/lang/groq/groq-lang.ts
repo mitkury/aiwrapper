@@ -29,12 +29,14 @@ export class GroqLang extends OpenAILikeLang {
   }
 
   override async chat(
-    messages: LangChatMessage[],
+    messages: LangChatMessage[] | LangChatMessageCollection,
     options?: LangOptions,
   ): Promise<LangResult> {
-    // Cast the array directly to LangChatMessageCollection
-    const messageCollection = messages as LangChatMessageCollection;
-    
+    // Ensure we have a LangChatMessageCollection
+    const messageCollection = messages instanceof LangChatMessageCollection
+      ? messages
+      : new LangChatMessageCollection(...(messages as LangChatMessage[]));
+
     // Initialize the result
     const result = new LangResult(messageCollection);
     
@@ -56,14 +58,15 @@ export class GroqLang extends OpenAILikeLang {
     // For non-streaming calls
     if (!onResult) {
       // Make a direct API call
-      const body = {
+      const body: any = {
         ...this.transformBody({
           model: this._config.model,
-          messages: messages,
+          messages: messageCollection,
           stream: false,
           max_tokens: this._config.maxTokens || 4000,
         }),
-        ...bodyProperties
+        ...bodyProperties,
+        ...(options?.tools ? { tools: this.formatTools(options.tools), tool_choice: 'required' } : {}),
       };
       
       const response = await fetch(`${this._config.baseURL}/chat/completions`, {
@@ -76,12 +79,31 @@ export class GroqLang extends OpenAILikeLang {
         body: JSON.stringify(body),
       });
       
-      const data = await response.json();
+      const data: any = await response.json();
       
       // Add to messages
       if (data.choices && data.choices.length > 0) {
         const message = data.choices[0].message;
-        
+        // Parse tool calls if present
+        const toolCalls = message?.tool_calls;
+        if (Array.isArray(toolCalls) && toolCalls.length > 0) {
+          result.tools = [];
+          for (const tc of toolCalls) {
+            const id: string = tc?.id || '';
+            const name: string = tc?.function?.name || '';
+            const rawArgs: string = tc?.function?.arguments || '';
+            let parsedArgs: Record<string, unknown> = {};
+            if (typeof rawArgs === 'string' && rawArgs.trim().length > 0) {
+              try {
+                parsedArgs = JSON.parse(rawArgs);
+              } catch {
+                // ignore parse errors
+              }
+            }
+            result.tools.push({ id, name, arguments: parsedArgs } as any);
+          }
+        }
+
         // Handle parsed format reasoning and content
         if (message.reasoning) {
           result.thinking = message.reasoning;
@@ -100,8 +122,10 @@ export class GroqLang extends OpenAILikeLang {
           }
         }
         
-        // Add assistant message to result
-        result.addAssistantMessage(result.answer);
+        // Add assistant message to result if we have visible content
+        if (result.answer) {
+          result.addAssistantMessage(result.answer);
+        }
       }
       
       return result;
