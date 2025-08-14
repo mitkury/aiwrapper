@@ -3,7 +3,8 @@ import { Lang, LangChatMessageCollection } from '../../dist/index.js';
 import { readImageBase64 } from '../utils/test-images.ts';
 
 const apiKey = process.env.ANTHROPIC_API_KEY;
-const run = !!apiKey;
+const allow = process.env.RUN_IMG_NON_OPENAI_LIKE === '1' || process.env.RUN_IMG_NON_OPENAI_LIKE === 'true';
+const run = !!apiKey && allow;
  
  describe.skipIf(!run)('Anthropic vision input (integration)', () => {
   it('accepts base64 image + text and returns an answer', async () => {

@@ -54,10 +54,9 @@ async function runToolCall(lang: any) {
 }
 
 describe('Non-OpenAI-compatible tool calling (integration)', () => {
-  const allow = (process.env.RUN_NON_OPENAI_LIKE_TOOLS === '1' || process.env.RUN_NON_OPENAI_LIKE_TOOLS === 'true');
   for (const c of cases) {
     const apiKey = process.env[c.envKey];
-    const shouldRun = !!apiKey && allow;
+    const shouldRun = !!apiKey;
     const testName = `${c.provider} returns tool call with arguments`;
 
     (shouldRun ? it : it.skip)(testName, async () => {

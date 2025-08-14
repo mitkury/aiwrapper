@@ -3,7 +3,8 @@ import { Lang, LangChatMessageCollection } from '../../dist/index.js';
 import { readImageBase64 } from '../utils/test-images.ts';
 
 const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
-const run = !!apiKey;
+const allow = process.env.RUN_IMG_NON_OPENAI_LIKE === '1' || process.env.RUN_IMG_NON_OPENAI_LIKE === 'true';
+const run = !!apiKey && allow;
  
  describe.skipIf(!run)('Google Gemini vision (integration)', () => {
   it('accepts base64 image + text and returns an answer', async () => {
