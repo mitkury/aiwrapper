@@ -8,6 +8,7 @@
   ],
   "output": {
     "cursor": true,
+    "codex": true,
     "windsurf": true,
     "copilot": false,
     "cline": false
