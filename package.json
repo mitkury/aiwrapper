@@ -40,6 +40,7 @@
     "serve": "npx serve .",
     "pretest": "npm run build",
     "test": "vitest run",
+    "test:basic-lang": "vitest run tests/basic-lang/*.test.ts",
     "test:text": "vitest run tests/text/*.test.{js,ts}",
     "test:tools": "vitest run tests/tools/*.test.ts",
     "test:img-in": "vitest run tests/img/*.test.ts",
