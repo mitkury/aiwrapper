@@ -1,5 +1,6 @@
 import { OpenAILikeLang, OpenAILikeConfig } from "../openai-like/openai-like-lang.ts";
-import { LangChatMessageCollection, LangOptions, LangResult } from "../language-provider.ts";
+import { LangChatMessageCollection, LangOptions } from "../language-provider.ts";
+import { LangMessages } from "../messages.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
 import { DecisionOnNotOkResponse, httpRequestWithRetry as fetch } from "../../http-request.ts";
 import { models } from 'aimodels';
@@ -24,31 +25,18 @@ export class DeepSeekLang extends OpenAILikeLang {
     });
   }
 
-  // Check if the model supports reasoning
   override supportsReasoning(): boolean {
-    // Check if the model has reasoning capability in aimodels
     const modelInfo = models.id(this._config.model);
-
-    // First check if the model has the "reason" capability
-    if (modelInfo?.can("reason")) {
-      return true;
-    }
-
-    // As a fallback, check if the model name contains "reasoner" 
-    // This is a heuristic in case the model info is not up-to-date
+    if (modelInfo?.can("reason")) return true;
     const isReasonerModel = this._config.model.toLowerCase().includes("reasoner");
-
     return isReasonerModel;
   }
 
-  /**
-   * Override the handleStreamData method to capture reasoning content
-   */
   protected override handleStreamData(
     data: any,
-    result: LangResult,
-    messages: LangChatMessageCollection,
-    onResult?: (result: LangResult) => void
+    result: LangMessages,
+    messages: LangMessages,
+    onResult?: (result: LangMessages) => void
   ): void {
     if (data.finished) {
       result.finished = true;
@@ -56,7 +44,6 @@ export class DeepSeekLang extends OpenAILikeLang {
       return;
     }
 
-    // Handle reasoning content if available (DeepSeek specific)
     if (data.choices && data.choices[0].delta.reasoning_content) {
       const reasoningContent = data.choices[0].delta.reasoning_content;
       result.thinking = (result.thinking || "") + reasoningContent;
@@ -64,7 +51,6 @@ export class DeepSeekLang extends OpenAILikeLang {
       return;
     }
 
-    // Fall back to standard content handling from the parent class
     super.handleStreamData(data, result, messages, onResult);
   }
 } 

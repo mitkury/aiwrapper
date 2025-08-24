@@ -2,9 +2,9 @@ import {
   LangChatMessageCollection,
   LangChatMessage,
   LangOptions,
-  LangResult,
   LanguageProvider
 } from "../language-provider.ts";
+import { LangMessages } from "../messages.ts";
 import { OpenAILikeLang } from "../openai-like/openai-like-lang.ts";
 
 export type MockOpenAILikeOptions = {
@@ -42,22 +42,22 @@ export class MockOpenAILikeLang extends OpenAILikeLang {
   async ask(
     prompt: string,
     options?: LangOptions,
-  ): Promise<LangResult> {
-    const messages = new LangChatMessageCollection();
+  ): Promise<LangMessages> {
+    const messages = new LangMessages();
     messages.addUserMessage(prompt);
     return this.chat(messages, options);
   }
 
   async chat(
-    messages: LangChatMessage[] | LangChatMessageCollection,
+    messages: LangChatMessage[] | LangMessages,
     options?: LangOptions,
-  ): Promise<LangResult> {
-    // Normalize messages to collection
-    const messageCollection = messages instanceof LangChatMessageCollection
+  ): Promise<LangMessages> {
+    // Normalize to LangMessages
+    const messageCollection = messages instanceof LangMessages
       ? messages
-      : new LangChatMessageCollection(...messages);
+      : new LangMessages(messages);
 
-    const result = new LangResult(messageCollection);
+    const result = messageCollection;
     const onResult = options?.onResult;
     const toolArgBuffers = new Map<string, { name: string; buffer: string }>();
 

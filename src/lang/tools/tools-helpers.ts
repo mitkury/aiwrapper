@@ -1,21 +1,23 @@
-import { LanguageProvider, LangResult, ToolRequest, ToolResult, LangOptions } from "../language-provider.ts";
+import { LanguageProvider, ToolRequest, ToolResult, LangOptions } from "../language-provider.ts";
+import { LangMessages } from "../messages.ts";
 
 export type ToolRegistry = Record<string, (args: Record<string, any>) => any | Promise<any>>;
 
+// @TODO: I guess it should be internal, used automatically when running the lang.chat();
+
 /**
- * Executes tool calls from a LangResult using the provided registry, appends tool results,
+ * Executes tool calls from LangMessages using the provided registry, appends tool results,
  * and continues the conversation by invoking provider.chat with the updated messages.
  */
 export async function executeToolsAndContinue(
   provider: LanguageProvider,
-  result: LangResult,
+  messages: LangMessages,
   registry: ToolRegistry,
   options?: LangOptions
-): Promise<LangResult> {
-  const toolCalls: ToolRequest[] = result.tools || [];
+): Promise<LangMessages> {
+  const toolCalls: ToolRequest[] = messages.toolsRequested || [];
   if (toolCalls.length === 0) {
-    // No tools requested; return the same result
-    return result;
+    return messages;
   }
 
   const toolResults: ToolResult[] = [];
@@ -23,7 +25,6 @@ export async function executeToolsAndContinue(
   for (const call of toolCalls) {
     const toolName = (call as any).name as string | undefined;
     if (!toolName || !(toolName in registry)) {
-      // Skip unknown tools but keep the flow robust
       continue;
     }
     const fn = registry[toolName];
@@ -31,10 +32,8 @@ export async function executeToolsAndContinue(
     toolResults.push({ toolId: call.id, result: outcome });
   }
 
-  // Append tool execution results as a tool message to the conversation
-  result.addToolUseMessage(toolResults);
+  messages.addToolUseMessage(toolResults);
 
-  // Continue the chat with updated messages
-  const continued = await provider.chat(result.messages, options);
+  const continued = await provider.chat(messages, options);
   return continued;
 }

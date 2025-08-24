@@ -1,20 +1,12 @@
 import {
   LangChatMessageCollection,
   LangOptions,
-  LangResult,
   LangChatMessage,
   Tool
 } from "../language-provider.ts";
 import { OpenAILikeLang } from "../openai-like/openai-like-lang.ts";
-import { models } from 'aimodels';
-import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
-import { processResponseStream } from "../../process-response-stream.ts";
-import { 
-  DecisionOnNotOkResponse,
-  httpRequestWithRetry as fetch
-} from "../../http-request.ts";
 import { OpenAIResponsesLang } from "./openai-responses-lang.ts";
-import { LangImageInput } from "../language-provider.ts";
+import { LangMessages } from "../messages.ts";
 
 export type OpenAILangOptions = {
   apiKey: string;
@@ -52,37 +44,20 @@ export class OpenAILang extends OpenAILikeLang {
       console.error(`Invalid OpenAI model: ${modelName}. Model not found in aimodels database.`);
     }
 
+    // @TODO: move it out and have 2 separate classes OpenAILangOld and OpenAILang (responses)
     this._responses = new OpenAIResponsesLang({ apiKey: options.apiKey, model: modelName, systemPrompt: options.systemPrompt });
   }
 
-  // Image generation/editing moved to Img API
-
-  private isResponsesPreferred(model: string): boolean {
-    return /^(gpt-4o|o1|o3|gpt-image-1)/i.test(model);
-  }
-
-  private shouldUseResponses(options?: LangOptions): boolean {
-    if (!options) return false;
-    const toolsAny = (options as any).tools;
-    if (Array.isArray(toolsAny)) {
-      for (const t of toolsAny) {
-        if (t && typeof t === 'object') {
-          const typ = (t as any).type;
-          if (typ === 'image_generation' || typ === 'image_generation_call') return true;
-          if (typ === 'function' && (t as any).function && (t as any).function.name === 'image_generation') return true;
-        }
-      }
-    }
+  private shouldUseResponses(messages: LangChatMessage[] | LangChatMessageCollection): boolean {
     return false;
   }
 
   override async chat(
     messages: LangChatMessage[] | LangChatMessageCollection,
     options?: LangOptions,
-  ): Promise<LangResult> {
-    // Route to Responses API if image_generation tool is requested
-    if (this._responses && this.shouldUseResponses(options)) {
-      return this._responses.chat(messages as any, options);
+  ): Promise<LangMessages> {
+    if (this._responses && this.shouldUseResponses(messages)) {
+      return this._responses.chat(messages as any, options) as any;
     }
     return super.chat(messages as any, options);
   }
@@ -98,9 +73,9 @@ export class OpenAILang extends OpenAILikeLang {
   
   protected override handleStreamData(
     data: any, 
-    result: LangResult,
-    messages: LangChatMessageCollection,
-    onResult?: (result: LangResult) => void,
+    result: LangMessages,
+    messages: LangMessages,
+    onResult?: (result: LangMessages) => void,
     toolArgBuffers?: Map<string, { name: string; buffer: string }>
   ): void {
     super.handleStreamData(data, result, messages, onResult, toolArgBuffers);

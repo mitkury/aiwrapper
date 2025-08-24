@@ -4,6 +4,8 @@ import { z } from 'zod';
 import {  
   validateAgainstSchema 
 } from "./schema/schema-utils.ts";
+import { LangMessages } from "./messages.ts";
+import type { LangChatMessage } from "./messages.ts";
 
 // Export zod for convenience
 export { z };
@@ -13,15 +15,9 @@ export { z };
  */
 export type Schema = z.ZodType | Record<string, unknown>;
 
-
-/**
- * Image input types for multimodal prompts
- */
-export type LangImageInput =
-  | { kind: "url"; url: string }
-  | { kind: "base64"; base64: string; mimeType?: string }
-  | { kind: "bytes"; bytes: ArrayBuffer | Uint8Array; mimeType?: string }
-  | { kind: "blob"; blob: Blob; mimeType?: string };
+// Re-export message types from messages.ts to keep public API stable (collection is internal but used across src)
+export { LangChatMessageCollection } from "./messages.ts";
+export type { LangChatMessage, LangContentPart, LangImageInput } from "./messages.ts";
 
 /**
  * Image output type for providers that can generate images
@@ -36,14 +32,6 @@ export type LangImageOutput = {
   model?: string;
   metadata?: Record<string, unknown>;
 };
-
-/**
- * Mixed content parts for messages (text + images)
- */
-export type LangContentPart =
-  | { type: "text"; text: string }
-  | { type: "image"; image: LangImageInput; alt?: string };
-
 
 /**
  * Interface for tool requests that can be sent to language models
@@ -75,13 +63,10 @@ export interface Tool {
  * Options that can be passed to language model methods
  */
 export interface LangOptions {
-  // Available tools
-  tools?: Tool[];
-
   schema?: Schema;
   
   // Streaming callback
-  onResult?: (result: LangResult) => void;
+  onResult?: (result: LangMessages) => void;
   
   // Preferred image output format if the provider can generate images
   imageOutput?: "auto" | "url" | "base64";
@@ -91,123 +76,16 @@ export interface LangOptions {
 }
 
 /**
- * Type for a single chat message
+ * Backward-compatible result class that is also the conversation object
+ * Extends LangMessages and exposes a 'messages' getter for old code.
  */
-export interface LangChatMessage {
-  role: "user" | "assistant" | "tool" | "system";
-  // Supports simple string content for backward compatibility, or a list of structured parts
-  content: string | LangContentPart[] | any;
-}
+export class LangResult extends LangMessages {
+  constructor(messages: LangMessages | LangChatMessage[]) {
+    super(Array.isArray(messages) ? messages as LangChatMessage[] : [...(messages as LangMessages)]);
+  }
 
-/**
- * Type for chat messages
- */
-export class LangChatMessageCollection extends Array<LangChatMessage> {
-  addUserMessage(content: string): this {
-    this.push({ role: "user", content });
+  get messages(): this {
     return this;
-  }
-
-  addUserContent(parts: LangContentPart[]): this {
-    this.push({ role: "user", content: parts });
-    return this;
-  }
-
-  addUserImage(image: LangImageInput, alt?: string): this {
-    const parts: LangContentPart[] = [{ type: "image", image, alt }];
-    return this.addUserContent(parts);
-  }
-
-  addAssistantMessage(content: string): this {
-    this.push({ role: "assistant", content });
-    return this;
-  }
-
-  addAssistantContent(parts: LangContentPart[]): this {
-    this.push({ role: "assistant", content: parts });
-    return this;
-  }
-
-  addToolUseMessage(toolResults: any): this {
-    this.push({ role: "tool", content: toolResults });
-    return this;
-  }
-
-  addSystemMessage(content: string): this {
-    this.push({ role: "system", content });
-    return this;
-  }
-}
-
-/**
- * Unified result class for all language model operations
- */
-export class LangResult {
-  // The text answer from the LLM
-  answer: string = "";
-  
-  // Parsed object (if schema was provided)
-  object: any | null = null;
-  
-  // Tool calls requested by the model (if applicable)
-  tools: ToolRequest[] | null = null;
-  
-  // The full conversation history including the AI's response
-  messages: LangChatMessageCollection;
-  
-  // Whether the processing is finished
-  finished: boolean = false;
-  
-  // Thinking/reasoning output (if available)
-  thinking?: string;
-
-  // Schema validation errors, if any
-  validationErrors: string[] = [];
-
-  // Images generated/returned by the model (if any)
-  images?: LangImageOutput[];
-
-  constructor(messages: LangChatMessageCollection) {
-    this.messages = messages;
-  }
-
-  /**
-   * Add a user message to the conversation history
-   */
-  addUserMessage(content: string): void {
-    this.messages.addUserMessage(content);
-  }
-  
-  /**
-   * Add tool execution results back to the conversation
-   */
-  addToolUseMessage(toolResults: ToolResult[]): void {
-    this.messages.addToolUseMessage(toolResults);
-  }
-
-  /**
-   * Add assistant message to the conversation history
-   */
-  addAssistantMessage(content: string): void {
-    this.messages.addAssistantMessage(content);
-  }
-
-  /**
-   * Add system message to the conversation history
-   */
-  addSystemMessage(content: string): void {
-    this.messages.addSystemMessage(content);
-  }
-
-  toString(): string {
-    return this.answer;
-  }
-
-  /**
-   * Abort the current processing (for streaming)
-   */
-  abort(): void {
-    throw new Error("Not implemented yet");
   }
 }
 
@@ -228,39 +106,35 @@ export abstract class LanguageProvider {
   abstract ask(
     prompt: string,
     options?: LangOptions,
-  ): Promise<LangResult>;
+  ): Promise<LangMessages>;
 
   /**
    * Continue a conversation
    */
   abstract chat(
-    messages: LangChatMessage[] | LangChatMessageCollection,
+    messages: LangChatMessage[] | LangMessages,
     options?: LangOptions,
-  ): Promise<LangResult>;
+  ): Promise<LangMessages>;
 
   /**
    * Get structured answer from a language model
    * Supports both Zod schemas and JSON Schema objects
    */
   async askForObject(
-    prompt: string | LangChatMessage[] | LangChatMessageCollection,
+    prompt: string | LangChatMessage[] | LangMessages,
     schema: Schema,
     options?: LangOptions,
-  ): Promise<LangResult> {
+  ): Promise<LangMessages> {
     // Create a message collection with the prompt
-    let messages: LangChatMessageCollection;
+    let messages: LangMessages;
     
     if (typeof prompt === 'string') {
-      messages = new LangChatMessageCollection();
+      messages = new LangMessages();
       messages.addUserMessage(prompt);
-    } else if (Array.isArray(prompt)) {
-      if (prompt instanceof LangChatMessageCollection) {
-        messages = prompt;
-      } else {
-        messages = new LangChatMessageCollection(...prompt);
-      }
+    } else if (prompt instanceof LangMessages) {
+      messages = prompt;
     } else {
-      throw new Error("Prompt must be a string or an array of messages");
+      messages = new LangMessages(prompt);
     }
 
     // Call chat with schema to allow providers to use native structured output options

@@ -1,7 +1,6 @@
 import {
   LangChatMessageCollection,
   LangOptions,
-  LangResult,
   LanguageProvider,
   LangChatMessage,
 } from "../language-provider.ts";
@@ -13,6 +12,7 @@ import { processResponseStream } from "../../process-response-stream.ts";
 import { models, Model } from 'aimodels';
 import { LangContentPart, LangImageInput } from "../language-provider.ts";
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
+import { LangMessages, ToolsRegistry } from "../messages.ts";
 
 export type GoogleLangOptions = {
   apiKey: string;
@@ -32,7 +32,6 @@ export class GoogleLang extends LanguageProvider {
     const modelName = options.model || "gemini-2.0-flash";
     super(modelName);
 
-    // Get model info from aimodels
     const modelInfo = models.id(modelName);
     if (!modelInfo) {
       console.error(`Invalid Google model: ${modelName}. Model not found in aimodels database.`);
@@ -48,37 +47,29 @@ export class GoogleLang extends LanguageProvider {
   async ask(
     prompt: string,
     options?: LangOptions,
-  ): Promise<LangResult> {
-    const messages = new LangChatMessageCollection();
-
+  ): Promise<LangMessages> {
+    const messages = new LangMessages();
     if (this._systemPrompt) {
       messages.push({
-        role: "user" as "user", // Cast to user role for system prompts
+        role: "user" as "user",
         content: this._systemPrompt,
       });
     }
-
-    messages.push({
-      role: "user",
-      content: prompt,
-    });
-
+    messages.push({ role: "user", content: prompt });
     return await this.chat(messages, options);
   }
 
   async chat(
     messages: LangChatMessage[] | LangChatMessageCollection,
     options?: LangOptions,
-  ): Promise<LangResult> {
-    const messageCollection = messages instanceof LangChatMessageCollection
+  ): Promise<LangMessages> {
+    const messageCollection = messages instanceof LangMessages
       ? messages
-      : new LangChatMessageCollection(...messages);
-    const result = new LangResult(messageCollection);
+      : (messages instanceof LangChatMessageCollection ? new LangMessages(messages as any) : new LangMessages(messages));
+    const result = messageCollection;
 
-    // Transform messages into Google's format
-    const contents = this.transformMessagesForProvider(messageCollection);
+    const contents = this.transformMessagesForProvider(messageCollection as any);
 
-    // Calculate max tokens if we have model info
     let maxOutputTokens = this._maxTokens;
     if (this.modelInfo && !maxOutputTokens) {
       maxOutputTokens = calculateModelResponseTokens(
@@ -88,14 +79,14 @@ export class GoogleLang extends LanguageProvider {
       );
     }
 
-    // Map tools -> functionDeclarations
     let tools: any | undefined;
-    if (options?.tools && options.tools.length > 0) {
+    if (messageCollection.tools) {
+      const reg: ToolsRegistry = messageCollection.tools;
       tools = {
-        functionDeclarations: options.tools.map(t => ({
-          name: t.name,
-          description: t.description,
-          parameters: t.parameters
+        functionDeclarations: Object.entries(reg).map(([name, def]) => ({
+          name,
+          description: def.description || "",
+          parameters: def.parameters
         }))
       };
     }
@@ -115,18 +106,16 @@ export class GoogleLang extends LanguageProvider {
     const onData = (data: any) => {
       if (data.finished) {
         result.finished = true;
-        options?.onResult?.(result);
+        (options?.onResult as any)?.(result);
         return;
       }
 
-      // Handle Google's streaming format: detect functionCall parts
       const candidate = data.candidates?.[0];
       const parts = candidate?.content?.parts || [];
       for (const p of parts) {
         if (p.text) {
           result.answer += p.text;
         }
-        // Detect image parts
         if (p.inlineData && (p.inlineData.data || p.inlineData.b64_json)) {
           const base64 = p.inlineData.data || p.inlineData.b64_json;
           const mimeType = p.inlineData.mimeType || 'image/png';
@@ -138,10 +127,9 @@ export class GoogleLang extends LanguageProvider {
           result.images.push({ url: p.fileData.fileUri, provider: this.name, model: this._model });
         }
         if (p.functionCall) {
-          if (!result.tools) result.tools = [];
+          if (!result.toolsRequested) result.toolsRequested = [] as any;
           const { name, args } = p.functionCall;
-          // Google often sends full args object; ensure shape
-          result.tools.push({ id: name, name, arguments: args || {} } as any);
+          (result.toolsRequested as any).push({ id: name, name, arguments: args || {} });
         }
       }
 
@@ -149,7 +137,7 @@ export class GoogleLang extends LanguageProvider {
         result.addAssistantMessage(result.answer);
       }
 
-      options?.onResult?.(result);
+      (options?.onResult as any)?.(result);
     };
 
     const response = await fetch(
@@ -189,18 +177,14 @@ export class GoogleLang extends LanguageProvider {
     return result;
   }
 
-  /**
-   * Transform generic messages into Gemini format, mapping tool results
-   */
   protected transformMessagesForProvider(messages: LangChatMessageCollection): any[] {
     return messages.map((msg: any) => {
       if (msg.role === 'tool' && Array.isArray(msg.content)) {
-        // Emit as functionResponse parts in a user role
         return {
           role: 'user',
           parts: msg.content.map((tr: any) => ({
             functionResponse: {
-              name: tr.toolId, // Use toolId (should be function name in Gemini responses)
+              name: tr.toolId,
               response: typeof tr.result === 'object' && tr.result !== null ? tr.result : { result: tr.result }
             }
           }))

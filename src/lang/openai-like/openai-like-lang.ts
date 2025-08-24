@@ -1,14 +1,12 @@
 import {
-  LangChatMessageCollection,
-  LangChatMessage,
   LangOptions,
-  LangResult,
   LanguageProvider,
   ToolRequest,
   Tool,
   LangContentPart,
   LangImageInput,
 } from "../language-provider.ts";
+import { LangMessages, ToolsRegistry, LangChatMessage } from "../messages.ts";
 import {
   DecisionOnNotOkResponse,
   httpRequestWithRetry as fetch,
@@ -56,17 +54,11 @@ export class OpenAILikeLang extends LanguageProvider {
   constructor(config: OpenAILikeConfig) {
     super(config.model);
 
-    // Get model info from aimodels - it's optional now
     const modelInfo = models.id(config.model);
     this.modelInfo = modelInfo; // can be undefined
     this._config = config;
   }
 
-  /**
-   * Creates an instance of OpenAILikeLang for custom OpenAI-compatible APIs
-   * @param options Configuration options for the custom API
-   * @returns A new OpenAILikeLang instance
-   */
   static custom(options: {
     apiKey?: string;
     model: string;
@@ -94,8 +86,8 @@ export class OpenAILikeLang extends LanguageProvider {
   async ask(
     prompt: string,
     options?: LangOptions,
-  ): Promise<LangResult> {
-    const messages = new LangChatMessageCollection();
+  ): Promise<LangMessages> {
+    const messages = new LangMessages();
     if (this._config.systemPrompt) {
       messages.push({
         role: "user" as "user",
@@ -113,80 +105,74 @@ export class OpenAILikeLang extends LanguageProvider {
 
   protected transformBody(body: Record<string, unknown>): Record<string, unknown> {
     const transformedBody = { ...body };
-    
-    // Add reasoning_effort if specified and we're using a reasoning model
     if (this._config.reasoningEffort && this.supportsReasoning()) {
       transformedBody.reasoning_effort = this._config.reasoningEffort;
     }
-    
-    // Add max_completion_tokens if specified (for reasoning models)
     if (this._config.maxCompletionTokens !== undefined && this.supportsReasoning()) {
       transformedBody.max_completion_tokens = this._config.maxCompletionTokens;
     }
-    
     return transformedBody;
   }
 
-  /**
-   * Checks if the current model has reasoning capabilities
-   * @returns True if the model supports reasoning, false otherwise
-   */
   supportsReasoning(): boolean {
     if (this.modelInfo) {
       return this.modelInfo.canReason();
     }
-    
     return false;
   }
 
     async chat(
-     messages: LangChatMessage[] | LangChatMessageCollection,
+     messages: LangChatMessage[] | LangMessages,
      options?: LangOptions,
-   ): Promise<LangResult> {
-     // Ensure we have a LangChatMessageCollection
-     let messageCollection: LangChatMessageCollection;
-     if (messages instanceof LangChatMessageCollection) {
+   ): Promise<LangMessages> {
+     let messageCollection: LangMessages;
+     if (messages instanceof LangMessages) {
        messageCollection = messages;
      } else {
-       messageCollection = new LangChatMessageCollection(...messages);
+       messageCollection = new LangMessages(messages);
      }
      
-     const result = new LangResult(messageCollection);
      const onResult = options?.onResult;
  
-     // Token calculation
      const requestMaxTokens = this.modelInfo 
        ? calculateModelResponseTokens(
            this.modelInfo,
            messages,
            this._config.maxTokens
          )
-       : this._config.maxTokens || 4000; // Default if no model info or maxTokens
+       : this._config.maxTokens || 4000;
        
      if (this.supportsReasoning() && this._config.maxCompletionTokens === undefined) {
        this._config.maxCompletionTokens = Math.max(requestMaxTokens, 25000);
      }
 
-    // Local accumulator for streaming tool arguments
     const toolArgBuffers = new Map<string, { name: string; buffer: string }>();
 
     const onData = (data: any) => {
-      this.handleStreamData(data, result, messageCollection, onResult, toolArgBuffers);
+      this.handleStreamData(data, messageCollection, messageCollection, onResult, toolArgBuffers);
     };
 
-    // Prepare provider-formatted messages (including tool result mapping)
     const providerMessages = this.transformMessagesForProvider(messageCollection);
 
     const isStreaming = typeof onResult === 'function';
 
-    // Prepare request body with tools and structured output if requested
+    let effectiveTools: Tool[] | undefined = undefined;
+    if (messageCollection.tools) {
+      const reg: ToolsRegistry = messageCollection.tools;
+      effectiveTools = Object.entries(reg).map(([name, def]) => ({
+        name,
+        description: def.description || "",
+        parameters: def.parameters
+      }));
+    }
+
     const body = this.transformBody({
       model: this._config.model,
       messages: providerMessages,
       ...(isStreaming ? { stream: true } : {}),
       max_tokens: requestMaxTokens,
       ...this._config.bodyProperties,
-      ...(options?.tools ? { tools: this.formatTools(options.tools), tool_choice: 'required' } : {}),
+      ...(effectiveTools ? { tools: this.formatTools(effectiveTools), tool_choice: 'required' } : {}),
       ...(options?.schema ? { response_format: { type: 'json_object' } } : {}),
     });
  
@@ -220,7 +206,6 @@ export class OpenAILikeLang extends LanguageProvider {
       },
     } as const;
 
-    // Streaming path
     if (isStreaming) {
       const response = await fetch(`${this._config.baseURL}/chat/completions`, commonRequest as any).catch((err) => {
         throw new Error(err);
@@ -228,44 +213,38 @@ export class OpenAILikeLang extends LanguageProvider {
 
       await processResponseStream(response, onData);
 
-      // Finalize tool arguments in case the stream finished without parsing final buffers
-      if ((result as any)._hasPendingToolArgs && toolArgBuffers.size > 0) {
+      if ((messageCollection as any)._hasPendingToolArgs && toolArgBuffers.size > 0) {
         for (const [id, acc] of toolArgBuffers) {
-          const entry = result.tools?.find(t => t.id === id);
+          const entry = messageCollection.toolsRequested?.find(t => (t as any).id === id);
           if (!entry) continue;
           try {
-            entry.arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
+            (entry as any).arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
           } catch {
-            // Leave as last successfully parsed state
           }
         }
       }
 
-      return result;
+      return messageCollection;
     }
 
-    // Non-streaming path
     const response = await fetch(`${this._config.baseURL}/chat/completions`, commonRequest as any).catch((err) => {
       throw new Error(err);
     });
 
     const data: any = await response.json();
     try {
-      // eslint-disable-next-line no-undef
       const dbg = (typeof process !== 'undefined' && process?.env?.DEBUG_OPENAI_TOOLS) || '';
       if (dbg === '1' || dbg === 'true') {
         const preview = JSON.stringify(data);
-        // eslint-disable-next-line no-console
         console.log('[OpenAILike][nonstream-response]', preview.length > 4000 ? preview.slice(0, 4000) + '…' : preview);
       }
     } catch {}
     const choice = data?.choices?.[0];
     const msg = choice?.message;
 
-    // Capture tool calls (non-streaming)
     const toolCalls = msg?.tool_calls;
     if (Array.isArray(toolCalls) && toolCalls.length > 0) {
-      result.tools = [];
+      messageCollection.toolsRequested = [] as any;
       for (const tc of toolCalls) {
         const id: string = tc?.id || '';
         const name: string = tc?.function?.name || '';
@@ -275,15 +254,13 @@ export class OpenAILikeLang extends LanguageProvider {
           try {
             parsedArgs = JSON.parse(rawArgs);
           } catch {
-            // leave as empty object if parsing fails
           }
         }
-        result.tools.push({ id, name, arguments: parsedArgs } as unknown as ToolRequest);
+        (messageCollection.toolsRequested as any).push({ id, name, arguments: parsedArgs });
       }
     }
     let accumulated = '';
 
-    // Handle content which may be a string or array of parts
     if (typeof msg?.content === 'string') {
       accumulated = msg.content;
     } else if (Array.isArray(msg?.content)) {
@@ -293,29 +270,26 @@ export class OpenAILikeLang extends LanguageProvider {
         } else if (part?.type === 'text' && typeof part.text === 'string') {
           accumulated += part.text;
         } else if (part?.type === 'image_url' && part.image_url?.url) {
-          result.images = result.images || [];
-          result.images.push({ url: part.image_url.url, provider: this.name, model: this._config.model });
+          messageCollection.images = messageCollection.images || [];
+          messageCollection.images.push({ url: part.image_url.url, provider: this.name, model: this._config.model });
         } else if ((part?.type === 'output_image' || part?.type === 'inline_data') && (part.b64_json || part.data)) {
           const base64 = part.b64_json || part.data;
           const mimeType = part.mime_type || part.mimeType || 'image/png';
-          result.images = result.images || [];
-          result.images.push({ base64, mimeType, provider: this.name, model: this._config.model });
+          messageCollection.images = messageCollection.images || [];
+          messageCollection.images.push({ base64, mimeType, provider: this.name, model: this._config.model });
         }
       }
     }
 
     if (accumulated) {
-      result.answer = accumulated;
-      result.addAssistantMessage(result.answer);
+      messageCollection.answer = accumulated;
+      messageCollection.addAssistantMessage(messageCollection.answer);
     }
 
-    result.finished = true;
-    return result;
+    messageCollection.finished = true;
+    return messageCollection;
    }
 
-  /**
-   * Formats tools for the OpenAI API request
-   */
   protected formatTools(tools: Tool[]): any[] {
     return tools.map(tool => ({
       type: "function",
@@ -327,16 +301,29 @@ export class OpenAILikeLang extends LanguageProvider {
     }));
   }
 
-  /**
-   * Transform generic messages into provider-specific format.
-   * - Maps generic tool result messages (role: "tool", content: ToolResult[]) into
-   *   an array of OpenAI-compatible tool messages with tool_call_id and string content.
-   */
-  protected transformMessagesForProvider(messages: LangChatMessage[] | LangChatMessageCollection): any[] {
+  protected transformMessagesForProvider(messages: LangMessages): any[] {
     const arr = messages instanceof Array ? messages : [...messages];
     const out: any[] = [];
     for (const msg of arr) {
       if (msg.role === "tool") {
+        // Treat 'tool' role here as assistant tool_calls (requested by AI)
+        const contentAny = msg.content as any;
+        if (Array.isArray(contentAny)) {
+          out.push({
+            role: "assistant",
+            tool_calls: contentAny.map((call: any, index: number) => ({
+              id: call.id || String(index),
+              type: "function",
+              function: {
+                name: call.name,
+                arguments: JSON.stringify(call.arguments || {})
+              }
+            }))
+          });
+          continue;
+        }
+      }
+      if (msg.role === "tool-results") {
         const contentAny = msg.content as any;
         if (Array.isArray(contentAny)) {
           for (const tr of contentAny) {
@@ -349,7 +336,6 @@ export class OpenAILikeLang extends LanguageProvider {
           continue;
         }
       }
-      // Support structured content parts (text + images)
       const content = (msg as any).content;
       if (Array.isArray(content)) {
         const parts = this.mapContentPartsToOpenAI(content as LangContentPart[]);
@@ -375,7 +361,6 @@ export class OpenAILikeLang extends LanguageProvider {
   }
 
   private mapImageInputToOpenAI(image: LangImageInput): any {
-    // Prefer image_url mapping for OpenAI-like chat/completions
     if ((image as any).kind === "url") {
       const url = (image as any).url as string;
       return { type: "image_url", image_url: { url } };
@@ -395,26 +380,21 @@ export class OpenAILikeLang extends LanguageProvider {
     throw new Error("Unknown LangImageInput kind");
   }
 
-  /**
-   * Handles streaming data from the API response with safe tool_call accumulation
-   */
   protected handleStreamData(
     data: any, 
-    result: LangResult,
-    messages: LangChatMessageCollection,
-    onResult?: (result: LangResult) => void,
+    result: LangMessages,
+    messages: LangMessages,
+    onResult?: (result: LangMessages) => void,
     toolArgBuffers?: Map<string, { name: string; buffer: string }>
   ): void {
     if (data.finished) {
-      // Finalize tool arg buffers if present
-      if (toolArgBuffers && toolArgBuffers.size > 0 && result.tools) {
+      if (toolArgBuffers && toolArgBuffers.size > 0 && result.toolsRequested) {
         for (const [id, acc] of toolArgBuffers) {
-          const entry = result.tools.find(t => t.id === id);
+          const entry = result.toolsRequested.find((t: any) => t.id === id);
           if (!entry) continue;
           try {
-            entry.arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
+            (entry as any).arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
           } catch {
-            // ignore parse errors on finish
           }
         }
       }
@@ -428,7 +408,6 @@ export class OpenAILikeLang extends LanguageProvider {
       const delta = data.choices[0].delta;
       
       if (delta.content) {
-        // OpenAI-like may stream content as a string or as structured parts
         if (typeof delta.content === 'string') {
           result.answer += delta.content;
         } else if (Array.isArray(delta.content)) {
@@ -436,7 +415,6 @@ export class OpenAILikeLang extends LanguageProvider {
             if (part?.type === 'text' && typeof part.text === 'string') {
               result.answer += part.text;
             }
-            // Detect image-like parts from providers that include them in chat responses
             if (part?.type === 'image_url' && part.image_url?.url) {
               result.images = result.images || [];
               result.images.push({ url: part.image_url.url, provider: this.name, model: this._config.model });
@@ -452,10 +430,9 @@ export class OpenAILikeLang extends LanguageProvider {
       }
       
       if (delta.tool_calls) {
-        if (!result.tools) {
-          result.tools = [];
+        if (!result.toolsRequested) {
+          result.toolsRequested = [] as any;
         }
-        // Mark that we may have pending buffers to finalize
         (result as any)._hasPendingToolArgs = true;
 
         for (const toolCall of delta.tool_calls) {
@@ -463,10 +440,10 @@ export class OpenAILikeLang extends LanguageProvider {
           const name: string | undefined = toolCall.function?.name;
           const argChunk: string | undefined = toolCall.function?.arguments;
 
-          let existing = result.tools.find(t => t.id === id);
+          let existing = (result.toolsRequested as any).find((t: any) => t.id === id);
           if (!existing && id) {
-            existing = { id, name: name || '', arguments: {} } as unknown as ToolRequest;
-            result.tools.push(existing);
+            existing = { id, name: name || '', arguments: {} } as any;
+            (result.toolsRequested as any).push(existing);
           }
           if (existing && name) {
             (existing as any).name = name;
@@ -479,23 +456,20 @@ export class OpenAILikeLang extends LanguageProvider {
           if (argChunk) {
             const acc = toolArgBuffers.get(id)!;
             acc.buffer += argChunk;
-            // Try to parse incrementally; ignore errors until complete
             try {
               const parsed = JSON.parse(acc.buffer);
-              existing && (existing.arguments = parsed);
+              existing && ((existing as any).arguments = parsed);
             } catch {
-              // keep buffering
             }
           }
         }
       }
 
-      // Update assistant message content in the conversation
-      if (result.messages.length > 0 && 
-          result.messages[result.messages.length - 1].role === "assistant") {
-        result.messages[result.messages.length - 1].content = result.answer;
+      if (result.length > 0 && 
+          result[result.length - 1].role === "assistant") {
+        result[result.length - 1].content = result.answer;
       } else if (result.answer) {
-        result.messages.push({
+        result.push({
           role: "assistant",
           content: result.answer,
         });
@@ -505,39 +479,20 @@ export class OpenAILikeLang extends LanguageProvider {
     }
   }
 
-  /**
-   * Sets the reasoning effort level for the model
-   * @param effort The reasoning effort level: "low", "medium", or "high"
-   * @returns this instance for method chaining
-   */
   setReasoningEffort(effort: ReasoningEffort): OpenAILikeLang {
     this._config.reasoningEffort = effort;
     return this;
   }
 
-  /**
-   * Gets the current reasoning effort level
-   * @returns The current reasoning effort level or undefined if not set
-   */
   getReasoningEffort(): ReasoningEffort | undefined {
     return this._config.reasoningEffort;
   }
 
-  /**
-   * Sets the maximum number of tokens (including reasoning tokens) that can be generated
-   * This is specific to reasoning models and controls the total token output
-   * @param maxTokens The maximum number of tokens to generate
-   * @returns this instance for method chaining
-   */
   setMaxCompletionTokens(maxTokens: number): OpenAILikeLang {
     this._config.maxCompletionTokens = maxTokens;
     return this;
   }
 
-  /**
-   * Gets the current maximum completion tokens setting
-   * @returns The current maximum completion tokens or undefined if not set
-   */
   getMaxCompletionTokens(): number | undefined {
     return this._config.maxCompletionTokens;
   }

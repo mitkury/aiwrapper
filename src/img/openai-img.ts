@@ -1,4 +1,5 @@
-import { LangImageInput, LangResult, LangChatMessageCollection } from "../lang/language-provider.ts";
+import { LangImageInput } from "../lang/language-provider.ts";
+import { LangChatMessageCollection, LangMessages } from "../lang/messages.ts";
 import { httpRequestWithRetry as fetch, DecisionOnNotOkResponse } from "../http-request.ts";
 
 export type OpenAIImgOptions = {
@@ -18,10 +19,10 @@ export class OpenAIImg {
     this._baseURL = options.baseURL || 'https://api.openai.com/v1';
   }
 
-  async generate(prompt: string, options?: { size?: '1024x1024' | '1024x1536' | '1536x1024' | 'auto'; quality?: 'standard' | 'hd'; responseFormat?: 'url' | 'b64_json' }): Promise<LangResult> {
+  async generate(prompt: string, options?: { size?: '1024x1024' | '1024x1536' | '1536x1024' | 'auto'; quality?: 'standard' | 'hd'; responseFormat?: 'url' | 'b64_json' }): Promise<LangMessages> {
     const messages = new LangChatMessageCollection();
     messages.addUserMessage(`Generate image: ${prompt}`);
-    const result = new LangResult(messages);
+    const result = new LangMessages(messages as any);
 
     const body: Record<string, unknown> = {
       model: this._model,
@@ -29,7 +30,6 @@ export class OpenAIImg {
       n: 1,
       ...(options?.size ? { size: options.size } : {}),
       ...(options?.quality ? { quality: options.quality } : {}),
-      // response_format is no longer sent to avoid unknown parameter errors in newer API versions
     };
 
     const response = await fetch(`${this._baseURL}/images/generations`, {
@@ -62,10 +62,10 @@ export class OpenAIImg {
     return result;
   }
 
-  async edit(params: { prompt: string; image: LangImageInput; mask?: LangImageInput; size?: '1024x1024' | '1024x1536' | '1536x1024' | 'auto'; n?: number; quality?: 'standard' | 'hd'; responseFormat?: 'url' | 'b64_json' }): Promise<LangResult> {
+  async edit(params: { prompt: string; image: LangImageInput; mask?: LangImageInput; size?: '1024x1024' | '1024x1536' | '1536x1024' | 'auto'; n?: number; quality?: 'standard' | 'hd'; responseFormat?: 'url' | 'b64_json' }): Promise<LangMessages> {
     const messages = new LangChatMessageCollection();
     messages.addUserMessage(`Edit image: ${params.prompt}`);
-    const result = new LangResult(messages);
+    const result = new LangMessages(messages as any);
 
     const form = await this.buildImageEditForm({ model: this._model, ...params });
 
@@ -96,10 +96,10 @@ export class OpenAIImg {
     return result;
   }
 
-  async vary(params: { image: LangImageInput; size?: '1024x1024' | '1024x1536' | '1536x1024' | 'auto'; n?: number; quality?: 'standard' | 'hd'; responseFormat?: 'url' | 'b64_json' }): Promise<LangResult> {
+  async vary(params: { image: LangImageInput; size?: '1024x1024' | '1024x1536' | '1536x1024' | 'auto'; n?: number; quality?: 'standard' | 'hd'; responseFormat?: 'url' | 'b64_json' }): Promise<LangMessages> {
     const messages = new LangChatMessageCollection();
     messages.addUserMessage('Vary image');
-    const result = new LangResult(messages);
+    const result = new LangMessages(messages as any);
 
     const form = await this.buildImageVariationForm({ model: this._model, ...params });
 
@@ -145,7 +145,6 @@ export class OpenAIImg {
     if (args.size) form.append('size', args.size);
     if (args.n) form.append('n', String(args.n));
     if (args.quality) form.append('quality', args.quality);
-    // Do not append response_format to avoid unknown parameter errors
     return form;
   }
 
@@ -157,7 +156,6 @@ export class OpenAIImg {
     if (args.size) form.append('size', args.size);
     if (args.n) form.append('n', String(args.n));
     if (args.quality) form.append('quality', args.quality);
-    // Do not append response_format to avoid unknown parameter errors
     return form;
   }
 

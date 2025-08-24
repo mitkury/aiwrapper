@@ -2,11 +2,11 @@ import {
   LangChatMessageCollection,
   LangChatMessage,
   LangOptions,
-  LangResult,
   LanguageProvider,
   LangContentPart,
   LangImageInput
 } from "../language-provider.ts";
+import { LangMessages } from "../messages.ts";
 import {
   DecisionOnNotOkResponse,
   httpRequestWithRetry as fetch,
@@ -33,26 +33,25 @@ export class OpenAIResponsesLang extends LanguageProvider {
     this._systemPrompt = options.systemPrompt || "";
   }
 
-  async ask(prompt: string, options?: LangOptions): Promise<LangResult> {
+  async ask(prompt: string, options?: LangOptions): Promise<LangMessages> {
     const messages = new LangChatMessageCollection();
     if (this._systemPrompt) {
       messages.push({ role: "system", content: this._systemPrompt });
     }
     messages.push({ role: "user", content: prompt });
-    return this.chat(messages, options);
+    return this.chat(messages as any, options);
   }
 
   async chat(
     messages: LangChatMessage[] | LangChatMessageCollection,
     options?: LangOptions,
-  ): Promise<LangResult> {
-    const messageCollection = messages instanceof LangChatMessageCollection
+  ): Promise<LangMessages> {
+    const messageCollection = messages instanceof LangMessages
       ? messages
-      : new LangChatMessageCollection(...messages);
+      : (messages instanceof LangChatMessageCollection ? new LangMessages(messages as any) : new LangMessages(messages));
 
-    const result = new LangResult(messageCollection);
+    const result = messageCollection;
 
-    // Build structured input for Responses API
     const input = this.transformMessagesToResponsesInput(messageCollection);
 
     const stream = typeof options?.onResult === 'function';
@@ -62,7 +61,6 @@ export class OpenAIResponsesLang extends LanguageProvider {
       input,
       max_output_tokens: typeof (options as any)?.maxTokens === 'number' ? (options as any).maxTokens : 512,
       ...(stream ? { stream: true } : {}),
-      ...(options?.tools ? { tools: (options as any).tools } : {}),
     };
 
     const url = `${this._baseURL}/responses${stream ? '?stream=true' : ''}`;
@@ -94,42 +92,38 @@ export class OpenAIResponsesLang extends LanguageProvider {
       const onData = (data: any) => {
         if (data.finished || data.type === 'response.completed') {
           result.finished = true;
-          options?.onResult?.(result);
+          options?.onResult?.(result as any);
           return;
         }
-        // Handle typed events
         if (typeof data?.type === 'string') {
           if (data.type === 'response.output_text.delta' && typeof data.delta === 'string') {
             result.answer += data.delta;
-            options?.onResult?.(result);
+            options?.onResult?.(result as any);
             return;
           }
           if (data.type === 'response.output_text.done' && typeof data.output_text === 'string') {
-            // finalize segment
-            options?.onResult?.(result);
+            options?.onResult?.(result as any);
             return;
           }
           if (data.type === 'response.image_generation_call.partial_image' && typeof (data as any).partial_image_b64 === 'string') {
             const base64 = (data as any).partial_image_b64;
             result.images = result.images || [];
             result.images.push({ base64, mimeType: 'image/png', provider: this.name, model: this._model });
-            options?.onResult?.(result);
+            options?.onResult?.(result as any);
             return;
           }
         }
-        // Fallback heuristic
         const textDelta = data?.delta?.output_text || data?.output_text || data?.content?.[0]?.text;
         if (typeof textDelta === 'string') {
           result.answer += textDelta;
         }
-        options?.onResult?.(result);
+        options?.onResult?.(result as any);
       };
 
       await processResponseStream(response, onData);
       return result;
     }
 
-    // Non-streaming
     const response = await fetch(`${this._baseURL}/responses`, common as any);
     const data: any = await response.json();
 
@@ -144,7 +138,6 @@ export class OpenAIResponsesLang extends LanguageProvider {
         } else if (item?.type === 'text' && typeof item.text === 'string') {
           result.answer += item.text;
         } else if (item?.type === 'image_generation_call' && typeof item.result === 'string') {
-          // Newer Responses API image generation output
           const base64 = item.result;
           result.images = result.images || [];
           result.images.push({ base64, mimeType: 'image/png', provider: this.name, model: this._model });
@@ -177,7 +170,6 @@ export class OpenAIResponsesLang extends LanguageProvider {
   }
 
   private transformMessagesToResponsesInput(messages: LangChatMessageCollection): any {
-    // If all contents are plain strings and no images, return a single concatenated string
     let hasStructured = false;
     let hasImage = false;
     const roleLines: string[] = [];
@@ -196,7 +188,6 @@ export class OpenAIResponsesLang extends LanguageProvider {
       return roleLines.join("\n\n");
     }
 
-    // Build role/content entries with input_text and input_image
     const input: any[] = [];
     for (const m of messages) {
       const entry: any = { role: m.role === 'assistant' ? 'assistant' : m.role, content: [] as any[] };

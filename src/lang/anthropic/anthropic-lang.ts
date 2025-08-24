@@ -7,12 +7,12 @@ import {
   LangChatMessageCollection,
   LangChatMessage,
   LangOptions,
-  LangResult,
   LanguageProvider,
 } from "../language-provider.ts";
 import { models } from 'aimodels';
 import { LangContentPart, LangImageInput } from "../language-provider.ts";
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
+import { LangMessages, ToolsRegistry } from "../messages.ts";
 
 type AnthropicTool = {
   name: string;
@@ -43,7 +43,6 @@ export class AnthropicLang extends LanguageProvider {
     const modelName = options.model || "claude-3-sonnet-20240229";
     super(modelName);
 
-    // Get model info from aimodels
     const modelInfo = models.id(modelName);
     if (!modelInfo) {
       console.error(`Invalid Anthropic model: ${modelName}. Model not found in aimodels database.`);
@@ -61,40 +60,30 @@ export class AnthropicLang extends LanguageProvider {
   async ask(
     prompt: string,
     options?: LangOptions,
-  ): Promise<LangResult> {
-    const messages = new LangChatMessageCollection();
-
+  ): Promise<LangMessages> {
+    const messages = new LangMessages();
     if (this._config.systemPrompt) {
       messages.push({
-        role: "user" as "user", // Cast to appropriate role, using user for system-like behavior
+        role: "user" as "user",
         content: this._config.systemPrompt,
       });
     }
-
-    messages.push({
-      role: "user",
-      content: prompt,
-    });
-
+    messages.push({ role: "user", content: prompt });
     return await this.chat(messages, options);
   }
 
   async chat(
-    messages: LangChatMessage[],
+    messages: LangChatMessage[] | LangMessages,
     options?: LangOptions,
-  ): Promise<LangResult> {
-    // Cast to collection
-    const messageCollection = messages as LangChatMessageCollection;
-    
-    // Initialize result
-    const result = new LangResult(messageCollection);
-    
-    // Convert messages for Anthropic format
-    // Filter out system messages and handle them differently
-    const processedMessages = [] as any[];
+  ): Promise<LangMessages> {
+    const messageCollection = messages instanceof LangMessages
+      ? messages
+      : (messages instanceof LangChatMessageCollection ? new LangMessages(messages as any) : new LangMessages(messages));
+
+    const processedMessages: any[] = [];
     let systemContent = '';
-    
-    for (const message of messages) {
+
+    for (const message of messageCollection as any) {
       if ((message as any).role === "system") {
         systemContent += (message as any).content + '\n';
       } else {
@@ -102,10 +91,8 @@ export class AnthropicLang extends LanguageProvider {
       }
     }
 
-    // Transform messages for Anthropic, including tool results mapping
     const providerMessages = this.transformMessagesForProvider(processedMessages as any);
 
-    // Get model info and calculate max tokens
     const modelInfo = models.id(this._config.model);
     if (!modelInfo) {
       throw new Error(`Model info not found for ${this._config.model}`);
@@ -117,7 +104,6 @@ export class AnthropicLang extends LanguageProvider {
       this._config.maxTokens
     );
 
-    // Track thinking and tool use
     let isReceivingThinking = false;
     let thinkingContent = "";
     const pendingToolInputs = new Map<string, { name: string; buffer: string }>();
@@ -125,12 +111,13 @@ export class AnthropicLang extends LanguageProvider {
     const onResult = options?.onResult;
     const isStreaming = typeof onResult === 'function';
 
+    const result = messageCollection;
+
     const onData = (data: any) => {
       if (data.type === "message_stop") {
-        // finalize any pending tool inputs
-        if (result.tools && result.tools.length > 0) {
+        if (result.toolsRequested && result.toolsRequested.length > 0) {
           for (const [id, acc] of pendingToolInputs) {
-            const entry = result.tools.find(t => t.id === id);
+            const entry = (result.toolsRequested as any).find((t: any) => t.id === id);
             if (!entry) continue;
             try {
               (entry as any).arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
@@ -139,40 +126,36 @@ export class AnthropicLang extends LanguageProvider {
         }
         result.thinking = thinkingContent;
         result.finished = true;
-        onResult?.(result);
+        onResult?.(result as any);
         return;
       }
 
-      // Handle tool_use start
       if (data.type === "content_block_start" && data.content_block?.type === "tool_use") {
         const id = data.content_block?.id;
         const name = data.content_block?.name || '';
-        if (!result.tools) result.tools = [];
-        result.tools.push({ id, name, arguments: {} } as any);
+        if (!result.toolsRequested) result.toolsRequested = [] as any;
+        (result.toolsRequested as any).push({ id, name, arguments: {} });
         pendingToolInputs.set(id, { name, buffer: '' });
         return;
       }
 
-      // Handle tool_use input deltas (best-effort for various shapes)
       if (data.type === "content_block_delta") {
-        // Thinking content
         if (data.delta?.type === "thinking_delta" && data.delta.thinking) {
           isReceivingThinking = true;
           thinkingContent += data.delta.thinking;
           result.thinking = thinkingContent;
-          onResult?.(result);
+          onResult?.(result as any);
           return;
         }
 
         const toolUseId = data.content_block_id;
         if (toolUseId && pendingToolInputs.has(toolUseId)) {
           const acc = pendingToolInputs.get(toolUseId)!;
-          // Common variants in Anthropic streaming for tool input
           if (typeof data.delta?.partial_json === 'string') {
             acc.buffer += data.delta.partial_json;
             try {
               const parsed = JSON.parse(acc.buffer);
-              const entry = result.tools?.find(t => t.id === toolUseId);
+              const entry = (result.toolsRequested as any)?.find((t: any) => t.id === toolUseId);
               if (entry) (entry as any).arguments = parsed;
             } catch {}
             return;
@@ -181,35 +164,32 @@ export class AnthropicLang extends LanguageProvider {
             acc.buffer += data.delta.input_json_delta;
             try {
               const parsed = JSON.parse(acc.buffer);
-              const entry = result.tools?.find(t => t.id === toolUseId);
+              const entry = (result.toolsRequested as any)?.find((t: any) => t.id === toolUseId);
               if (entry) (entry as any).arguments = parsed;
             } catch {}
             return;
           }
           if (data.delta?.text) {
-            // Fallback text accumulation
             acc.buffer += data.delta.text;
             return;
           }
         }
 
-        // Regular text delta
         const deltaContent = data.delta.text ? data.delta.text : "";
         if (!toolUseId) {
           if (isReceivingThinking) {
             thinkingContent += deltaContent;
             result.thinking = thinkingContent;
-            onResult?.(result);
+            onResult?.(result as any);
             return;
           }
           result.answer += deltaContent;
-          if (result.messages.length > 0 && 
-              result.messages[result.messages.length - 1].role === "assistant") {
-            result.messages[result.messages.length - 1].content = result.answer;
+          if (result.length > 0 && result[result.length - 1].role === "assistant") {
+            result[result.length - 1].content = result.answer;
           } else {
-            result.messages.push({ role: "assistant", content: result.answer });
+            result.push({ role: "assistant", content: result.answer });
           }
-          onResult?.(result);
+          onResult?.(result as any);
           return;
         }
       }
@@ -218,7 +198,7 @@ export class AnthropicLang extends LanguageProvider {
         const id = data.content_block?.id;
         if (id && pendingToolInputs.has(id)) {
           const acc = pendingToolInputs.get(id)!;
-          const entry = result.tools?.find(t => t.id === id);
+          const entry = (result.toolsRequested as any)?.find((t: any) => t.id === id);
           if (entry) {
             try { (entry as any).arguments = acc.buffer ? JSON.parse(acc.buffer) : {}; } catch {}
           }
@@ -234,7 +214,7 @@ export class AnthropicLang extends LanguageProvider {
       if (data.type === "content_block_stop" && isReceivingThinking) {
         isReceivingThinking = false;
         result.thinking = thinkingContent;
-        onResult?.(result);
+        onResult?.(result as any);
         return;
       }
 
@@ -248,29 +228,29 @@ export class AnthropicLang extends LanguageProvider {
             : "";
           result.answer += deltaContent;
           
-          if (result.messages.length > 0 && 
-              result.messages[result.messages.length - 1].role === "assistant") {
-            result.messages[result.messages.length - 1].content = result.answer;
+          if (result.length > 0 && 
+              result[result.length - 1].role === "assistant") {
+            result[result.length - 1].content = result.answer;
           } else {
-            result.messages.push({ role: "assistant", content: result.answer });
+            result.push({ role: "assistant", content: result.answer });
           }
           
-          onResult?.(result);
+          onResult?.(result as any);
         }
       }
     };
     
-    // Prepare tools if provided
+    // Prepare tools from messages.tools
     let tools: AnthropicTool[] | undefined;
-    if (options?.tools && options.tools.length > 0) {
-      tools = options.tools.map(t => ({
-        name: t.name,
-        description: t.description,
-        input_schema: t.parameters
+    if (messageCollection.tools) {
+      const reg: ToolsRegistry = messageCollection.tools;
+      tools = Object.entries(reg).map(([name, def]) => ({
+        name,
+        description: def.description || "",
+        input_schema: def.parameters
       }));
     }
     
-    // Prepare request body
     const requestBody: any = {
       model: this._config.model,
       messages: providerMessages,
@@ -285,7 +265,6 @@ export class AnthropicLang extends LanguageProvider {
       headers: {
         "Content-Type": "application/json",
         "anthropic-version": "2023-06-01",
-        /* In case if we're running in a browser */
         "anthropic-dangerous-direct-browser-access": "true",
         "x-api-key": this._config.apiKey
       },
@@ -295,7 +274,6 @@ export class AnthropicLang extends LanguageProvider {
         decision,
       ): Promise<DecisionOnNotOkResponse> => {
         if (res.status === 401) {
-          // We don't retry if the API key is invalid.
           decision.retry = false;
           throw new Error(
             "API key is invalid. Please check your API key and try again.",
@@ -304,8 +282,6 @@ export class AnthropicLang extends LanguageProvider {
 
         if (res.status === 400) {
           const data = await res.text();
-
-          // We don't retry if the model is invalid.
           decision.retry = false;
           throw new Error(
             data,
@@ -324,12 +300,10 @@ export class AnthropicLang extends LanguageProvider {
       return result;
     }
 
-    // Non-streaming
     const response = await fetch("https://api.anthropic.com/v1/messages", commonRequest as any)
       .catch((err) => { throw new Error(err); });
 
     const data: any = await response.json();
-    // Accumulate text content from content blocks
     if (Array.isArray(data?.content)) {
       for (const block of data.content) {
         if (block?.type === 'text' && typeof block.text === 'string') {
@@ -338,22 +312,18 @@ export class AnthropicLang extends LanguageProvider {
       }
     }
     if (result.answer) {
-      result.addAssistantMessage(result.answer);
+      result.push({ role: "assistant", content: result.answer });
     }
     result.finished = true;
     return result;
   }
 
-  /**
-   * Transform generic messages (including tool results) into Anthropic message format.
-   */
   protected transformMessagesForProvider(messages: LangChatMessage[]): any[] {
     const out: any[] = [];
     for (const m of messages) {
       if (m.role === 'tool') {
         const contentAny = m.content as any;
         if (Array.isArray(contentAny)) {
-          // Emit tool_result blocks as a user message
           const blocks = contentAny.map(tr => ({
             type: 'tool_result',
             tool_use_id: tr.toolId,
@@ -363,14 +333,12 @@ export class AnthropicLang extends LanguageProvider {
           continue;
         }
       }
-      // Map structured parts if provided
       const contentAny = m.content as any;
       if (Array.isArray(contentAny)) {
         const blocks = this.mapPartsToAnthropicBlocks(contentAny as LangContentPart[]);
         out.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: blocks });
         continue;
       }
-      // Default: pass through as simple text content
       out.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content });
     }
     return out;
@@ -381,7 +349,6 @@ export class AnthropicLang extends LanguageProvider {
       if (p.type === 'text') {
         return { type: 'text', text: p.text };
       }
-      // Images must be base64 for Anthropic
       const src = this.imageInputToAnthropicSource(p.image);
       return { type: 'image', source: src } as any;
     });
@@ -397,14 +364,12 @@ export class AnthropicLang extends LanguageProvider {
     if (kind === 'url') {
       const url = (image as any).url as string;
       if (url.startsWith('data:')) {
-        // data URL: data:mime;base64,DATA
         const match = url.match(/^data:([^;]+);base64,(.*)$/);
         if (!match) throw new Error('Invalid data URL for Anthropic image');
         const media_type = match[1];
         const data = match[2];
         return { type: 'base64', media_type, data };
       }
-      // Remote URL supported per Anthropic docs
       return { type: 'url', url };
     }
     if (kind === 'bytes' || kind === 'blob') {
