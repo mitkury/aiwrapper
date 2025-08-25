@@ -12,6 +12,11 @@ import {
   httpRequestWithRetry as fetch,
 } from "../../http-request.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
+import type { ResponsesStreamEvent } from "./responses-stream-types.ts";
+type FinishedEvent = { finished: true };
+
+// Minimal per-item buffers for concurrent stream updates
+type StreamItemBuffers = Map<string, { parts: Map<number, string> }>; // key: item_id
 
 export type OpenAIResponsesOptions = {
   apiKey: string;
@@ -26,7 +31,11 @@ export class OpenAIResponsesLang extends LanguageProvider {
   private _baseURL = "https://api.openai.com/v1";
 
   constructor(options: OpenAIResponsesOptions) {
-    const modelName = options.model || "gpt-4o";
+    if (!options.model) {
+      throw new Error("Model is required");
+    }
+
+    const modelName = options.model;
     super(modelName);
     this._apiKey = options.apiKey;
     this._model = modelName;
@@ -59,17 +68,19 @@ export class OpenAIResponsesLang extends LanguageProvider {
     const body: any = {
       model: this._model,
       input,
-      max_output_tokens: typeof (options as any)?.maxTokens === 'number' ? (options as any).maxTokens : 512,
+      ...(typeof (options as any)?.maxTokens === 'number' ? { max_output_tokens: (options as any).maxTokens } : {}),
       ...(stream ? { stream: true } : {}),
+      ...(this._systemPrompt ? { instructions: this._systemPrompt } : {}),
     };
 
-    const url = `${this._baseURL}/responses${stream ? '?stream=true' : ''}`;
+    const url = `${this._baseURL}/responses`;
 
     const common = {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${this._apiKey}`,
+        ...(stream ? { "Accept": "text/event-stream" } : {}),
       },
       body: JSON.stringify(body),
       onNotOkResponse: async (res: Response, decision: DecisionOnNotOkResponse): Promise<DecisionOnNotOkResponse> => {
@@ -89,36 +100,18 @@ export class OpenAIResponsesLang extends LanguageProvider {
     if (stream) {
       const response = await fetch(url, common as any);
 
-      const onData = (data: any) => {
-        if (data.finished || data.type === 'response.completed') {
-          result.finished = true;
-          options?.onResult?.(result as any);
-          return;
-        }
-        if (typeof data?.type === 'string') {
-          if (data.type === 'response.output_text.delta' && typeof data.delta === 'string') {
-            result.answer += data.delta;
-            options?.onResult?.(result as any);
-            return;
-          }
-          if (data.type === 'response.output_text.done' && typeof data.output_text === 'string') {
-            options?.onResult?.(result as any);
-            return;
-          }
-          if (data.type === 'response.image_generation_call.partial_image' && typeof (data as any).partial_image_b64 === 'string') {
-            const base64 = (data as any).partial_image_b64;
-            result.images = result.images || [];
-            result.images.push({ base64, mimeType: 'image/png', provider: this.name, model: this._model });
-            options?.onResult?.(result as any);
-            return;
-          }
-        }
-        const textDelta = data?.delta?.output_text || data?.output_text || data?.content?.[0]?.text;
-        if (typeof textDelta === 'string') {
-          result.answer += textDelta;
-        }
-        options?.onResult?.(result as any);
-      };
+      // Keep minimal mutable stream state between events
+      const streamState = { sawAnyTextDelta: false };
+      const itemBuffers: StreamItemBuffers = new Map();
+
+      // Route raw SSE events through a dedicated handler
+      const onData = (data: ResponsesStreamEvent | FinishedEvent) => this.handleStreamingEvent(
+        data,
+        result,
+        options?.onResult,
+        streamState,
+        itemBuffers,
+      );
 
       await processResponseStream(response, onData);
       return result;
@@ -170,24 +163,16 @@ export class OpenAIResponsesLang extends LanguageProvider {
   }
 
   private transformMessagesToResponsesInput(messages: LangChatMessageCollection): any {
-    let hasStructured = false;
-    let hasImage = false;
-    const roleLines: string[] = [];
-    for (const m of messages) {
-      const content = (m as any).content;
-      if (Array.isArray(content)) {
-        hasStructured = true;
-        for (const part of content as LangContentPart[]) {
-          if (part.type === 'image') hasImage = true;
-        }
-      } else {
-        roleLines.push(`${m.role}: ${String(content)}`);
-      }
-    }
-    if (!hasStructured && !hasImage && roleLines.length > 0) {
-      return roleLines.join("\n\n");
+    // If there is exactly one user message with plain text and no other context, send a bare string
+    const plainUserMessages = messages.filter(m => m.role === 'user' && typeof (m as any).content === 'string');
+    const hasAssistant = messages.some(m => m.role === 'assistant');
+    const hasStructured = messages.some(m => Array.isArray((m as any).content));
+    const hasImages = messages.some(m => Array.isArray((m as any).content) && (m as any).content.some((p: any) => p?.type === 'image'));
+    if (!hasAssistant && !hasStructured && !hasImages && plainUserMessages.length === 1 && messages.length === 1) {
+      return String((plainUserMessages[0] as any).content);
     }
 
+    // Otherwise, build Responses-style structured input array
     const input: any[] = [];
     for (const m of messages) {
       const entry: any = { role: m.role === 'assistant' ? 'assistant' : m.role, content: [] as any[] };
@@ -195,18 +180,141 @@ export class OpenAIResponsesLang extends LanguageProvider {
       if (Array.isArray(content)) {
         for (const part of content as LangContentPart[]) {
           if (part.type === 'text') {
-            entry.content.push({ type: 'input_text', text: part.text });
+            const isAssistant = m.role === 'assistant';
+            entry.content.push({ type: isAssistant ? 'output_text' : 'input_text', text: part.text });
           } else if (part.type === 'image') {
             const mapped = this.mapImageInput(part.image);
             entry.content.push(mapped);
           }
         }
       } else {
-        entry.content.push({ type: 'input_text', text: String(content) });
+        const isAssistant = m.role === 'assistant';
+        entry.content.push({ type: isAssistant ? 'output_text' : 'input_text', text: String(content) });
       }
       input.push(entry);
     }
     return input;
+  }
+
+  /**
+   * Handle one SSE event from the Responses API stream.
+   * This function normalizes different streaming shapes into a unified answer:
+   * - response.output_text.delta: append incremental tokens to result.answer
+   * - response.output_text.done: set final text for the content part
+   * - response.content_part.done / response.output_item.done: append full text when deltas weren't sent
+   * - response.completed / response.incomplete: finalize the message and mark finished
+   */
+  private handleStreamingEvent(
+    data: ResponsesStreamEvent | FinishedEvent,
+    result: LangMessages,
+    onResult?: (result: LangMessages) => void,
+    streamState?: { sawAnyTextDelta: boolean },
+    itemBuffers?: StreamItemBuffers,
+  ): void {
+    // Completion or interruption
+    if ('finished' in data && data.finished) {
+      if (result.answer) {
+        if (result.length > 0 && result[result.length - 1].role === 'assistant') {
+          (result as any)[result.length - 1].content = result.answer;
+        } else {
+          result.addAssistantMessage(result.answer);
+        }
+      }
+      result.finished = true;
+      onResult?.(result);
+      return;
+    }
+
+    // Typed events via discriminated union
+    if ('type' in data) switch (data.type) {
+      case 'response.completed':
+      case 'response.incomplete': {
+        if (result.answer) {
+          if (result.length > 0 && result[result.length - 1].role === 'assistant') {
+            (result as any)[result.length - 1].content = result.answer;
+          } else {
+            result.addAssistantMessage(result.answer);
+          }
+        }
+        result.finished = true;
+        onResult?.(result);
+        return;
+      }
+      case 'response.output_item.done': {
+        const item = data.item;
+        if (item.type === 'message' && Array.isArray(item.content)) {
+          // If we buffered parts (no deltas), consolidate
+          const buf = itemBuffers?.get(item.id);
+          if (buf && buf.parts.size > 0 && !streamState?.sawAnyTextDelta) {
+            const merged = [...buf.parts.entries()]
+              .sort((a,b) => a[0]-b[0])
+              .map(([,v]) => v)
+              .join('');
+            if (merged) {
+              result.answer += merged;
+            }
+          }
+          if (!streamState?.sawAnyTextDelta) {
+            for (const c of item.content) {
+              if (c.type === 'output_text') {
+                result.answer += c.text;
+              }
+            }
+          }
+          onResult?.(result);
+          return;
+        }
+        break;
+      }
+      case 'response.content_part.done': {
+        const part = data.part;
+        if (part.type === 'output_text') {
+          // Finalize buffered part text
+          if (itemBuffers && data.item_id) {
+            const rec = itemBuffers.get(data.item_id) || { parts: new Map<number, string>() };
+            rec.parts.set(data.content_index, part.text);
+            itemBuffers.set(data.item_id, rec);
+          }
+          if (!streamState?.sawAnyTextDelta) {
+            result.answer += part.text;
+          }
+          onResult?.(result);
+          return;
+        }
+        break;
+      }
+      case 'response.output_text.delta': {
+        if (streamState) streamState.sawAnyTextDelta = true;
+        // Append to per-item buffer for this part
+        if (itemBuffers && data.item_id) {
+          const rec = itemBuffers.get(data.item_id) || { parts: new Map<number, string>() };
+          const prev = rec.parts.get(data.content_index) || '';
+          rec.parts.set(data.content_index, prev + data.delta);
+          itemBuffers.set(data.item_id, rec);
+        }
+        result.answer += data.delta;
+        onResult?.(result);
+        return;
+      }
+      case 'response.output_text.done': {
+        const text = data.text ?? data.output_text;
+        if (typeof text === 'string' && text.length > 0) {
+          result.answer = text;
+        }
+        onResult?.(result);
+        return;
+      }
+      case 'response.image_generation_call.partial_image': {
+        const base64 = data.partial_image_b64;
+        result.images = result.images || [];
+        result.images.push({ base64, mimeType: 'image/png', provider: this.name, model: this._model });
+        onResult?.(result);
+        return;
+      }
+      default:
+        // ignore other events; they don't carry text we need
+        break;
+    }
   }
 
   private mapImageInput(image: LangImageInput): any {

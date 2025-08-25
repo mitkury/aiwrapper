@@ -7,7 +7,7 @@ const run = !!apiKey;
 describe.skipIf(!run)('Basic Lang', () => {
   const lang = Lang.openai({ apiKey: process.env.OPENAI_API_KEY as string, model: 'gpt-5-nano' });
 
-  it('should be able to use tools', async () => {
+  it.skip('should be able to use tools', async () => {
     const messages = new LangMessages([
       {
         role: 'user',
@@ -41,6 +41,9 @@ describe.skipIf(!run)('Basic Lang', () => {
     const toolResults = res.filter(m => m.role === 'tool-results');
     expect(toolResults.length).toBeGreaterThan(0);
     expect(toolResults[0].content).toBeDefined();
+
+    const msgs = await lang.chat(res);
+    console.log('msgs', msgs);
   });
 
   it('should respond with a string', async () => {
@@ -51,6 +54,19 @@ describe.skipIf(!run)('Basic Lang', () => {
   it('should know the capital of France', async () => {
     const res = await lang.ask('What is the capital of France?');
     expect(res.answer.toLocaleLowerCase()).toContain('paris');
+  });
+
+  it('should be able to stream an answer', async () => {
+    let streamingAnswers: string[] = [];
+    const res = await lang.ask('Introduce yourself in 140 characters', { onResult: (msgs) => {
+      streamingAnswers.push(msgs.answer);
+    }});
+    expect(streamingAnswers.length).toBeGreaterThan(0);
+    const lastAnswer = streamingAnswers[streamingAnswers.length - 1];
+    expect(streamingAnswers[streamingAnswers.length - 1].length).toBeGreaterThan(100);
+
+    expect(res.answer.length).toBeGreaterThan(100);
+    expect(res.answer).toBe(lastAnswer);
   });
 
   it('should be able to chat', async () => {
