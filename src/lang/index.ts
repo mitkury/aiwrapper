@@ -6,19 +6,18 @@ import {
   LangResult, 
   LangOptions, 
   LangChatMessage,
-  Tool,
   ToolRequest,
   ToolResult,
   Schema,
   z
 } from "./language-provider.ts";
-import { LangMessages, ToolsRegistry } from "./messages.ts";
+import { LangMessages, ToolWithHandler, LangChatMessageCollection } from "./messages.ts";
 
 // Export classes
-export { Lang, LangVecs, LanguageProvider, LangResult, LangMessages, z, MockOpenAILikeLang };
+export { Lang, LangVecs, LanguageProvider, LangResult, LangMessages, LangChatMessageCollection, z, MockOpenAILikeLang };
 
 // Export types
-export type { LangOptions, LangChatMessage, Tool, ToolRequest, ToolResult, Schema, ToolsRegistry };
+export type { LangOptions, LangChatMessage, ToolWithHandler, ToolRequest, ToolResult, Schema };
 
 // Re-export image and content part types
 export type { LangImageInput, LangContentPart, LangImageOutput } from "./language-provider.ts";

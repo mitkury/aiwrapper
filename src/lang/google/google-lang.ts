@@ -12,7 +12,7 @@ import { processResponseStream } from "../../process-response-stream.ts";
 import { models, Model } from 'aimodels';
 import { LangContentPart, LangImageInput } from "../language-provider.ts";
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
-import { LangMessages, ToolsRegistry } from "../messages.ts";
+import { LangMessages, ToolWithHandler } from "../messages.ts";
 
 export type GoogleLangOptions = {
   apiKey: string;
@@ -80,14 +80,14 @@ export class GoogleLang extends LanguageProvider {
     }
 
     let tools: any | undefined;
-    if (messageCollection.tools) {
-      const reg: ToolsRegistry = messageCollection.tools;
+    if (messageCollection.availableTools && Array.isArray(messageCollection.availableTools)) {
+      const arr = messageCollection.availableTools as ToolWithHandler[];
       tools = {
-        functionDeclarations: Object.entries(reg).map(([name, def]) => ({
-          name,
-          description: def.description || "",
-          parameters: def.parameters
-        }))
+        functionDeclarations: arr.map((t) => ({
+          name: t.name,
+          description: t.description || "",
+          parameters: t.parameters,
+        })),
       };
     }
 

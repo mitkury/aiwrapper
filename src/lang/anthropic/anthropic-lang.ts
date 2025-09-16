@@ -12,7 +12,7 @@ import {
 import { models } from 'aimodels';
 import { LangContentPart, LangImageInput } from "../language-provider.ts";
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
-import { LangMessages, ToolsRegistry } from "../messages.ts";
+import { LangMessages, ToolWithHandler } from "../messages.ts";
 
 type AnthropicTool = {
   name: string;
@@ -242,12 +242,12 @@ export class AnthropicLang extends LanguageProvider {
     
     // Prepare tools from messages.tools
     let tools: AnthropicTool[] | undefined;
-    if (messageCollection.tools) {
-      const reg: ToolsRegistry = messageCollection.tools;
-      tools = Object.entries(reg).map(([name, def]) => ({
-        name,
-        description: def.description || "",
-        input_schema: def.parameters
+    if (messageCollection.availableTools && Array.isArray(messageCollection.availableTools)) {
+      const arr = messageCollection.availableTools as ToolWithHandler[];
+      tools = arr.map((t) => ({
+        name: t.name,
+        description: t.description || "",
+        input_schema: t.parameters,
       }));
     }
     

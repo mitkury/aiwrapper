@@ -6,7 +6,7 @@ import {
   LangContentPart,
   LangImageInput
 } from "../language-provider.ts";
-import { LangMessages } from "../messages.ts";
+import { LangMessages, ToolWithHandler } from "../messages.ts";
 import {
   DecisionOnNotOkResponse,
   httpRequestWithRetry as fetch,
@@ -23,6 +23,13 @@ export type OpenAIResponsesOptions = {
   model?: string;
   systemPrompt?: string;
 };
+
+type FunctionMessageInResponses = {
+  type: "function";
+  name: string;
+  description: string;
+  parameters: any;
+}
 
 export class OpenAIResponsesLang extends LanguageProvider {
   private _apiKey: string;
@@ -59,10 +66,16 @@ export class OpenAIResponsesLang extends LanguageProvider {
       ? messages
       : (messages instanceof LangChatMessageCollection ? new LangMessages(messages as any) : new LangMessages(messages));
 
+    // @TODO: LangMessages and LangMessageCollection is confusing. Figure out what to do with it.
     const result = messageCollection;
 
     const input = this.transformMessagesToResponsesInput(messageCollection);
 
+    const providedTools: ToolWithHandler[] = (
+      (messageCollection as any).availableTools as ToolWithHandler[]
+    ) || (options?.tools as ToolWithHandler[]) || [];
+
+    // We check if the stream should be enabled by checking if the onResult callback is provided
     const stream = typeof options?.onResult === 'function';
 
     const body: any = {
@@ -70,17 +83,16 @@ export class OpenAIResponsesLang extends LanguageProvider {
       input,
       ...(typeof (options as any)?.maxTokens === 'number' ? { max_output_tokens: (options as any).maxTokens } : {}),
       ...(stream ? { stream: true } : {}),
-      ...(this._systemPrompt ? { instructions: this._systemPrompt } : {}),
+      ...(providedTools && providedTools.length ? { tools: this.transformToolsForProvider(providedTools), tool_choice: 'required' } : {}),
     };
 
-    const url = `${this._baseURL}/responses`;
+    const apiUrl = `${this._baseURL}/responses`;
 
     const common = {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${this._apiKey}`,
-        ...(stream ? { "Accept": "text/event-stream" } : {}),
+        Authorization: `Bearer ${this._apiKey}`
       },
       body: JSON.stringify(body),
       onNotOkResponse: async (res: Response, decision: DecisionOnNotOkResponse): Promise<DecisionOnNotOkResponse> => {
@@ -97,8 +109,9 @@ export class OpenAIResponsesLang extends LanguageProvider {
       },
     } as const;
 
+    const response = await fetch(apiUrl, common as any);
     if (stream) {
-      const response = await fetch(url, common as any);
+      // @TODO: consider build a data object as it gets streamed, so the result of stream and without stream are the same
 
       // Keep minimal mutable stream state between events
       const streamState = { sawAnyTextDelta: false };
@@ -117,44 +130,21 @@ export class OpenAIResponsesLang extends LanguageProvider {
       return result;
     }
 
-    const response = await fetch(`${this._baseURL}/responses`, common as any);
     const data: any = await response.json();
 
-    let outputText = data?.output_text || data?.content?.[0]?.text || data?.choices?.[0]?.message?.content?.[0]?.text;
-    if (typeof outputText === 'string') {
-      result.answer = outputText;
-      result.addAssistantMessage(result.answer);
-    } else if (Array.isArray(data?.output)) {
-      for (const item of data.output) {
-        if (item?.type === 'output_text' && typeof item.text === 'string') {
-          result.answer += item.text;
-        } else if (item?.type === 'text' && typeof item.text === 'string') {
-          result.answer += item.text;
-        } else if (item?.type === 'image_generation_call' && typeof item.result === 'string') {
-          const base64 = item.result;
-          result.images = result.images || [];
-          result.images.push({ base64, mimeType: 'image/png', provider: this.name, model: this._model });
-        } else if (Array.isArray(item?.content)) {
-          const first = item.content[0];
-          if (first?.type === 'output_text' && typeof first.text === 'string') {
-            result.answer += first.text;
-          }
-        }
-        if (item?.type === 'output_image') {
-          if (item.image_url) {
-            result.images = result.images || [];
-            result.images.push({ url: item.image_url, provider: this.name, model: this._model });
-          }
-          if (item.b64_json || item.base64 || item.data) {
-            const base64 = item.b64_json || item.base64 || item.data;
-            const mimeType = item.mime_type || item.mimeType || 'image/png';
-            result.images = result.images || [];
-            result.images.push({ base64, mimeType, provider: this.name, model: this._model });
-          }
-        }
+    // @TODO: save it somewhere, so we can use it as `body.previous_response_id` later
+    const responseId = data?.id as string;
+    const output = data?.output as unknown;
+
+    if (Array.isArray(output)) {
+      for (const item of output) {
+        this.handleOutputItem(item, result);
       }
-      if (result.answer) {
-        result.addAssistantMessage(result.answer);
+
+      // Build result.answer from accumulated assistant messages if any
+      const last = result.length > 0 ? result[result.length - 1] : undefined;
+      if (!result.answer && last && last.role === 'assistant' && typeof last.content === 'string') {
+        result.answer = last.content;
       }
     }
 
@@ -162,33 +152,98 @@ export class OpenAIResponsesLang extends LanguageProvider {
     return result;
   }
 
-  private transformMessagesToResponsesInput(messages: LangChatMessageCollection): any {
-    // If there is exactly one user message with plain text and no other context, send a bare string
-    const plainUserMessages = messages.filter(m => m.role === 'user' && typeof (m as any).content === 'string');
-    const hasAssistant = messages.some(m => m.role === 'assistant');
-    const hasStructured = messages.some(m => Array.isArray((m as any).content));
-    const hasImages = messages.some(m => Array.isArray((m as any).content) && (m as any).content.some((p: any) => p?.type === 'image'));
-    if (!hasAssistant && !hasStructured && !hasImages && plainUserMessages.length === 1 && messages.length === 1) {
-      return String((plainUserMessages[0] as any).content);
-    }
+  /**
+   * Handles a single output item from the Responses API.
+   * Items must have at least: { id: string, type: string, ... }
+   */
+  private handleOutputItem(item: { id: string; type: string; [key: string]: any }, result: LangMessages) {
+    switch (item.type) {
+      case 'message':
+        if (item.role === 'assistant') {
+          result.addAssistantMessage(item.content[0].text);
+        } else {
+          result.addUserMessage(item.content);
+        }
+        break;
+      case 'function_call':
+        // Record requested tool use for API consumers
+        if (!result.toolsRequested) (result as any).toolsRequested = [] as any;
+        (result.toolsRequested as any).push({ id: item.call_id, name: item.name, arguments: item.arguments || {} });
 
-    // Otherwise, build Responses-style structured input array
+        // Also append as assistant tool_calls message for transcript
+        result.addAssistantToolCalls([
+          {
+            callId: item.call_id,
+            name: item.name,
+            arguments: item.arguments
+          }
+        ])
+        break;
+      case 'output_image':
+        break;
+      case 'computer_call_output':
+        break;
+      case 'function_call_output':
+        break;
+      case 'image_generation_call':
+        break;
+      case 'local_shell_call':
+        break;
+      case 'local_shell_call_output':
+        break;
+      case 'mcp_list_tools':
+        break;
+      case 'mcp_approval_request':
+        break;
+      case 'mcp_approval_response':
+        break;
+      case 'mcp_call':
+        break;
+      case 'item_reference':
+        break;
+    }
+  }
+
+  protected transformToolsForProvider(tools: ToolWithHandler[]): any[] {
+    return tools.map(tool => ({
+      type: "function",
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters
+    }));
+  }
+
+  private transformMessagesToResponsesInput(messages: LangChatMessageCollection): any {
     const input: any[] = [];
     for (const m of messages) {
-      const entry: any = { role: m.role === 'assistant' ? 'assistant' : m.role, content: [] as any[] };
+      // Map tool results into input as input_text JSON parts; skip assistant tool call echoes
+      if ((m as any).role === 'tool-results' && Array.isArray((m as any).content)) {
+        const parts = ((m as any).content as any[]).map(tr => ({
+          type: 'input_text',
+          text: JSON.stringify({ tool_call_id: tr.toolId, result: tr.result })
+        }));
+        input.push({ role: 'user', content: parts });
+        continue;
+      }
+      if ((m as any).role === 'tool') {
+        // Skip assistant tool call echo for Responses input
+        continue;
+      }
+
+      const entry: any = { role: (m as any).role === 'assistant' ? 'assistant' : (m as any).role, content: [] as any[] };
       const content = (m as any).content;
       if (Array.isArray(content)) {
         for (const part of content as LangContentPart[]) {
-          if (part.type === 'text') {
-            const isAssistant = m.role === 'assistant';
-            entry.content.push({ type: isAssistant ? 'output_text' : 'input_text', text: part.text });
-          } else if (part.type === 'image') {
-            const mapped = this.mapImageInput(part.image);
+          if ((part as any).type === 'text') {
+            const isAssistant = (m as any).role === 'assistant';
+            entry.content.push({ type: isAssistant ? 'output_text' : 'input_text', text: (part as any).text });
+          } else if ((part as any).type === 'image') {
+            const mapped = this.mapImageInput((part as any).image);
             entry.content.push(mapped);
           }
         }
       } else {
-        const isAssistant = m.role === 'assistant';
+        const isAssistant = (m as any).role === 'assistant';
         entry.content.push({ type: isAssistant ? 'output_text' : 'input_text', text: String(content) });
       }
       input.push(entry);
@@ -247,8 +302,8 @@ export class OpenAIResponsesLang extends LanguageProvider {
           const buf = itemBuffers?.get(item.id);
           if (buf && buf.parts.size > 0 && !streamState?.sawAnyTextDelta) {
             const merged = [...buf.parts.entries()]
-              .sort((a,b) => a[0]-b[0])
-              .map(([,v]) => v)
+              .sort((a, b) => a[0] - b[0])
+              .map(([, v]) => v)
               .join('');
             if (merged) {
               result.answer += merged;

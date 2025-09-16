@@ -72,31 +72,32 @@ export class LangChatMessageCollection extends Array<LangChatMessage> {
 }
 
 export type ToolWithHandler = {
-  description?: string;
+  name: string;
+  description: string;
   parameters: Record<string, any>;
-  handler: (args: any) => any | Promise<any>;
-};
-
-export type ToolsRegistry = Record<string, ToolWithHandler>;
+  handler: (args: Record<string, any>) => any | Promise<any>;
+}
 
 export class LangMessages extends LangChatMessageCollection {
-  tools?: ToolsRegistry;
+  availableTools?: ToolWithHandler[];
 
   // Merged result fields
   answer: string = "";
   object: any | null = null;
-  toolsRequested: ToolRequest[] | null = null; // internal alias; expose via getter
+  toolsRequested: ToolRequest[] | null = null; // deprecated internal alias
+  // Requested tool calls from the provider (normalized)
+  tools?: Array<{ id: string; name: string; arguments: Record<string, any> }>;
   finished: boolean = false;
   thinking?: string;
   validationErrors: string[] = [];
   images?: LangImageOutput[];
 
   constructor();
-  constructor(initialPrompt: string, opts?: { tools?: ToolsRegistry });
-  constructor(initialMessages: LangChatMessage[], opts?: { tools?: ToolsRegistry });
+  constructor(initialPrompt: string, opts?: { tools?: ToolWithHandler[] });
+  constructor(initialMessages: LangChatMessage[], opts?: { tools?: ToolWithHandler[] });
   constructor(
     initial?: string | LangChatMessage[],
-    opts?: { tools?: ToolsRegistry }
+    opts?: { tools?: ToolWithHandler[] }
   ) {
     // When extending Array, call super with the initial elements if provided
     super(...(Array.isArray(initial) ? (initial as LangChatMessage[]) : []));
@@ -104,39 +105,40 @@ export class LangMessages extends LangChatMessageCollection {
       this.addUserMessage(initial);
     }
     if (opts?.tools) {
-      this.tools = opts.tools;
+      this.availableTools = opts.tools;
     }
   }
-
-  // Back-compat getters/setters
-  get toolsCalls(): ToolRequest[] | null { return this.toolsRequested; }
-  set toolsCalls(v: ToolRequest[] | null) { this.toolsRequested = v; }
 
   get requestedToolUse(): ToolRequest[] | null {
     return this.toolsRequested ?? null;
   }
 
   async executeRequestedTools(): Promise<this> {
-    const requested = this.toolsRequested || [];
-    if (!requested.length) {
+    // @TODO: no, add this automatically right after we get the response with tools
+    const requestedTools = (this.tools && this.tools.length > 0)
+      ? this.tools
+      : (this.toolsRequested as any) || [];
+    if (!requestedTools.length) {
       return this;
     }
 
-    if (!this.tools) {
+    if (!this.availableTools) {
       return this;
     }
 
-    // Record requested tool calls
-    // @TODO: add tool name and args
-    this.addAssistantToolCalls(requested);
+    this.addAssistantToolCalls(requestedTools);
 
     // Execute requested tools
     const toolResults: ToolResult[] = [];
-    for (const call of requested) {
+    const toolsByName = new Map<string, ToolWithHandler>(
+      (this.availableTools || []).map((t) => [t.name, t])
+    );
+    for (const call of requestedTools) {
       const toolName = (call as any).name as string | undefined;
-      if (!toolName || !(toolName in this.tools)) continue;
-      const outcome = await Promise.resolve(this.tools[toolName].handler(call.arguments || {}));
-      toolResults.push({ toolId: call.id, result: outcome });
+      if (!toolName || !toolsByName.has(toolName)) continue;
+      const outcome = await Promise.resolve(toolsByName.get(toolName)!.handler((call as any).arguments || {}));
+      const id = (call as any).id || (call as any).callId;
+      toolResults.push({ toolId: id, result: outcome });
     }
 
     // Append execution results

@@ -1,12 +1,10 @@
 import {
   LangOptions,
   LanguageProvider,
-  ToolRequest,
-  Tool,
   LangContentPart,
   LangImageInput,
 } from "../language-provider.ts";
-import { LangMessages, ToolsRegistry, LangChatMessage } from "../messages.ts";
+import { LangMessages, LangChatMessage, ToolWithHandler } from "../messages.ts";
 import {
   DecisionOnNotOkResponse,
   httpRequestWithRetry as fetch,
@@ -156,23 +154,13 @@ export class OpenAILikeLang extends LanguageProvider {
 
     const isStreaming = typeof onResult === 'function';
 
-    let effectiveTools: Tool[] | undefined = undefined;
-    if (messageCollection.tools) {
-      const reg: ToolsRegistry = messageCollection.tools;
-      effectiveTools = Object.entries(reg).map(([name, def]) => ({
-        name,
-        description: def.description || "",
-        parameters: def.parameters
-      }));
-    }
-
     const body = this.transformBody({
       model: this._config.model,
       messages: providerMessages,
       ...(isStreaming ? { stream: true } : {}),
       max_tokens: requestMaxTokens,
       ...this._config.bodyProperties,
-      ...(effectiveTools ? { tools: this.formatTools(effectiveTools), tool_choice: 'required' } : {}),
+      ...(messageCollection.availableTools ? { tools: this.formatTools(messageCollection.availableTools as ToolWithHandler[]) } : {}),
       ...(options?.schema ? { response_format: { type: 'json_object' } } : {}),
     });
  
@@ -290,7 +278,7 @@ export class OpenAILikeLang extends LanguageProvider {
     return messageCollection;
    }
 
-  protected formatTools(tools: Tool[]): any[] {
+  protected formatTools(tools: ToolWithHandler[]): any[] {
     return tools.map(tool => ({
       type: "function",
       function: {

@@ -5,7 +5,7 @@ import {
   validateAgainstSchema 
 } from "./schema/schema-utils.ts";
 import { LangMessages } from "./messages.ts";
-import type { LangChatMessage } from "./messages.ts";
+import type { LangChatMessage, ToolWithHandler } from "./messages.ts";
 
 // Export zod for convenience
 export { z };
@@ -37,11 +37,12 @@ export type LangImageOutput = {
  * Interface for tool requests that can be sent to language models
  */
 export interface ToolRequest {
-  id: string;
+  callId: string;
   name: string;
   arguments: Record<string, any>;
 }
 
+// @TODO: not sure I need this, let's explore message types
 /**
  * Interface for tool execution results
  */
@@ -51,18 +52,11 @@ export interface ToolResult {
 }
 
 /**
- * Interface for tool definitions that can be passed to language models
- */
-export interface Tool {
-  name: string;
-  description: string;
-  parameters: Record<string, any>;
-}
-
-/**
  * Options that can be passed to language model methods
  */
 export interface LangOptions {
+  tools?: ToolWithHandler[];
+
   schema?: Schema;
   
   // Streaming callback

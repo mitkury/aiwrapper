@@ -7,20 +7,21 @@ const run = !!apiKey;
 describe.skipIf(!run)('Basic Lang', () => {
   const lang = Lang.openai({ apiKey: process.env.OPENAI_API_KEY as string, model: 'gpt-5-nano' });
 
-  it.skip('should be able to use tools', async () => {
+  it('should be able to use tools', async () => {
     const messages = new LangMessages([
       {
         role: 'user',
         content: 'Give me a random number'
       }
     ], {
-      tools: {
-        get_random_number: {
+      tools: [
+        {
+          name: 'get_random_number',
           description: 'Return a random number',
           parameters: { type: 'object', properties: {} },
-          handler: () => Math.floor(Math.random() * 100)
+          handler: () => 3131
         }
-      }
+      ]
     });
 
     const res = await lang.chat(messages);
@@ -37,13 +38,11 @@ describe.skipIf(!run)('Basic Lang', () => {
     expect(hasToolMessage).toBe(true);
     expect(typeof res.answer).toBe('string');
 
-    // @TODO: check tool results 
     const toolResults = res.filter(m => m.role === 'tool-results');
     expect(toolResults.length).toBeGreaterThan(0);
     expect(toolResults[0].content).toBeDefined();
-
-    const msgs = await lang.chat(res);
-    console.log('msgs', msgs);
+    const firstResult = toolResults[0].content?.[0];
+    expect(firstResult?.result).toBe(3131);
   });
 
   it('should respond with a string', async () => {
