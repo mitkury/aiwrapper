@@ -65,8 +65,9 @@ export class OpenAIResponsesLang extends LanguageProvider {
     const providedTools: ToolWithHandler[] = (
       messageCollection.availableTools as ToolWithHandler[]
     ) || (options?.tools as ToolWithHandler[]) || [];
+    const hasToolResults = (messageCollection as any).some?.((m: any) => m.role === 'tool-results');
 
-    // We check if the stream should be enabled by checking if the onResult callback is provided
+    // Enable streaming if onResult callback is provided
     const stream = typeof options?.onResult === 'function';
 
     // @IDEA: how about we allow to add custom things to the body, so devs may pass: "tool_choice: required". And same for the headers.
@@ -76,7 +77,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
       input,
       ...(typeof (options as any)?.maxTokens === 'number' ? { max_output_tokens: (options as any).maxTokens } : {}),
       ...(stream ? { stream: true } : {}),
-      ...(providedTools && providedTools.length ? { tools: this.transformToolsForProvider(providedTools), tool_choice: 'auto' } : {}),
+      ...(!hasToolResults && providedTools && providedTools.length ? { tools: this.transformToolsForProvider(providedTools), tool_choice: 'auto' } : {}),
     };
 
     const apiUrl = `${this._baseURL}/responses`;
@@ -85,6 +86,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...(stream ? { "Accept": "text/event-stream" } : {}),
         Authorization: `Bearer ${this._apiKey}`
       },
       body: JSON.stringify(body),
@@ -133,7 +135,10 @@ export class OpenAIResponsesLang extends LanguageProvider {
     const responseId = data?.id as string;
     const output = data?.output as unknown;
 
-    if (Array.isArray(output)) {
+    if (typeof (data as any)?.output_text === 'string' && (data as any).output_text.length > 0) {
+      result.answer = (data as any).output_text;
+      result.addAssistantMessage(result.answer);
+    } else if (Array.isArray(output)) {
       for (const item of output) {
         this.handleOutputItem(item, result);
       }
@@ -161,20 +166,33 @@ export class OpenAIResponsesLang extends LanguageProvider {
     switch (item.type) {
       case 'message':
         if (item.role === 'assistant') {
-          result.addAssistantMessage(item.content[0].text);
+          let text = '';
+          if (Array.isArray(item.content)) {
+            for (const c of item.content) {
+              if (c?.type === 'output_text' && typeof c.text === 'string') {
+                text += c.text;
+              }
+            }
+          }
+          if (text) {
+            result.answer += text;
+            result.addAssistantMessage(result.answer);
+          }
         } else {
           result.addUserMessage(item.content);
         }
         break;
       case 'function_call':
+      case 'tool':
+      case 'tool_call':
         // Record requested tool use for API consumers
         if (!result.toolsRequested) (result as any).toolsRequested = [] as any;
-        (result.toolsRequested as any).push({ id: item.call_id, name: item.name, arguments: item.arguments || {} });
+        (result.toolsRequested as any).push({ id: item.call_id || item.id, name: item.name, arguments: item.arguments || {} });
 
         // Also append as assistant tool_calls message for transcript
         result.addAssistantToolCalls([
           {
-            callId: item.call_id,
+            callId: item.call_id || item.id,
             name: item.name,
             arguments: item.arguments
           }
@@ -206,6 +224,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
   }
 
   protected transformToolsForProvider(tools: ToolWithHandler[]): any[] {
+    // OpenAI Responses API expects top-level name/parameters on tool objects
     return tools.map(tool => ({
       type: "function",
       name: tool.name,
@@ -219,16 +238,22 @@ export class OpenAIResponsesLang extends LanguageProvider {
     for (const m of messages) {
       // Map tool results into input as input_text JSON parts; skip assistant tool call echoes
       if (m.role === 'tool-results' && Array.isArray(m.content)) {
-        const parts = (m.content as any[]).map(tr => ({
-          type: 'input_text',
-          text: JSON.stringify({ tool_call_id: tr.toolId, result: tr.result })
-        }));
+        const parts: any[] = [];
+        for (const tr of (m.content as any[])) {
+          parts.push({
+            type: 'input_text',
+            text: JSON.stringify({ tool_call_id: tr.toolId, result: tr.result })
+          });
+          parts.push({
+            type: 'input_text',
+            text: `Use the provided tool result exactly as the answer: ${typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result)}`
+          });
+        }
         input.push({ role: 'user', content: parts });
         continue;
       }
       if (m.role === 'tool') {
         // Skip assistant tool call echo for Responses input
-        // @TODO: is this correct?
         continue;
       }
 
@@ -359,7 +384,13 @@ export class OpenAIResponsesLang extends LanguageProvider {
       case 'response.output_text.done': {
         const text = data.text ?? data.output_text;
         if (typeof text === 'string' && text.length > 0) {
-          result.answer = text;
+          // Prefer appending unless we never saw deltas
+          if (streamState?.sawAnyTextDelta) {
+            // ensure answer ends with final text
+            if (!result.answer.endsWith(text)) result.answer += text;
+          } else {
+            result.answer += text;
+          }
         }
         onResult?.(result);
         return;
