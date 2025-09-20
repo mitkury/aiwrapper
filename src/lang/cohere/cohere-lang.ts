@@ -4,11 +4,12 @@ import {
 } from "../../http-request.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
 import {
-  LangChatMessageCollection,
+  LangMessage,
   LangOptions,
   LangResult,
   LanguageProvider,
 } from "../language-provider.ts";
+import { LangMessages } from "../messages.ts";
 import { models, Model } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
 
@@ -47,7 +48,7 @@ export class CohereLang extends LanguageProvider {
     prompt: string,
     options?: LangOptions,
   ): Promise<LangResult> {
-    const messages = new LangChatMessageCollection();
+    const messages = new LangMessages();
 
     if (this._systemPrompt) {
       messages.push({
@@ -65,7 +66,7 @@ export class CohereLang extends LanguageProvider {
   }
 
   async chat(
-    messages: LangChatMessageCollection,
+    messages: LangMessage[] | LangMessages,
     options?: LangOptions,
   ): Promise<LangResult> {
     const result = new LangResult(messages);

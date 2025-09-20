@@ -2,9 +2,8 @@ import { OpenAILikeLang } from "../openai-like/openai-like-lang.ts";
 import { models } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
 import { 
-  LangChatMessageCollection, 
   LangOptions, 
-  LangChatMessage
+  LangMessage
 } from "../language-provider.ts";
 import { LangMessages, ToolWithHandler } from "../messages.ts";
 
@@ -30,12 +29,12 @@ export class GroqLang extends OpenAILikeLang {
   }
 
   override async chat(
-    messages: LangChatMessage[] | LangChatMessageCollection,
+    messages: LangMessage[] | LangMessages,
     options?: LangOptions,
   ): Promise<LangMessages> {
     const messageCollection = messages instanceof LangMessages
-      ? messages as LangMessages
-      : (messages instanceof LangChatMessageCollection ? new LangMessages(messages as any) : new LangMessages(messages as any));
+      ? messages
+      : new LangMessages(messages);
 
     const modelInfo = models.id(this._config.model);
     const isReasoningModel = modelInfo?.canReason() || false;

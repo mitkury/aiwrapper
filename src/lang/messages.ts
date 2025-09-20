@@ -3,7 +3,7 @@ import type {
   ToolResult 
 } from "./language-provider.ts";
 
-export interface LangChatMessage {
+export interface LangMessage {
   role: "user" | "assistant" | "tool" | "tool-results" | "system";
   content: string | LangContentPart[] | any;
 }
@@ -29,7 +29,45 @@ export type LangContentPart =
   | { type: "text"; text: string }
   | { type: "image"; image: LangImageInput; alt?: string };
 
-export class LangChatMessageCollection extends Array<LangChatMessage> {
+
+export type ToolWithHandler = {
+  name: string;
+  description: string;
+  parameters: Record<string, any>;
+  handler: (args: Record<string, any>) => any | Promise<any>;
+}
+
+export class LangMessages extends Array<LangMessage> {
+  availableTools?: ToolWithHandler[];
+
+  // Merged result fields
+  answer: string = "";
+  object: any | null = null;
+  toolsRequested: ToolRequest[] | null = null; // deprecated internal alias
+  // Requested tool calls from the provider (normalized)
+  tools?: Array<{ id: string; name: string; arguments: Record<string, any> }>;
+  finished: boolean = false;
+  thinking?: string;
+  validationErrors: string[] = [];
+  images?: LangImageOutput[];
+
+  constructor();
+  constructor(initialPrompt: string, opts?: { tools?: ToolWithHandler[] });
+  constructor(initialMessages: LangMessage[], opts?: { tools?: ToolWithHandler[] });
+  constructor(
+    initial?: string | LangMessage[],
+    opts?: { tools?: ToolWithHandler[] }
+  ) {
+    // When extending Array, call super with the initial elements if provided
+    super(...(Array.isArray(initial) ? (initial as LangMessage[]) : []));
+    if (typeof initial === "string") {
+      this.addUserMessage(initial);
+    }
+    if (opts?.tools) {
+      this.availableTools = opts.tools;
+    }
+  }
+
   addUserMessage(content: string): this {
     this.push({ role: "user", content });
     return this;
@@ -68,45 +106,6 @@ export class LangChatMessageCollection extends Array<LangChatMessage> {
   addSystemMessage(content: string): this {
     this.push({ role: "system", content });
     return this;
-  }
-}
-
-export type ToolWithHandler = {
-  name: string;
-  description: string;
-  parameters: Record<string, any>;
-  handler: (args: Record<string, any>) => any | Promise<any>;
-}
-
-export class LangMessages extends LangChatMessageCollection {
-  availableTools?: ToolWithHandler[];
-
-  // Merged result fields
-  answer: string = "";
-  object: any | null = null;
-  toolsRequested: ToolRequest[] | null = null; // deprecated internal alias
-  // Requested tool calls from the provider (normalized)
-  tools?: Array<{ id: string; name: string; arguments: Record<string, any> }>;
-  finished: boolean = false;
-  thinking?: string;
-  validationErrors: string[] = [];
-  images?: LangImageOutput[];
-
-  constructor();
-  constructor(initialPrompt: string, opts?: { tools?: ToolWithHandler[] });
-  constructor(initialMessages: LangChatMessage[], opts?: { tools?: ToolWithHandler[] });
-  constructor(
-    initial?: string | LangChatMessage[],
-    opts?: { tools?: ToolWithHandler[] }
-  ) {
-    // When extending Array, call super with the initial elements if provided
-    super(...(Array.isArray(initial) ? (initial as LangChatMessage[]) : []));
-    if (typeof initial === "string") {
-      this.addUserMessage(initial);
-    }
-    if (opts?.tools) {
-      this.availableTools = opts.tools;
-    }
   }
 
   get requestedToolUse(): ToolRequest[] | null {

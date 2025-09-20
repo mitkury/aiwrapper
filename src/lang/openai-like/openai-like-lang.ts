@@ -4,7 +4,7 @@ import {
   LangContentPart,
   LangImageInput,
 } from "../language-provider.ts";
-import { LangMessages, LangChatMessage, ToolWithHandler } from "../messages.ts";
+import { LangMessages, LangMessage, ToolWithHandler } from "../messages.ts";
 import {
   DecisionOnNotOkResponse,
   httpRequestWithRetry as fetch,
@@ -120,7 +120,7 @@ export class OpenAILikeLang extends LanguageProvider {
   }
 
     async chat(
-     messages: LangChatMessage[] | LangMessages,
+     messages: LangMessage[] | LangMessages,
      options?: LangOptions,
    ): Promise<LangMessages> {
      let messageCollection: LangMessages;

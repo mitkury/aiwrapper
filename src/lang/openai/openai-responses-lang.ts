@@ -1,6 +1,5 @@
 import {
-  LangChatMessageCollection,
-  LangChatMessage,
+  LangMessage,
   LangOptions,
   LanguageProvider,
   LangContentPart,
@@ -50,23 +49,22 @@ export class OpenAIResponsesLang extends LanguageProvider {
   }
 
   async ask(prompt: string, options?: LangOptions): Promise<LangMessages> {
-    const messages = new LangChatMessageCollection();
+    const messages = new LangMessages();
     if (this._systemPrompt) {
       messages.push({ role: "system", content: this._systemPrompt });
     }
     messages.push({ role: "user", content: prompt });
-    return this.chat(messages as any, options);
+    return this.chat(messages, options);
   }
 
   async chat(
-    messages: LangChatMessage[] | LangChatMessageCollection,
+    messages: LangMessage[] | LangMessages,
     options?: LangOptions,
   ): Promise<LangMessages> {
     const messageCollection = messages instanceof LangMessages
       ? messages
-      : (messages instanceof LangChatMessageCollection ? new LangMessages(messages as any) : new LangMessages(messages));
+      : new LangMessages(messages);
 
-    // @TODO: LangMessages and LangMessageCollection is confusing. Figure out what to do with it.
     const result = messageCollection;
 
     const input = this.transformMessagesToResponsesInput(messageCollection);
@@ -213,7 +211,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
     }));
   }
 
-  private transformMessagesToResponsesInput(messages: LangChatMessageCollection): any {
+  private transformMessagesToResponsesInput(messages: LangMessages): any {
     const input: any[] = [];
     for (const m of messages) {
       // Map tool results into input as input_text JSON parts; skip assistant tool call echoes

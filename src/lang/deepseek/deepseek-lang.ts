@@ -1,5 +1,5 @@
 import { OpenAILikeLang, OpenAILikeConfig } from "../openai-like/openai-like-lang.ts";
-import { LangChatMessageCollection, LangOptions } from "../language-provider.ts";
+import { LangOptions } from "../language-provider.ts";
 import { LangMessages } from "../messages.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
 import { DecisionOnNotOkResponse, httpRequestWithRetry as fetch } from "../../http-request.ts";

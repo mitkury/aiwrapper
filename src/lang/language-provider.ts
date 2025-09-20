@@ -5,7 +5,7 @@ import {
   validateAgainstSchema 
 } from "./schema/schema-utils.ts";
 import { LangMessages } from "./messages.ts";
-import type { LangChatMessage, ToolWithHandler } from "./messages.ts";
+import type { LangMessage, ToolWithHandler } from "./messages.ts";
 
 // Export zod for convenience
 export { z };
@@ -15,9 +15,8 @@ export { z };
  */
 export type Schema = z.ZodType | Record<string, unknown>;
 
-// Re-export message types from messages.ts to keep public API stable (collection is internal but used across src)
-export { LangChatMessageCollection } from "./messages.ts";
-export type { LangChatMessage, LangContentPart, LangImageInput } from "./messages.ts";
+// Re-export message types from messages.ts to keep public API stable
+export type { LangMessage, LangContentPart, LangImageInput } from "./messages.ts";
 
 /**
  * Image output type for providers that can generate images
@@ -74,8 +73,8 @@ export interface LangOptions {
  * Extends LangMessages and exposes a 'messages' getter for old code.
  */
 export class LangResult extends LangMessages {
-  constructor(messages: LangMessages | LangChatMessage[]) {
-    super(Array.isArray(messages) ? messages as LangChatMessage[] : [...(messages as LangMessages)]);
+  constructor(messages: LangMessages | LangMessage[]) {
+    super(Array.isArray(messages) ? messages as LangMessage[] : [...(messages as LangMessages)]);
   }
 
   get messages(): this {
@@ -106,7 +105,7 @@ export abstract class LanguageProvider {
    * Continue a conversation
    */
   abstract chat(
-    messages: LangChatMessage[] | LangMessages,
+    messages: LangMessage[] | LangMessages,
     options?: LangOptions,
   ): Promise<LangMessages>;
 
@@ -115,7 +114,7 @@ export abstract class LanguageProvider {
    * Supports both Zod schemas and JSON Schema objects
    */
   async askForObject(
-    prompt: string | LangChatMessage[] | LangMessages,
+    prompt: string | LangMessage[] | LangMessages,
     schema: Schema,
     options?: LangOptions,
   ): Promise<LangMessages> {

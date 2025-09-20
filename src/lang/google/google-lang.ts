@@ -1,8 +1,7 @@
 import {
-  LangChatMessageCollection,
   LangOptions,
   LanguageProvider,
-  LangChatMessage,
+  LangMessage,
 } from "../language-provider.ts";
 import {
   DecisionOnNotOkResponse,
@@ -60,12 +59,12 @@ export class GoogleLang extends LanguageProvider {
   }
 
   async chat(
-    messages: LangChatMessage[] | LangChatMessageCollection,
+    messages: LangMessage[] | LangMessages,
     options?: LangOptions,
   ): Promise<LangMessages> {
     const messageCollection = messages instanceof LangMessages
       ? messages
-      : (messages instanceof LangChatMessageCollection ? new LangMessages(messages as any) : new LangMessages(messages));
+      : new LangMessages(messages);
     const result = messageCollection;
 
     const contents = this.transformMessagesForProvider(messageCollection as any);
@@ -177,7 +176,7 @@ export class GoogleLang extends LanguageProvider {
     return result;
   }
 
-  protected transformMessagesForProvider(messages: LangChatMessageCollection): any[] {
+  protected transformMessagesForProvider(messages: LangMessages): any[] {
     return messages.map((msg: any) => {
       if (msg.role === 'tool' && Array.isArray(msg.content)) {
         return {

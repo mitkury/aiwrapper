@@ -1,5 +1,5 @@
 import { LangImageInput } from "../lang/language-provider.ts";
-import { LangChatMessageCollection, LangMessages } from "../lang/messages.ts";
+import { LangMessages } from "../lang/messages.ts";
 import { httpRequestWithRetry as fetch, DecisionOnNotOkResponse } from "../http-request.ts";
 
 export type OpenAIImgOptions = {
@@ -20,9 +20,9 @@ export class OpenAIImg {
   }
 
   async generate(prompt: string, options?: { size?: '1024x1024' | '1024x1536' | '1536x1024' | 'auto'; quality?: 'standard' | 'hd'; responseFormat?: 'url' | 'b64_json' }): Promise<LangMessages> {
-    const messages = new LangChatMessageCollection();
+    const messages = new LangMessages();
     messages.addUserMessage(`Generate image: ${prompt}`);
-    const result = new LangMessages(messages as any);
+    const result = messages;
 
     const body: Record<string, unknown> = {
       model: this._model,
@@ -63,9 +63,9 @@ export class OpenAIImg {
   }
 
   async edit(params: { prompt: string; image: LangImageInput; mask?: LangImageInput; size?: '1024x1024' | '1024x1536' | '1536x1024' | 'auto'; n?: number; quality?: 'standard' | 'hd'; responseFormat?: 'url' | 'b64_json' }): Promise<LangMessages> {
-    const messages = new LangChatMessageCollection();
+    const messages = new LangMessages();
     messages.addUserMessage(`Edit image: ${params.prompt}`);
-    const result = new LangMessages(messages as any);
+    const result = messages;
 
     const form = await this.buildImageEditForm({ model: this._model, ...params });
 
@@ -97,9 +97,9 @@ export class OpenAIImg {
   }
 
   async vary(params: { image: LangImageInput; size?: '1024x1024' | '1024x1536' | '1536x1024' | 'auto'; n?: number; quality?: 'standard' | 'hd'; responseFormat?: 'url' | 'b64_json' }): Promise<LangMessages> {
-    const messages = new LangChatMessageCollection();
+    const messages = new LangMessages();
     messages.addUserMessage('Vary image');
-    const result = new LangMessages(messages as any);
+    const result = messages;
 
     const form = await this.buildImageVariationForm({ model: this._model, ...params });
 

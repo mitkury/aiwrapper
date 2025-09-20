@@ -4,8 +4,7 @@ import {
 } from "../../http-request.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
 import {
-  LangChatMessageCollection,
-  LangChatMessage,
+  LangMessage,
   LangOptions,
   LanguageProvider,
 } from "../language-provider.ts";
@@ -73,12 +72,12 @@ export class AnthropicLang extends LanguageProvider {
   }
 
   async chat(
-    messages: LangChatMessage[] | LangMessages,
+    messages: LangMessage[] | LangMessages,
     options?: LangOptions,
   ): Promise<LangMessages> {
     const messageCollection = messages instanceof LangMessages
       ? messages
-      : (messages instanceof LangChatMessageCollection ? new LangMessages(messages as any) : new LangMessages(messages));
+      : new LangMessages(messages);
 
     const processedMessages: any[] = [];
     let systemContent = '';
@@ -318,7 +317,7 @@ export class AnthropicLang extends LanguageProvider {
     return result;
   }
 
-  protected transformMessagesForProvider(messages: LangChatMessage[]): any[] {
+  protected transformMessagesForProvider(messages: LangMessage[]): any[] {
     const out: any[] = [];
     for (const m of messages) {
       if (m.role === 'tool') {

@@ -1,6 +1,5 @@
 import { 
-  LangChatMessageCollection,
-  LangChatMessage,
+  LangMessage,
   LangOptions,
   LanguageProvider
 } from "../language-provider.ts";
@@ -49,7 +48,7 @@ export class MockOpenAILikeLang extends OpenAILikeLang {
   }
 
   async chat(
-    messages: LangChatMessage[] | LangMessages,
+    messages: LangMessage[] | LangMessages,
     options?: LangOptions,
   ): Promise<LangMessages> {
     // Normalize to LangMessages
