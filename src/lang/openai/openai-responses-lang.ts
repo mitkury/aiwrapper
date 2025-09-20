@@ -23,13 +23,6 @@ export type OpenAIResponsesOptions = {
   systemPrompt?: string;
 };
 
-type FunctionMessageInResponses = {
-  type: "function";
-  name: string;
-  description: string;
-  parameters: any;
-}
-
 export class OpenAIResponsesLang extends LanguageProvider {
   private _apiKey: string;
   private _model: string;
@@ -66,17 +59,15 @@ export class OpenAIResponsesLang extends LanguageProvider {
       : new LangMessages(messages);
 
     const result = messageCollection;
-
     const input = this.transformMessagesToResponsesInput(messageCollection);
-
     const providedTools: ToolWithHandler[] = (
-      (messageCollection as any).availableTools as ToolWithHandler[]
+      messageCollection.availableTools as ToolWithHandler[]
     ) || (options?.tools as ToolWithHandler[]) || [];
 
     // We check if the stream should be enabled by checking if the onResult callback is provided
     const stream = typeof options?.onResult === 'function';
 
-    const body: any = {
+    const body = {
       model: this._model,
       input,
       ...(typeof (options as any)?.maxTokens === 'number' ? { max_output_tokens: (options as any).maxTokens } : {}),
@@ -107,10 +98,8 @@ export class OpenAIResponsesLang extends LanguageProvider {
       },
     } as const;
 
-    const response = await fetch(apiUrl, common as any);
+    const response = await fetch(apiUrl, common);
     if (stream) {
-      // @TODO: consider build a data object as it gets streamed, so the result of stream and without stream are the same
-
       // Keep minimal mutable stream state between events
       const streamState = { sawAnyTextDelta: false };
       const itemBuffers: StreamItemBuffers = new Map();
@@ -125,10 +114,19 @@ export class OpenAIResponsesLang extends LanguageProvider {
       );
 
       await processResponseStream(response, onData);
+
+      // Ensure streaming path builds same structure as non-streaming
+        if (result.answer && result.length > 0 && result[result.length - 1].role === 'assistant') {
+          (result as any)[result.length - 1].content = result.answer;
+      } else if (result.answer) {
+        result.addAssistantMessage(result.answer);
+      }
+
+      result.finished = true;
       return result;
     }
 
-    const data: any = await response.json();
+    const data = await response.json();
 
     // @TODO: save it somewhere, so we can use it as `body.previous_response_id` later
     const responseId = data?.id as string;
@@ -223,7 +221,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
         input.push({ role: 'user', content: parts });
         continue;
       }
-      if ((m as any).role === 'tool') {
+      if (m.role === 'tool') {
         // Skip assistant tool call echo for Responses input
         // @TODO: is this correct?
         continue;
