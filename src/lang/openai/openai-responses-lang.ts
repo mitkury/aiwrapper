@@ -217,8 +217,8 @@ export class OpenAIResponsesLang extends LanguageProvider {
     const input: any[] = [];
     for (const m of messages) {
       // Map tool results into input as input_text JSON parts; skip assistant tool call echoes
-      if ((m as any).role === 'tool-results' && Array.isArray((m as any).content)) {
-        const parts = ((m as any).content as any[]).map(tr => ({
+      if (m.role === 'tool-results' && Array.isArray(m.content)) {
+        const parts = (m.content as any[]).map(tr => ({
           type: 'input_text',
           text: JSON.stringify({ tool_call_id: tr.toolId, result: tr.result })
         }));
@@ -227,6 +227,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
       }
       if ((m as any).role === 'tool') {
         // Skip assistant tool call echo for Responses input
+        // @TODO: is this correct?
         continue;
       }
 

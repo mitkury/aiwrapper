@@ -1,22 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { Img } from '../dist/index.js';
+import { Img } from '../../dist/index.js';
 
 const apiKey = process.env.OPENAI_API_KEY;
 const run = !!apiKey;
-
-// 1x1 transparent PNG
-const TINY_PNG_BASE64 =
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/xcAAgMBgQ7h1i8AAAAASUVORK5CYII=';
-
-describe.skipIf(!run)('OpenAI image edit (integration)', () => {
-  it('edits an image and returns url or base64', async () => {
+ 
+describe.skipIf(!run)('OpenAI image generation (integration)', () => {
+  it('generates an image URL or base64', async () => {
     const openai = Img.openai({ apiKey: apiKey as string, model: 'gpt-image-1' });
 
-    const res = await openai.edit({
-      prompt: 'make it red',
-      image: { kind: 'base64', base64: TINY_PNG_BASE64, mimeType: 'image/png' },
-      responseFormat: 'url'
-    });
+    const res = await openai.generate('A simple red square, minimalistic, solid color', { responseFormat: 'url', size: '1024x1024' });
 
     expect(res.images && res.images.length).toBeGreaterThan(0);
     const img = res.images![0]!;
