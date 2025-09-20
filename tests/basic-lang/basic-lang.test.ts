@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Lang, LangMessages } from '../../dist/index.js';
+import { Lang, LangMessages, LangOptions } from '../../dist/index.js';
 
 const apiKey = process.env.OPENAI_API_KEY;
 const run = !!apiKey;
@@ -7,7 +7,10 @@ const run = !!apiKey;
 describe.skipIf(!run)('Basic Lang', () => {
   const lang = Lang.openai({ apiKey: process.env.OPENAI_API_KEY as string, model: 'gpt-5-nano' });
 
-  it('should be able to use tools', async () => {
+  // @TODO: streaming WITH tools
+  // @TODO: streaming plain messages but make sure the incoming chars are streaming correctly (sum of the chars should be the same as the answer)
+
+  async function testUsingTools(stream: boolean) {
     const messages = new LangMessages([
       {
         role: 'user',
@@ -24,7 +27,11 @@ describe.skipIf(!run)('Basic Lang', () => {
       ]
     });
 
-    const res = await lang.chat(messages);
+    const options: LangOptions = stream ? { onResult: (res: LangMessages) => { 
+      console.log(res.answer);
+    } } : {};
+
+    const res = await lang.chat(messages, options);
 
     expect(res.requestedToolUse?.length).toBeGreaterThan(0);
     const tool = res.requestedToolUse?.[0];
@@ -43,6 +50,20 @@ describe.skipIf(!run)('Basic Lang', () => {
     expect(toolResults[0].content).toBeDefined();
     const firstResult = toolResults[0].content?.[0];
     expect(firstResult?.result).toBe(3131);
+
+    // Send the result back to the model
+    await lang.chat(messages, options);
+
+    // Expect the answer to contain the tool result
+    expect(res.answer).toContain('3131');
+  }
+
+  it('should be able to use tools (non-streaming)', async () => {
+    await testUsingTools(false);
+  });
+
+  it('should be able to use tools (streaming)', async () => {
+    await testUsingTools(true);
   });
 
   it('should respond with a string', async () => {
@@ -57,9 +78,11 @@ describe.skipIf(!run)('Basic Lang', () => {
 
   it('should be able to stream an answer', async () => {
     let streamingAnswers: string[] = [];
-    const res = await lang.ask('Introduce yourself in 140 characters', { onResult: (msgs) => {
-      streamingAnswers.push(msgs.answer);
-    }});
+    const res = await lang.ask('Introduce yourself in 140 characters', {
+      onResult: (msgs) => {
+        streamingAnswers.push(msgs.answer);
+      }
+    });
     expect(streamingAnswers.length).toBeGreaterThan(0);
     const lastAnswer = streamingAnswers[streamingAnswers.length - 1];
     expect(streamingAnswers[streamingAnswers.length - 1].length).toBeGreaterThan(100);

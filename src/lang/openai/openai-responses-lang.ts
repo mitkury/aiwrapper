@@ -67,12 +67,14 @@ export class OpenAIResponsesLang extends LanguageProvider {
     // We check if the stream should be enabled by checking if the onResult callback is provided
     const stream = typeof options?.onResult === 'function';
 
+    // @IDEA: how about we allow to add custom things to the body, so devs may pass: "tool_choice: required". And same for the headers.
+    
     const body = {
       model: this._model,
       input,
       ...(typeof (options as any)?.maxTokens === 'number' ? { max_output_tokens: (options as any).maxTokens } : {}),
       ...(stream ? { stream: true } : {}),
-      ...(providedTools && providedTools.length ? { tools: this.transformToolsForProvider(providedTools), tool_choice: 'required' } : {}),
+      ...(providedTools && providedTools.length ? { tools: this.transformToolsForProvider(providedTools), tool_choice: 'auto' } : {}),
     };
 
     const apiUrl = `${this._baseURL}/responses`;
@@ -115,13 +117,6 @@ export class OpenAIResponsesLang extends LanguageProvider {
 
       await processResponseStream(response, onData);
 
-      // Ensure streaming path builds same structure as non-streaming
-        if (result.answer && result.length > 0 && result[result.length - 1].role === 'assistant') {
-          (result as any)[result.length - 1].content = result.answer;
-      } else if (result.answer) {
-        result.addAssistantMessage(result.answer);
-      }
-
       result.finished = true;
       return result;
     }
@@ -152,7 +147,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
    * Handles a single output item from the Responses API.
    * Items must have at least: { id: string, type: string, ... }
    */
-  private handleOutputItem(item: { id: string; type: string; [key: string]: any }, result: LangMessages) {
+  private handleOutputItem(item: { id: string; type: string;[key: string]: any }, result: LangMessages) {
     switch (item.type) {
       case 'message':
         if (item.role === 'assistant') {
@@ -316,7 +311,10 @@ export class OpenAIResponsesLang extends LanguageProvider {
           onResult?.(result);
           return;
         }
-        break;
+        // Handle other item types (like function_call) using the same logic as non-streaming
+        this.handleOutputItem(item, result);
+        onResult?.(result);
+        return;
       }
       case 'response.content_part.done': {
         const part = data.part;
