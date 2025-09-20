@@ -7,8 +7,7 @@ const run = !!apiKey;
 describe.skipIf(!run)('Basic Lang', () => {
   const lang = Lang.openai({ apiKey: process.env.OPENAI_API_KEY as string, model: 'gpt-5-nano' });
 
-  // @TODO: streaming WITH tools
-  // @TODO: streaming plain messages but make sure the incoming chars are streaming correctly (sum of the chars should be the same as the answer)
+  // @TODO: make the test work with every distinct provider - run the same tests: OpenAI responses, OpenAI completions, Anthropic, Google, etc.
 
   async function testUsingTools(stream: boolean) {
     const messages = new LangMessages([
@@ -37,25 +36,35 @@ describe.skipIf(!run)('Basic Lang', () => {
     const tool = res.requestedToolUse?.[0];
     expect(tool?.name).toBe('get_random_number');
 
-    // Execute requested tools and continue the chat automatically
-    await res.executeRequestedTools();
+    // Tools should be automatically executed now
+    // No need to manually call executeRequestedTools() anymore
 
-    // After execution, there should be a tool message and a continued answer
-    const hasToolMessage = res.some(m => m.role === 'tool');
-    expect(hasToolMessage).toBe(true);
-    expect(typeof res.answer).toBe('string');
+    // After execution, check the last two messages should be tool request and tool results
+    expect(res.length).toBeGreaterThanOrEqual(3); // user message + tool message + tool-results message
+    
+    const lastMessage = res[res.length - 1];
+    const secondLastMessage = res[res.length - 2];
+    
+    // Last message should be tool-results
+    expect(lastMessage.role).toBe('tool-results');
+    expect(Array.isArray(lastMessage.content)).toBe(true);
+    const toolResult = lastMessage.content[0];
+    expect(toolResult.toolId).toBeDefined();
+    expect(toolResult.result).toBe(3131);
+    
+    // Second to last message should be tool request
+    expect(secondLastMessage.role).toBe('tool');
+    expect(Array.isArray(secondLastMessage.content)).toBe(true);
+    const toolCall = secondLastMessage.content[0];
+    expect(toolCall.callId).toBeDefined();
+    expect(toolCall.name).toBe('get_random_number');
+    expect(toolCall.arguments).toBeDefined();
 
-    const toolResults = res.filter(m => m.role === 'tool-results');
-    expect(toolResults.length).toBeGreaterThan(0);
-    expect(toolResults[0].content).toBeDefined();
-    const firstResult = toolResults[0].content?.[0];
-    expect(firstResult?.result).toBe(3131);
+    // Send the conversation back to the model to get the final response
+    const finalRes = await lang.chat(res, options);
 
-    // Send the result back to the model
-    await lang.chat(messages, options);
-
-    // Expect the answer to contain the tool result
-    expect(res.answer).toContain('3131');
+    // Expect the final answer to contain the tool result
+    expect(finalRes.answer).toContain('3131');
   }
 
   it('should be able to use tools (non-streaming)', async () => {

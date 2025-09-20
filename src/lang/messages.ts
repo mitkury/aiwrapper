@@ -125,8 +125,6 @@ export class LangMessages extends Array<LangMessage> {
       return this;
     }
 
-    this.addAssistantToolCalls(requestedTools);
-
     // Execute requested tools
     const toolResults: ToolResult[] = [];
     const toolsByName = new Map<string, ToolWithHandler>(

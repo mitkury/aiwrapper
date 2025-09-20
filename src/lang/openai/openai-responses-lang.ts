@@ -59,6 +59,8 @@ export class OpenAIResponsesLang extends LanguageProvider {
       : new LangMessages(messages);
 
     const result = messageCollection;
+    // @TODO: no, fuck that - it's wrong; depending on whether we have responseId,
+    // we should either send the whole list of messages or only the last message (with attached previous_response_id)
     const input = this.transformMessagesToResponsesInput(messageCollection);
     const providedTools: ToolWithHandler[] = (
       messageCollection.availableTools as ToolWithHandler[]
@@ -118,6 +120,10 @@ export class OpenAIResponsesLang extends LanguageProvider {
       await processResponseStream(response, onData);
 
       result.finished = true;
+      
+      // Automatically execute tools if assistant made tool calls
+      await this.executeToolsIfRequested(result);
+      
       return result;
     }
 
@@ -140,6 +146,10 @@ export class OpenAIResponsesLang extends LanguageProvider {
     }
 
     result.finished = true;
+    
+    // Automatically execute tools if assistant made tool calls
+    await this.executeToolsIfRequested(result);
+    
     return result;
   }
 
@@ -365,6 +375,23 @@ export class OpenAIResponsesLang extends LanguageProvider {
         // ignore other events; they don't carry text we need
         break;
     }
+  }
+
+  /**
+   * Automatically execute tools if the assistant made tool calls as the last message
+   */
+  private async executeToolsIfRequested(result: LangMessages): Promise<void> {
+    // Check if there are any requested tools
+    const requestedTools = (result.tools && result.tools.length > 0)
+      ? result.tools
+      : (result.toolsRequested as any) || [];
+    
+    if (!requestedTools.length || !result.availableTools) {
+      return;
+    }
+
+    // Execute the tools automatically
+    await result.executeRequestedTools();
   }
 
   private mapImageInput(image: LangImageInput): any {
