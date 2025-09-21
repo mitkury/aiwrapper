@@ -106,6 +106,8 @@ export class OpenAIResponsesLang extends LanguageProvider {
       },
     } as const;
 
+    // @TODO: consider to catch a response-particular error about not existing id of the previous response
+    // and in that case send the whole input
     const response = await fetch(apiUrl, common);
     if (stream) {
       // Keep minimal mutable stream state between events
@@ -134,7 +136,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
     const data = await response.json();
 
     // @TODO: save it somewhere, so we can use it as `body.previous_response_id` later
-    const responseId = data?.id as string;
+    const previousResponseId = data?.id as string;
     const output = data?.output as unknown;
 
     if (typeof (data as any)?.output_text === 'string' && (data as any).output_text.length > 0) {
