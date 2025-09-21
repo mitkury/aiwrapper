@@ -1,25 +1,12 @@
-# Reasoning Detection Tests
+# Reasoning Tests
 
-Simple tests to verify that reasoning detection and streaming works across AI providers.
+Tests that verify reasoning detection and streaming work across AI providers.
 
-## Goal
+## What It Tests
 
-Ensure that:
-1. **Reasoning Detection**: Models that support reasoning can be detected
-2. **Reasoning Streaming**: Reasoning tokens are streamed in real-time when available
-3. **UI Integration**: Applications can show when reasoning is happening
-
-## Supported Providers
-
-- **DeepSeek**: `deepseek-reasoner` model provides reasoning streams
-- **Anthropic**: `extendedThinking` support (when available)
-- **OpenAI**: o1 models with reasoning (when available)
-- **Other Providers**: Test infrastructure for future reasoning support
-
-## Test Files
-
-- **`reasoning.test.ts`**: Tests reasoning detection and streaming
-- **`reasoning-infrastructure.test.ts`**: Tests basic reasoning infrastructure
+- **Reasoning Detection**: Models that support reasoning can be detected
+- **Reasoning Streaming**: Reasoning tokens stream in real-time when available
+- **Infrastructure**: Basic reasoning support infrastructure works
 
 ## Running Tests
 
@@ -27,43 +14,23 @@ Ensure that:
 # Run all reasoning tests
 npm run test:reasoning
 
-# Run specific test file
-npx vitest run tests/reasoning/reasoning.test.ts
+# Run for specific provider
+TEST_PROVIDERS=deepseek npm run test:reasoning
 ```
 
-## Environment Setup
+## What You'll See
 
-Set API keys for providers you want to test:
+- ✅ **When reasoning works**: `result.thinking` contains reasoning content, streaming shows reasoning tokens
+- ❌ **When reasoning unavailable**: `result.thinking` is empty, normal streaming continues
 
-```bash
-export DEEPSEEK_API_KEY="your_deepseek_api_key"
-export ANTHROPIC_API_KEY="your_anthropic_api_key"
-export OPENAI_API_KEY="your_openai_api_key"
-```
+## Provider Support
 
-## Expected Behavior
+Tests automatically use reasoning-capable models when available. Current support varies by provider and model availability.
 
-### When Reasoning is Available
-- `result.thinking` contains reasoning content
-- `onResult` callback receives reasoning tokens during streaming
-- Real-time reasoning visualization is possible
-
-### When Reasoning is Not Available
-- `result.thinking` is undefined or empty
-- Normal response streaming continues
-- No errors thrown
-
-## Usage Example
+## Usage
 
 ```typescript
-import { Lang } from 'aiwrapper';
-
-const lang = Lang.deepseek({
-  apiKey: process.env.DEEPSEEK_API_KEY,
-  model: 'deepseek-reasoner'
-});
-
-const result = await lang.ask('Solve this step by step...', {
+const result = await lang.ask('Think step by step...', {
   onResult: (res) => {
     if (res.thinking) {
       console.log('🧠 Reasoning:', res.thinking);
