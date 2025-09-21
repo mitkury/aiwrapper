@@ -62,7 +62,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
     const hasToolResults = (messageCollection as any).some?.((m: any) => m.role === 'tool-results');
     // @TODO: no, fuck that - it's wrong; depending on whether we have responseId,
     // we should either send the whole list of messages or only the last message (with attached previous_response_id)
-    const input = this.transformMessagesToResponsesInput(messageCollection);
+    const input = this.transformMessagesToResponsesInput(messageCollection, hasToolResults);
     const providedTools: ToolWithHandler[] = (
       messageCollection.availableTools as ToolWithHandler[]
     ) || (options?.tools as ToolWithHandler[]) || [];
@@ -76,7 +76,6 @@ export class OpenAIResponsesLang extends LanguageProvider {
     const body = {
       model: this._model,
       input,
-      ...(hasToolResults ? { instructions: "If any function_call_output items are present, respond only with their output content (no extra text)." } : {}),
       ...(typeof (options as any)?.maxTokens === 'number' ? { max_output_tokens: (options as any).maxTokens } : {}),
       ...(stream ? { stream: true } : {}),
       ...(providedTools && providedTools.length
@@ -237,9 +236,13 @@ export class OpenAIResponsesLang extends LanguageProvider {
     }));
   }
 
-  private transformMessagesToResponsesInput(messages: LangMessages): any {
+  private transformMessagesToResponsesInput(messages: LangMessages, hasToolResults?: boolean): any {
     const input: any[] = [];
     for (const m of messages) {
+      if (hasToolResults && (m as any).role === 'assistant') {
+        // Skip assistant messages on the tool-results handoff turn
+        continue;
+      }
       // Map assistant-requested tool calls (our 'tool' role) to top-level function_call items
       if (m.role === 'tool' && Array.isArray(m.content)) {
         for (const call of (m.content as any[])) {
