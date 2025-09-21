@@ -142,6 +142,8 @@ export class OpenAIResponsesLang extends LanguageProvider {
       result.answer = (data as any).output_text;
       result.addAssistantMessage(result.answer);
     } else if (Array.isArray(output)) {
+      // Preserve raw output items for accurate pass-back (e.g., function_call)
+      (result as any)._responsesOutputItems = output;
       for (const item of output) {
         this.handleOutputItem(item, result);
       }
@@ -238,52 +240,50 @@ export class OpenAIResponsesLang extends LanguageProvider {
 
   private transformMessagesToResponsesInput(messages: LangMessages, hasToolResults?: boolean): any {
     const input: any[] = [];
+    const rawPrev: any[] = (messages as any)._responsesOutputItems || [];
     for (const m of messages) {
-      if (hasToolResults && (m as any).role === 'assistant') {
-        // Skip assistant messages on the tool-results handoff turn
+      // Only include roles the Responses API accepts as message items
+      if (m.role === 'system' || m.role === 'user' || m.role === 'assistant') {
+        if (hasToolResults && m.role === 'assistant') continue; // omit assistant on handoff turn
+        const entry: any = { role: m.role, content: [] as any[] };
+        const content = (m as any).content;
+        if (Array.isArray(content)) {
+          for (const part of content as LangContentPart[]) {
+            if ((part as any).type === 'text') {
+              const isAssistant = m.role === 'assistant';
+              entry.content.push({ type: isAssistant ? 'output_text' : 'input_text', text: (part as any).text });
+            } else if ((part as any).type === 'image') {
+              const mapped = this.mapImageInput((part as any).image);
+              entry.content.push(mapped);
+            }
+          }
+        } else {
+          const isAssistant = m.role === 'assistant';
+          entry.content.push({ type: isAssistant ? 'output_text' : 'input_text', text: String(content) });
+        }
+        input.push(entry);
         continue;
       }
-      // Map assistant-requested tool calls (our 'tool' role) to top-level function_call items
+
+      // Assistant tool call echoes -> top-level function_call items
       if (m.role === 'tool' && Array.isArray(m.content)) {
         for (const call of (m.content as any[])) {
-          input.push({
-            type: 'function_call',
-            call_id: call.callId,
-            name: call.name,
-            arguments: JSON.stringify(call.arguments || {})
-          } as any);
-        }
-        continue;
-      }
-      // Map executed tool results (our 'tool-results' role) to top-level function_call_output items
-      if (m.role === 'tool-results' && Array.isArray(m.content)) {
-        for (const tr of (m.content as any[])) {
-          input.push({
-            type: 'function_call_output',
-            call_id: tr.toolId,
-            output: typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result)
-          } as any);
+          input.push({ type: 'function_call', call_id: call.callId, name: call.name, arguments: JSON.stringify(call.arguments || {}) } as any);
         }
         continue;
       }
 
-      const entry: any = { role: (m as any).role === 'assistant' ? 'assistant' : (m as any).role, content: [] as any[] };
-      const content = (m as any).content;
-      if (Array.isArray(content)) {
-        for (const part of content as LangContentPart[]) {
-          if ((part as any).type === 'text') {
-            const isAssistant = (m as any).role === 'assistant';
-            entry.content.push({ type: isAssistant ? 'output_text' : 'input_text', text: (part as any).text });
-          } else if ((part as any).type === 'image') {
-            const mapped = this.mapImageInput((part as any).image);
-            entry.content.push(mapped);
-          }
+      // Tool execution results -> top-level function_call_output items
+      if (m.role === 'tool-results' && Array.isArray(m.content)) {
+        // Ensure we include any prior raw function_call items once
+        for (const it of rawPrev) {
+          if (it && (it.type === 'function_call' || it.type === 'reasoning')) input.push(it);
         }
-      } else {
-        const isAssistant = (m as any).role === 'assistant';
-        entry.content.push({ type: isAssistant ? 'output_text' : 'input_text', text: String(content) });
+        for (const tr of (m.content as any[])) {
+          input.push({ type: 'function_call_output', call_id: tr.toolId, output: typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result) } as any);
+        }
+        continue;
       }
-      input.push(entry);
     }
     return input;
   }
@@ -334,6 +334,9 @@ export class OpenAIResponsesLang extends LanguageProvider {
       }
       case 'response.output_item.done': {
         const item = data.item;
+        // Accumulate raw output items for pass-back on next turn
+        const raw = (result as any)._responsesOutputItems as any[] | undefined;
+        if (Array.isArray(raw)) raw.push(item); else (result as any)._responsesOutputItems = [item];
         if (item.type === 'message' && Array.isArray(item.content)) {
           // If we buffered parts (no deltas), consolidate
           const buf = itemBuffers?.get(item.id);
