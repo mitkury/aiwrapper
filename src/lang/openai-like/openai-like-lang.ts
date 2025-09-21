@@ -204,7 +204,22 @@ export class OpenAILikeLang extends LanguageProvider {
           } catch {
           }
         }
+        
+        // Add tool calls as assistant messages
+        if (messageCollection.toolsRequested && messageCollection.toolsRequested.length > 0) {
+          const toolCallMessages = (messageCollection.toolsRequested as any).map((tc: any) => ({
+            callId: tc.id,
+            name: tc.name,
+            arguments: tc.arguments
+          }));
+          messageCollection.addAssistantToolCalls(toolCallMessages);
+        }
       }
+
+      messageCollection.finished = true;
+
+      // Automatically execute tools if assistant made tool calls
+      await messageCollection.executeRequestedTools();
 
       return messageCollection;
     }
@@ -227,6 +242,7 @@ export class OpenAILikeLang extends LanguageProvider {
     const toolCalls = msg?.tool_calls;
     if (Array.isArray(toolCalls) && toolCalls.length > 0) {
       messageCollection.toolsRequested = [] as any;
+      const toolCallMessages: any[] = [];
       for (const tc of toolCalls) {
         const id: string = tc?.id || '';
         const name: string = tc?.function?.name || '';
@@ -239,7 +255,11 @@ export class OpenAILikeLang extends LanguageProvider {
           }
         }
         (messageCollection.toolsRequested as any).push({ id, name, arguments: parsedArgs });
+        toolCallMessages.push({ callId: id, name, arguments: parsedArgs });
       }
+      
+      // Add tool calls as assistant messages
+      messageCollection.addAssistantToolCalls(toolCallMessages);
     }
     let accumulated = '';
 
@@ -269,6 +289,10 @@ export class OpenAILikeLang extends LanguageProvider {
     }
 
     messageCollection.finished = true;
+
+    // Automatically execute tools if assistant made tool calls
+    await messageCollection.executeRequestedTools();
+
     return messageCollection;
    }
 
@@ -294,7 +318,7 @@ export class OpenAILikeLang extends LanguageProvider {
           out.push({
             role: "assistant",
             tool_calls: contentAny.map((call: any, index: number) => ({
-              id: call.id || String(index),
+              id: call.callId || call.id || String(index),
               type: "function",
               function: {
                 name: call.name,
