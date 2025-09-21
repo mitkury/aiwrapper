@@ -644,7 +644,9 @@ export class OpenAIResponsesLang extends LanguageProvider {
     if (kind === 'base64') {
       const base64 = (image as any).base64 as string;
       const mimeType = (image as any).mimeType || 'image/png';
-      return { type: 'input_image', data: { mime_type: mimeType, data: base64 } };
+      // Responses API expects image_url with a data URL for inline base64 images
+      const dataUrl = `data:${mimeType};base64,${base64}`;
+      return { type: 'input_image', image_url: dataUrl };
     }
     throw new Error('Unsupported image kind for Responses mapping');
   }
