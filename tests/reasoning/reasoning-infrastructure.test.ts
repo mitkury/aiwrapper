@@ -46,7 +46,7 @@ async function runReasoningInfrastructureTests(lang: LanguageProvider) {
     expect(result.answer.length).toBeGreaterThan(0);
     
     // Test reasoning properties exist (even if empty)
-    expect(hasThinkingProperty).toBe(true); // LangMessages should have thinking property
+    expect('thinking' in result).toBe(true); // LangMessages should have thinking property
     // Note: result.thinking may be undefined (not supported) or string (supported but empty)
     expect(typeof result.thinking === 'undefined' || typeof result.thinking === 'string').toBe(true);
     

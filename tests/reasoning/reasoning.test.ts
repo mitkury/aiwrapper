@@ -8,6 +8,8 @@ describe('Reasoning Detection', () => {
     { name: 'anthropic', model: 'claude-3-5-sonnet-20241022' }, // Claude with reasoning
     { name: 'openai', model: 'o1-preview' }, // OpenAI o1 with reasoning
     { name: 'openai', model: 'o1-mini' }, // OpenAI o1-mini with reasoning
+    { name: 'deepseek', model: 'deepseek-chat' }, // DeepSeek with reasoning support
+    { name: 'deepseek', model: 'deepseek-reasoner' }, // DeepSeek reasoning model
   ];
 
   for (const provider of reasoningProviders) {
@@ -53,13 +55,13 @@ describe('Reasoning Detection', () => {
           });
           
           // For providers that support reasoning, we should detect it
-          if (provider.name === 'anthropic' || provider.model?.includes('o1')) {
+          if (provider.name === 'anthropic' || provider.model?.includes('o1') || provider.name === 'deepseek') {
             // These models should have reasoning capability
             if (result.thinking) {
               expect(result.thinking.length).toBeGreaterThan(0);
               console.log(`✅ [${provider.name}] Reasoning successfully detected!`);
             } else {
-              console.log(`⚠️  [${provider.name}] No reasoning detected - may need extendedThinking option`);
+              console.log(`⚠️  [${provider.name}] No reasoning detected - may need special configuration`);
             }
           }
         });

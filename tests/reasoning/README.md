@@ -24,6 +24,11 @@ The reasoning detection system can identify when AI models are performing intern
 - **Feature**: Built-in reasoning capabilities
 - **Detection**: Reasoning content is captured in the response stream
 
+### DeepSeek
+- **Models**: `deepseek-chat`, `deepseek-reasoner`, `deepseek-coder`
+- **Feature**: Built-in reasoning support with `reasoning_content` in streaming
+- **Detection**: Automatically detects `reasoning_content` in delta responses
+
 ### Other Providers
 - Some providers may support reasoning detection
 - Check individual provider documentation for specific capabilities
@@ -45,6 +50,13 @@ Interactive demo script that:
 - Tests multiple providers in sequence
 - Provides detailed logging of reasoning content
 
+### `debug-deepseek-reasoning.ts`
+DeepSeek-specific debug script that:
+- Tests DeepSeek reasoning models
+- Demonstrates reasoning content detection
+- Tests different prompt styles for reasoning
+- Provides detailed DeepSeek-specific analytics
+
 ## Running Tests
 
 ### Run All Reasoning Tests
@@ -62,6 +74,16 @@ npx vitest run tests/reasoning/reasoning.test.ts
 npx tsx tests/reasoning/reasoning-demo.ts
 ```
 
+### Debug Reasoning Detection
+```bash
+npx tsx tests/reasoning/debug-reasoning.ts
+```
+
+### Debug DeepSeek Reasoning
+```bash
+npx tsx tests/reasoning/debug-deepseek-reasoning.ts
+```
+
 ## Environment Setup
 
 Make sure you have the appropriate API keys set:
@@ -72,6 +94,9 @@ export ANTHROPIC_API_KEY="your_anthropic_api_key"
 
 # For OpenAI
 export OPENAI_API_KEY="your_openai_api_key"
+
+# For DeepSeek
+export DEEPSEEK_API_KEY="your_deepseek_api_key"
 ```
 
 ## Expected Behavior

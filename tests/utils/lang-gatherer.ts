@@ -10,12 +10,15 @@ export interface LangGathererOptions {
   includeOpenRouter?: boolean;
   /** Include Anthropic */
   includeAnthropic?: boolean;
+  /** Include DeepSeek */
+  includeDeepSeek?: boolean;
   /** Custom model overrides */
   modelOverrides?: {
     openai?: string;
     openaiResponses?: string;
     openrouter?: string;
     anthropic?: string;
+    deepseek?: string;
   };
 }
 
@@ -28,6 +31,7 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
     includeOpenAIResponses = true,
     includeOpenRouter = true,
     includeAnthropic = true,
+    includeDeepSeek = true,
     modelOverrides = {}
   } = options;
 
@@ -62,6 +66,14 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
     langs.push(Lang.anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY as string,
       model: modelOverrides.anthropic || 'claude-3-5-sonnet-20240620'
+    }));
+  }
+
+  // DeepSeek
+  if (includeDeepSeek && process.env.DEEPSEEK_API_KEY) {
+    langs.push(Lang.deepseek({
+      apiKey: process.env.DEEPSEEK_API_KEY as string,
+      model: modelOverrides.deepseek || 'deepseek-chat'
     }));
   }
 
@@ -102,6 +114,8 @@ export function isProviderAvailable(providerName: string): boolean {
       return !!process.env.OPENROUTER_API_KEY;
     case 'anthropic':
       return !!process.env.ANTHROPIC_API_KEY;
+    case 'deepseek':
+      return !!process.env.DEEPSEEK_API_KEY;
     default:
       return false;
   }
@@ -133,6 +147,14 @@ export function getProvider(name: string, model?: string): LanguageProvider | nu
         return Lang.anthropic({
           apiKey: process.env.ANTHROPIC_API_KEY as string,
           model: model || 'claude-3-5-sonnet-20240620'
+        });
+      }
+      break;
+    case 'deepseek':
+      if (process.env.DEEPSEEK_API_KEY) {
+        return Lang.deepseek({
+          apiKey: process.env.DEEPSEEK_API_KEY as string,
+          model: model || 'deepseek-chat'
         });
       }
       break;
