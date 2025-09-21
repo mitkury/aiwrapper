@@ -243,15 +243,12 @@ export class OpenAIResponsesLang extends LanguageProvider {
         const parts: any[] = [];
         for (const tr of (m.content as any[])) {
           parts.push({
-            type: 'input_text',
-            text: JSON.stringify({ tool_call_id: tr.toolId, result: tr.result })
-          });
-          parts.push({
-            type: 'input_text',
-            text: `Use the provided tool result exactly as the answer: ${typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result)}`
-          });
+            type: 'tool_result',
+            tool_call_id: tr.toolId,
+            content: typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result)
+          } as any);
         }
-        input.push({ role: 'user', content: parts });
+        input.push({ role: 'tool', content: parts } as any);
         continue;
       }
       if (m.role === 'tool') {
