@@ -1,3 +1,4 @@
+import { describe } from 'vitest';
 import { Lang, LanguageProvider } from '../../dist/index.js';
 
 export interface LangGathererOptions {
@@ -40,12 +41,11 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
     }));
   }
 
-  // OpenAI Responses API
-  if (includeOpenAIResponses && process.env.OPENAI_API_KEY) {
+  // OpenAI Responses API (same as regular OpenAI - it uses Responses API by default)
+  if (includeOpenAIResponses && process.env.OPENAI_API_KEY && !includeOpenAI) {
     langs.push(Lang.openai({ 
       apiKey: process.env.OPENAI_API_KEY as string, 
-      model: modelOverrides.openaiResponses || 'gpt-4o-mini',
-      useResponsesAPI: true 
+      model: modelOverrides.openaiResponses || 'gpt-4o-mini'
     }));
   }
 
@@ -126,8 +126,7 @@ export function getProvider(name: string, model?: string): LanguageProvider | nu
       if (process.env.OPENAI_API_KEY) {
         return Lang.openai({ 
           apiKey: process.env.OPENAI_API_KEY as string, 
-          model: model || 'gpt-4o-mini',
-          useResponsesAPI: true 
+          model: model || 'gpt-4o-mini'
         });
       }
       break;
