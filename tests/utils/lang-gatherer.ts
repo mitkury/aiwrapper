@@ -103,7 +103,7 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
   if (includeOpenRouter && process.env.OPENROUTER_API_KEY && shouldIncludeProvider('openrouter')) {
     langs.push(Lang.openrouter({
       apiKey: process.env.OPENROUTER_API_KEY as string,
-      model: modelOverrides.openrouter || 'gpt-5-nano'
+      model: modelOverrides.openrouter || 'google/gemini-2.5-flash-lite'
     }));
   }
 
@@ -244,7 +244,7 @@ export function getProvider(name: string, model?: string): LanguageProvider | nu
       if (process.env.OPENROUTER_API_KEY) {
         return Lang.openrouter({
           apiKey: process.env.OPENROUTER_API_KEY as string,
-          model: model || 'gpt-4o-mini'
+          model: model || 'google/gemini-2.5-flash-lite'
         });
       }
       break;
