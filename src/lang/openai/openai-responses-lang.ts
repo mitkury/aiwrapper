@@ -76,6 +76,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
     const body = {
       model: this._model,
       input,
+      ...(hasToolResults ? { instructions: "If any function_call_output items are present, respond only with their output content (no extra text)." } : {}),
       ...(typeof (options as any)?.maxTokens === 'number' ? { max_output_tokens: (options as any).maxTokens } : {}),
       ...(stream ? { stream: true } : {}),
       ...(providedTools && providedTools.length
@@ -239,21 +240,27 @@ export class OpenAIResponsesLang extends LanguageProvider {
   private transformMessagesToResponsesInput(messages: LangMessages): any {
     const input: any[] = [];
     for (const m of messages) {
-      // Map tool results into input as input_text JSON parts; skip assistant tool call echoes
+      // Map assistant-requested tool calls (our 'tool' role) to top-level function_call items
+      if (m.role === 'tool' && Array.isArray(m.content)) {
+        for (const call of (m.content as any[])) {
+          input.push({
+            type: 'function_call',
+            call_id: call.callId,
+            name: call.name,
+            arguments: JSON.stringify(call.arguments || {})
+          } as any);
+        }
+        continue;
+      }
+      // Map executed tool results (our 'tool-results' role) to top-level function_call_output items
       if (m.role === 'tool-results' && Array.isArray(m.content)) {
-        const parts: any[] = [];
         for (const tr of (m.content as any[])) {
-          parts.push({
+          input.push({
             type: 'function_call_output',
             call_id: tr.toolId,
             output: typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result)
           } as any);
         }
-        input.push({ role: 'developer', content: parts } as any);
-        continue;
-      }
-      if (m.role === 'tool') {
-        // Skip assistant tool call echo for Responses input
         continue;
       }
 
