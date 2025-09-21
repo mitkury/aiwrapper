@@ -41,7 +41,8 @@ export interface HttpRequestInit {
 export interface HttpResponseWithRetries extends HttpRequestInit {
   retries?: number;
   backoffMs?: number;
-  onNotOkResponse?: (res: Response, decision: DecisionOnNotOkResponse) => Promise<DecisionOnNotOkResponse>;
+  // Simplified API: throw an error to prevent retry, don't throw to use default behavior
+  onError?: (res: Response, error: Error) => Promise<void>;
 }
 
 let _httpRequest = (
@@ -64,10 +65,6 @@ export const httpRequest = (
   return _httpRequest(url, options);
 };
 
-export type DecisionOnNotOkResponse = {
-  retry: boolean;
-  consumeReties: boolean;
-}
 
 export const httpRequestWithRetry = async (
   url: string | URL,
@@ -80,27 +77,36 @@ export const httpRequestWithRetry = async (
     options.backoffMs = 100;
   }
 
-  let decision = {
-    retry: true,
-    consumeReties: true,
-  } as DecisionOnNotOkResponse;
-
   try {
     const response = await httpRequest(url, options);
     if (!response.ok) {
-      if (options.onNotOkResponse) {
-        decision = await options.onNotOkResponse(response, decision);
+      // Handle custom error logic
+      if (options.onError) {
+        try {
+          const error = new Error(`HTTP error! status: ${response.status}`);
+          await options.onError(response, error);
+          // If onError doesn't throw, we'll continue with default behavior
+        } catch (customError) {
+          // Custom error handling - don't retry
+          throw customError;
+        }
+      }
+
+      // Default behavior: don't retry 4xx errors, retry 5xx errors
+      if (response.status >= 400 && response.status < 500) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     return response;
   } catch (error) {
-    if (decision.retry && options.retries > 0) {
-      if (decision.consumeReties) {
-        options.retries -= 1;
-      }
+    // Check if this is a retryable error (5xx or network errors)
+    const isRetryable = !error.message.includes('status: 4') && 
+                       options.retries > 0;
 
+    if (isRetryable) {
+      options.retries -= 1;
       options.backoffMs *= 2;
 
       await new Promise((resolve) => setTimeout(resolve, options.backoffMs));

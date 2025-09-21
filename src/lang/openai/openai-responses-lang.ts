@@ -7,7 +7,6 @@ import {
 } from "../language-provider.ts";
 import { LangMessages, ToolWithHandler } from "../messages.ts";
 import {
-  DecisionOnNotOkResponse,
   httpRequestWithRetry as fetch,
 } from "../../http-request.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
@@ -91,23 +90,29 @@ export class OpenAIResponsesLang extends LanguageProvider {
         Authorization: `Bearer ${this._apiKey}`
       },
       body: JSON.stringify(body),
-      onNotOkResponse: async (res: Response, decision: DecisionOnNotOkResponse): Promise<DecisionOnNotOkResponse> => {
+      onError: async (res: Response, error: Error): Promise<void> => {
         if (res.status === 401) {
-          decision.retry = false;
           throw new Error("Authentication failed. Please check your credentials and try again.");
         }
         if (res.status === 400) {
           const data = await res.text();
-          // Check if this is a previous_response_id not found error
-          if (inputConfig.previous_response_id && data.includes('previous_response_not_found')) {
-            // This is a special retry case - we'll handle it in the main logic
-            decision.retry = false; // Don't retry with the same request
-            throw new Error(`PREVIOUS_RESPONSE_ID_NOT_FOUND: ${data}`);
+          try {
+            const errorObj = JSON.parse(data);
+            // Check if this is a previous_response_id not found error
+            if (inputConfig.previous_response_id && 
+                errorObj.error?.param === 'previous_response_id') {
+              // This is a special retry case - we'll handle it in the main logic
+              throw new Error(`PREVIOUS_RESPONSE_ID_NOT_FOUND: ${data}`);
+            }
+          } catch (parseError) {
+            // If we can't parse the JSON, fall back to string matching
+            if (inputConfig.previous_response_id && data.includes('previous_response_not_found')) {
+              throw new Error(`PREVIOUS_RESPONSE_ID_NOT_FOUND: ${data}`);
+            }
           }
-          decision.retry = false;
-          throw new Error(data);
+          // For other 400 errors, let the default behavior handle it (don't throw)
         }
-        return decision;
+        // For other errors (5xx, network issues), let the default retry behavior handle it
       },
     } as const;
 
@@ -142,17 +147,15 @@ export class OpenAIResponsesLang extends LanguageProvider {
       const fallbackCommon = {
         ...common,
         body: JSON.stringify(fallbackBody),
-        onNotOkResponse: async (res: Response, decision: DecisionOnNotOkResponse): Promise<DecisionOnNotOkResponse> => {
+        onError: async (res: Response, error: Error): Promise<void> => {
           if (res.status === 401) {
-            decision.retry = false;
             throw new Error("Authentication failed. Please check your credentials and try again.");
           }
           if (res.status === 400) {
             const data = await res.text();
-            decision.retry = false;
             throw new Error(data);
           }
-          return decision;
+          // For other errors, let the default retry behavior handle it
         },
       };
       

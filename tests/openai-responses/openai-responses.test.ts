@@ -17,10 +17,8 @@ describe.skipIf(!run)('OpenAI Responses', () => {
     const result1 = await lang.chat(messages1);
     expect(result1.answer).toBeDefined();
     expect(result1[1].meta?.openaiResponseId).toBeDefined();
-    console.log('Assistant replied to "hey"');
     
     // Step 2: Continue conversation (should use previous_response_id optimization)
-    console.log('Step 2: Continue conversation (should use optimization)');
     const messages2 = new LangMessages([
       ...result1,
       { role: 'user', content: 'my name is Alex' }
@@ -29,7 +27,6 @@ describe.skipIf(!run)('OpenAI Responses', () => {
     const result2 = await lang.chat(messages2);
     expect(result2.answer).toBeDefined();
     expect(result2.answer.toLowerCase()).toContain('alex');
-    console.log('Assistant replied to introduction');
     
     // Step 3: Test fallback with invalid response ID
     console.log('Step 3: Test fallback with invalid response ID');
@@ -55,7 +52,6 @@ describe.skipIf(!run)('OpenAI Responses', () => {
     expect(result3.answer).toBeDefined();
     expect(typeof result3.answer).toBe('string');
     expect(result3.answer.length).toBeGreaterThan(0);
-    console.log('Assistant replied with fallback mechanism');
     
     // Verify the conversation flow worked
     expect(result1.answer).toBeDefined();

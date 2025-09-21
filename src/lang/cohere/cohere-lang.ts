@@ -1,5 +1,4 @@
 import {
-  DecisionOnNotOkResponse,
   httpRequestWithRetry as fetch,
 } from "../../http-request.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
@@ -104,12 +103,8 @@ export class CohereLang extends LanguageProvider {
         "Accept": "text/event-stream",
       },
       body: JSON.stringify(requestBody),
-      onNotOkResponse: async (
-        res,
-        decision,
-      ): Promise<DecisionOnNotOkResponse> => {
+      onError: async (res: Response, error: Error): Promise<void> => {
         if (res.status === 401) {
-          decision.retry = false;
           throw new Error(
             "API key is invalid. Please check your API key and try again.",
           );
@@ -117,11 +112,10 @@ export class CohereLang extends LanguageProvider {
 
         if (res.status === 400 || res.status === 422) {
           const data = await res.text();
-          decision.retry = false;
           throw new Error(data);
         }
 
-        return decision;
+        // For other errors, let the default retry behavior handle it
       },
     }).catch((err) => {
       throw new Error(err);

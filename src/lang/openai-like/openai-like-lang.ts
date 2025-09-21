@@ -6,7 +6,6 @@ import {
 } from "../language-provider.ts";
 import { LangMessages, LangMessage, ToolWithHandler } from "../messages.ts";
 import {
-  DecisionOnNotOkResponse,
   httpRequestWithRetry as fetch,
 } from "../../http-request.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
@@ -173,12 +172,8 @@ export class OpenAILikeLang extends LanguageProvider {
         ...this._config.headers,
       },
       body: JSON.stringify(body),
-      onNotOkResponse: async (
-        res,
-        decision,
-      ): Promise<DecisionOnNotOkResponse> => {
+      onError: async (res: Response, error: Error): Promise<void> => {
         if (res.status === 401) {
-          decision.retry = false;
           throw new Error(
             "Authentication failed. Please check your credentials and try again.",
           );
@@ -186,11 +181,10 @@ export class OpenAILikeLang extends LanguageProvider {
 
         if (res.status === 400) {
           const data = await res.text();
-          decision.retry = false;
           throw new Error(data);
         }
 
-        return decision;
+        // For other errors, let the default retry behavior handle it
       },
     } as const;
 

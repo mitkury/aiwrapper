@@ -1,6 +1,6 @@
 import { LangImageInput } from "../lang/language-provider.ts";
 import { LangMessages } from "../lang/messages.ts";
-import { httpRequestWithRetry as fetch, DecisionOnNotOkResponse } from "../http-request.ts";
+import { httpRequestWithRetry as fetch } from "../http-request.ts";
 
 export type OpenAIImgOptions = {
   apiKey: string;
@@ -39,10 +39,9 @@ export class OpenAIImg {
         Authorization: `Bearer ${this._apiKey}`,
       },
       body: JSON.stringify(body),
-      onNotOkResponse: async (res: Response, decision: DecisionOnNotOkResponse): Promise<DecisionOnNotOkResponse> => {
-        if (res.status === 401) { decision.retry = false; throw new Error('Authentication failed.'); }
-        if (res.status === 400) { const data = await res.text(); decision.retry = false; throw new Error(data); }
-        return decision;
+      onError: async (res: Response, error: Error): Promise<void> => {
+        if (res.status === 401) { throw new Error('Authentication failed.'); }
+        if (res.status === 400) { const data = await res.text(); throw new Error(data); }
       }
     });
 
@@ -73,10 +72,9 @@ export class OpenAIImg {
       method: 'POST',
       headers: { Authorization: `Bearer ${this._apiKey}` },
       body: form as any,
-      onNotOkResponse: async (res: Response, decision: DecisionOnNotOkResponse): Promise<DecisionOnNotOkResponse> => {
-        if (res.status === 401) { decision.retry = false; throw new Error('Authentication failed.'); }
-        if (res.status === 400) { const data = await res.text(); decision.retry = false; throw new Error(data); }
-        return decision;
+      onError: async (res: Response, error: Error): Promise<void> => {
+        if (res.status === 401) { throw new Error('Authentication failed.'); }
+        if (res.status === 400) { const data = await res.text(); throw new Error(data); }
       }
     });
 
@@ -107,10 +105,9 @@ export class OpenAIImg {
       method: 'POST',
       headers: { Authorization: `Bearer ${this._apiKey}` },
       body: form as any,
-      onNotOkResponse: async (res: Response, decision: DecisionOnNotOkResponse): Promise<DecisionOnNotOkResponse> => {
-        if (res.status === 401) { decision.retry = false; throw new Error('Authentication failed.'); }
-        if (res.status === 400) { const data = await res.text(); decision.retry = false; throw new Error(data); }
-        return decision;
+      onError: async (res: Response, error: Error): Promise<void> => {
+        if (res.status === 401) { throw new Error('Authentication failed.'); }
+        if (res.status === 400) { const data = await res.text(); throw new Error(data); }
       }
     });
 

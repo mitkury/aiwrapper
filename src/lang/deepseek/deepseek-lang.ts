@@ -2,7 +2,7 @@ import { OpenAILikeLang, OpenAILikeConfig } from "../openai-like/openai-like-lan
 import { LangOptions } from "../language-provider.ts";
 import { LangMessages } from "../messages.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
-import { DecisionOnNotOkResponse, httpRequestWithRetry as fetch } from "../../http-request.ts";
+import { httpRequestWithRetry as fetch } from "../../http-request.ts";
 import { models } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
 
