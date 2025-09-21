@@ -59,10 +59,10 @@ export class OpenAIResponsesLang extends LanguageProvider {
       : new LangMessages(messages);
 
     const result = messageCollection;
-    const hasToolResults = (messageCollection as any).some?.((m: any) => m.role === 'tool-results');
+    
     // @TODO: no, fuck that - it's wrong; depending on whether we have responseId,
     // we should either send the whole list of messages or only the last message (with attached previous_response_id)
-    const input = this.transformMessagesToResponsesInput(messageCollection, hasToolResults);
+    const input = this.transformMessagesToResponsesInput(messageCollection);
     const providedTools: ToolWithHandler[] = (
       messageCollection.availableTools as ToolWithHandler[]
     ) || (options?.tools as ToolWithHandler[]) || [];
@@ -79,7 +79,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
       ...(typeof (options as any)?.maxTokens === 'number' ? { max_output_tokens: (options as any).maxTokens } : {}),
       ...(stream ? { stream: true } : {}),
       ...(providedTools && providedTools.length
-        ? { tools: this.transformToolsForProvider(providedTools), tool_choice: hasToolResults ? 'none' : 'auto' }
+        ? { tools: this.transformToolsForProvider(providedTools), tool_choice: 'auto' }
         : {}),
     };
 
@@ -238,13 +238,12 @@ export class OpenAIResponsesLang extends LanguageProvider {
     }));
   }
 
-  private transformMessagesToResponsesInput(messages: LangMessages, hasToolResults?: boolean): any {
+  private transformMessagesToResponsesInput(messages: LangMessages): any {
     const input: any[] = [];
     const rawPrev: any[] = (messages as any)._responsesOutputItems || [];
     for (const m of messages) {
       // Only include roles the Responses API accepts as message items
       if (m.role === 'system' || m.role === 'user' || m.role === 'assistant') {
-        if (hasToolResults && m.role === 'assistant') continue; // omit assistant on handoff turn
         const entry: any = { role: m.role, content: [] as any[] };
         const content = (m as any).content;
         if (Array.isArray(content)) {
