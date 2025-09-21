@@ -59,14 +59,15 @@ export class OpenAIResponsesLang extends LanguageProvider {
       : new LangMessages(messages);
 
     const result = messageCollection;
-    // @TODO: no, fuck that - it's wrong; depending on whether we have responseId,
+
     // we should either send the whole list of messages or only the last message (with attached previous_response_id)
     const input = this.transformMessagesToResponsesInput(messageCollection);
     const providedTools: ToolWithHandler[] = (
       messageCollection.availableTools as ToolWithHandler[]
     ) || (options?.tools as ToolWithHandler[]) || [];
+    // hasToolResults computed above
 
-    // We check if the stream should be enabled by checking if the onResult callback is provided
+    // Enable streaming if onResult callback is provided
     const stream = typeof options?.onResult === 'function';
 
     // @IDEA: how about we allow to add custom things to the body, so devs may pass: "tool_choice: required". And same for the headers.
@@ -76,7 +77,9 @@ export class OpenAIResponsesLang extends LanguageProvider {
       input,
       ...(typeof (options as any)?.maxTokens === 'number' ? { max_output_tokens: (options as any).maxTokens } : {}),
       ...(stream ? { stream: true } : {}),
-      ...(providedTools && providedTools.length ? { tools: this.transformToolsForProvider(providedTools), tool_choice: 'auto' } : {}),
+      ...(providedTools && providedTools.length
+        ? { tools: this.transformToolsForProvider(providedTools), tool_choice: 'auto' }
+        : {}),
     };
 
     const apiUrl = `${this._baseURL}/responses`;
@@ -85,6 +88,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...(stream ? { "Accept": "text/event-stream" } : {}),
         Authorization: `Bearer ${this._apiKey}`
       },
       body: JSON.stringify(body),
@@ -102,6 +106,8 @@ export class OpenAIResponsesLang extends LanguageProvider {
       },
     } as const;
 
+    // @TODO: consider to catch a response-particular error about not existing id of the previous response
+    // and in that case send the whole input
     const response = await fetch(apiUrl, common);
     if (stream) {
       // Keep minimal mutable stream state between events
@@ -130,10 +136,15 @@ export class OpenAIResponsesLang extends LanguageProvider {
     const data = await response.json();
 
     // @TODO: save it somewhere, so we can use it as `body.previous_response_id` later
-    const responseId = data?.id as string;
+    const previousResponseId = data?.id as string;
     const output = data?.output as unknown;
 
-    if (Array.isArray(output)) {
+    if (typeof (data as any)?.output_text === 'string' && (data as any).output_text.length > 0) {
+      result.answer = (data as any).output_text;
+      result.addAssistantMessage(result.answer);
+    } else if (Array.isArray(output)) {
+      // Preserve raw output items for accurate pass-back (e.g., function_call)
+      (result as any)._responsesOutputItems = output;
       for (const item of output) {
         this.handleOutputItem(item, result);
       }
@@ -161,20 +172,33 @@ export class OpenAIResponsesLang extends LanguageProvider {
     switch (item.type) {
       case 'message':
         if (item.role === 'assistant') {
-          result.addAssistantMessage(item.content[0].text);
+          let text = '';
+          if (Array.isArray(item.content)) {
+            for (const c of item.content) {
+              if (c?.type === 'output_text' && typeof c.text === 'string') {
+                text += c.text;
+              }
+            }
+          }
+          if (text) {
+            result.answer += text;
+            result.addAssistantMessage(result.answer);
+          }
         } else {
           result.addUserMessage(item.content);
         }
         break;
       case 'function_call':
+      case 'tool':
+      case 'tool_call':
         // Record requested tool use for API consumers
         if (!result.toolsRequested) (result as any).toolsRequested = [] as any;
-        (result.toolsRequested as any).push({ id: item.call_id, name: item.name, arguments: item.arguments || {} });
+        (result.toolsRequested as any).push({ id: item.call_id || item.id, name: item.name, arguments: item.arguments || {} });
 
         // Also append as assistant tool_calls message for transcript
         result.addAssistantToolCalls([
           {
-            callId: item.call_id,
+            callId: item.call_id || item.id,
             name: item.name,
             arguments: item.arguments
           }
@@ -206,6 +230,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
   }
 
   protected transformToolsForProvider(tools: ToolWithHandler[]): any[] {
+    // OpenAI Responses API expects top-level name/parameters on tool objects
     return tools.map(tool => ({
       type: "function",
       name: tool.name,
@@ -214,43 +239,131 @@ export class OpenAIResponsesLang extends LanguageProvider {
     }));
   }
 
+  /**
+   * Converts our internal message format to OpenAI Responses API input format.
+   * 
+   * The Responses API expects a flat array of items, where:
+   * - Regular messages (system/user/assistant) become message items with content arrays
+   * - Tool calls become function_call items  
+   * - Tool results become function_call_output items
+   * - Previous raw output items are preserved for context
+   */
   private transformMessagesToResponsesInput(messages: LangMessages): any {
     const input: any[] = [];
-    for (const m of messages) {
-      // Map tool results into input as input_text JSON parts; skip assistant tool call echoes
-      if (m.role === 'tool-results' && Array.isArray(m.content)) {
-        const parts = (m.content as any[]).map(tr => ({
-          type: 'input_text',
-          text: JSON.stringify({ tool_call_id: tr.toolId, result: tr.result })
-        }));
-        input.push({ role: 'user', content: parts });
-        continue;
+    const previousOutputItems = this.getPreviousOutputItems(messages);
+    
+    for (const message of messages) {
+      switch (message.role) {
+        case 'system':
+        case 'user':
+        case 'assistant':
+          input.push(this.transformMessageToResponsesItem(message));
+          break;
+          
+        case 'tool':
+          input.push(...this.transformToolCallsToResponsesItems(message));
+          break;
+          
+        case 'tool-results':
+          input.push(...this.transformToolResultsToResponsesItems(message, previousOutputItems));
+          break;
       }
-      if (m.role === 'tool') {
-        // Skip assistant tool call echo for Responses input
-        // @TODO: is this correct?
-        continue;
-      }
-
-      const entry: any = { role: (m as any).role === 'assistant' ? 'assistant' : (m as any).role, content: [] as any[] };
-      const content = (m as any).content;
-      if (Array.isArray(content)) {
-        for (const part of content as LangContentPart[]) {
-          if ((part as any).type === 'text') {
-            const isAssistant = (m as any).role === 'assistant';
-            entry.content.push({ type: isAssistant ? 'output_text' : 'input_text', text: (part as any).text });
-          } else if ((part as any).type === 'image') {
-            const mapped = this.mapImageInput((part as any).image);
-            entry.content.push(mapped);
-          }
-        }
-      } else {
-        const isAssistant = (m as any).role === 'assistant';
-        entry.content.push({ type: isAssistant ? 'output_text' : 'input_text', text: String(content) });
-      }
-      input.push(entry);
     }
+    
     return input;
+  }
+
+  /**
+   * Extract previous raw output items that need to be preserved for context
+   */
+  private getPreviousOutputItems(messages: LangMessages): any[] {
+    return (messages as any)._responsesOutputItems || [];
+  }
+
+  /**
+   * Transform a regular message (system/user/assistant) to Responses API format
+   */
+  private transformMessageToResponsesItem(message: LangMessage): any {
+    const isAssistant = message.role === 'assistant';
+    const content = (message as any).content;
+    
+    const entry = {
+      role: message.role,
+      content: [] as any[]
+    };
+    
+    if (Array.isArray(content)) {
+      // Handle multi-part content (text + images)
+      for (const part of content as LangContentPart[]) {
+        if ((part as any).type === 'text') {
+          entry.content.push({
+            type: isAssistant ? 'output_text' : 'input_text',
+            text: (part as any).text
+          });
+        } else if ((part as any).type === 'image') {
+          entry.content.push(this.mapImageInput((part as any).image));
+        }
+      }
+    } else {
+      // Handle simple string content
+      entry.content.push({
+        type: isAssistant ? 'output_text' : 'input_text',
+        text: String(content)
+      });
+    }
+    
+    return entry;
+  }
+
+  /**
+   * Transform tool call messages to function_call items
+   */
+  private transformToolCallsToResponsesItems(message: LangMessage): any[] {
+    if (!Array.isArray(message.content)) {
+      return [];
+    }
+    
+    const items: any[] = [];
+    for (const call of (message.content as any[])) {
+      items.push({
+        type: 'function_call',
+        call_id: call.callId,
+        name: call.name,
+        arguments: JSON.stringify(call.arguments || {})
+      });
+    }
+    
+    return items;
+  }
+
+  /**
+   * Transform tool result messages to function_call_output items
+   * Also includes any previous raw output items that need to be preserved
+   */
+  private transformToolResultsToResponsesItems(message: LangMessage, previousOutputItems: any[]): any[] {
+    const items: any[] = [];
+    
+    // Include previous raw function_call and reasoning items for context
+    for (const item of previousOutputItems) {
+      if (item && (item.type === 'function_call' || item.type === 'reasoning')) {
+        items.push(item);
+      }
+    }
+    
+    // Add function_call_output items for each tool result
+    if (Array.isArray(message.content)) {
+      for (const toolResult of (message.content as any[])) {
+        items.push({
+          type: 'function_call_output',
+          call_id: toolResult.toolId,
+          output: typeof toolResult.result === 'string' 
+            ? toolResult.result 
+            : JSON.stringify(toolResult.result)
+        });
+      }
+    }
+    
+    return items;
   }
 
   /**
@@ -299,6 +412,9 @@ export class OpenAIResponsesLang extends LanguageProvider {
       }
       case 'response.output_item.done': {
         const item = data.item;
+        // Accumulate raw output items for pass-back on next turn
+        const raw = (result as any)._responsesOutputItems as any[] | undefined;
+        if (Array.isArray(raw)) raw.push(item); else (result as any)._responsesOutputItems = [item];
         if (item.type === 'message' && Array.isArray(item.content)) {
           // If we buffered parts (no deltas), consolidate
           const buf = itemBuffers?.get(item.id);
@@ -359,7 +475,13 @@ export class OpenAIResponsesLang extends LanguageProvider {
       case 'response.output_text.done': {
         const text = data.text ?? data.output_text;
         if (typeof text === 'string' && text.length > 0) {
-          result.answer = text;
+          // Prefer appending unless we never saw deltas
+          if (streamState?.sawAnyTextDelta) {
+            // ensure answer ends with final text
+            if (!result.answer.endsWith(text)) result.answer += text;
+          } else {
+            result.answer += text;
+          }
         }
         onResult?.(result);
         return;
@@ -390,8 +512,18 @@ export class OpenAIResponsesLang extends LanguageProvider {
       return;
     }
 
+    // If the last message already contains tool-results, skip to avoid duplicates
+    const last = (result.length > 0) ? result[result.length - 1] : undefined;
+    if (last && last.role === 'tool-results') {
+      return;
+    }
+
     // Execute the tools automatically
     await result.executeRequestedTools();
+
+    // Clear pending requested tools to avoid re-execution on subsequent turns
+    (result as any).toolsRequested = null;
+    (result as any).tools = undefined;
   }
 
   private mapImageInput(image: LangImageInput): any {
