@@ -71,7 +71,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
     const stream = typeof options?.onResult === 'function';
 
     // @IDEA: how about we allow to add custom things to the body, so devs may pass: "tool_choice: required". And same for the headers.
-    
+
     const body = {
       model: this._model,
       input,
@@ -111,7 +111,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
     const response = await fetch(apiUrl, common);
     if (stream) {
       // Keep minimal mutable stream state between events
-      const streamState = { sawAnyTextDelta: false };
+      const streamState = { sawAnyTextDelta: false, openaiResponseId: undefined as string | undefined };
       const itemBuffers: StreamItemBuffers = new Map();
 
       // Route raw SSE events through a dedicated handler
@@ -126,27 +126,27 @@ export class OpenAIResponsesLang extends LanguageProvider {
       await processResponseStream(response, onData);
 
       result.finished = true;
-      
+
       // Automatically execute tools if assistant made tool calls
-      await this.executeToolsIfRequested(result);
-      
+      await this.executeToolsIfRequested(result, streamState?.openaiResponseId);
+
       return result;
     }
 
     const data = await response.json();
 
     // @TODO: save it somewhere, so we can use it as `body.previous_response_id` later
-    const previousResponseId = data?.id as string;
+    const openaiResponseId = data?.id as string;
     const output = data?.output as unknown;
 
     if (typeof (data as any)?.output_text === 'string' && (data as any).output_text.length > 0) {
       result.answer = (data as any).output_text;
-      result.addAssistantMessage(result.answer);
+      result.addAssistantMessage(result.answer, { openaiResponseId });
     } else if (Array.isArray(output)) {
       // Preserve raw output items for accurate pass-back (e.g., function_call)
       (result as any)._responsesOutputItems = output;
       for (const item of output) {
-        this.handleOutputItem(item, result);
+        this.handleOutputItem(item, result, openaiResponseId);
       }
 
       // Build result.answer from accumulated assistant messages if any
@@ -157,10 +157,10 @@ export class OpenAIResponsesLang extends LanguageProvider {
     }
 
     result.finished = true;
-    
+
     // Automatically execute tools if assistant made tool calls
-    await this.executeToolsIfRequested(result);
-    
+    await this.executeToolsIfRequested(result, openaiResponseId);
+
     return result;
   }
 
@@ -168,7 +168,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
    * Handles a single output item from the Responses API.
    * Items must have at least: { id: string, type: string, ... }
    */
-  private handleOutputItem(item: { id: string; type: string;[key: string]: any }, result: LangMessages) {
+  private handleOutputItem(item: { id: string; type: string;[key: string]: any }, result: LangMessages, openaiResponseId?: string) {
     switch (item.type) {
       case 'message':
         if (item.role === 'assistant') {
@@ -182,7 +182,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
           }
           if (text) {
             result.answer += text;
-            result.addAssistantMessage(result.answer);
+            result.addAssistantMessage(result.answer, { openaiResponseId });
           }
         } else {
           result.addUserMessage(item.content);
@@ -202,7 +202,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
             name: item.name,
             arguments: item.arguments
           }
-        ])
+        ], { openaiResponseId })
         break;
       case 'output_image':
         break;
@@ -251,7 +251,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
   private transformMessagesToResponsesInput(messages: LangMessages): any {
     const input: any[] = [];
     const previousOutputItems = this.getPreviousOutputItems(messages);
-    
+
     for (const message of messages) {
       switch (message.role) {
         case 'system':
@@ -259,17 +259,17 @@ export class OpenAIResponsesLang extends LanguageProvider {
         case 'assistant':
           input.push(this.transformMessageToResponsesItem(message));
           break;
-          
+
         case 'tool':
           input.push(...this.transformToolCallsToResponsesItems(message));
           break;
-          
+
         case 'tool-results':
           input.push(...this.transformToolResultsToResponsesItems(message, previousOutputItems));
           break;
       }
     }
-    
+
     return input;
   }
 
@@ -286,12 +286,12 @@ export class OpenAIResponsesLang extends LanguageProvider {
   private transformMessageToResponsesItem(message: LangMessage): any {
     const isAssistant = message.role === 'assistant';
     const content = (message as any).content;
-    
+
     const entry = {
       role: message.role,
       content: [] as any[]
     };
-    
+
     if (Array.isArray(content)) {
       // Handle multi-part content (text + images)
       for (const part of content as LangContentPart[]) {
@@ -311,7 +311,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
         text: String(content)
       });
     }
-    
+
     return entry;
   }
 
@@ -322,7 +322,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
     if (!Array.isArray(message.content)) {
       return [];
     }
-    
+
     const items: any[] = [];
     for (const call of (message.content as any[])) {
       items.push({
@@ -332,7 +332,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
         arguments: JSON.stringify(call.arguments || {})
       });
     }
-    
+
     return items;
   }
 
@@ -342,27 +342,27 @@ export class OpenAIResponsesLang extends LanguageProvider {
    */
   private transformToolResultsToResponsesItems(message: LangMessage, previousOutputItems: any[]): any[] {
     const items: any[] = [];
-    
+
     // Include previous raw function_call and reasoning items for context
     for (const item of previousOutputItems) {
       if (item && (item.type === 'function_call' || item.type === 'reasoning')) {
         items.push(item);
       }
     }
-    
+
     // Add function_call_output items for each tool result
     if (Array.isArray(message.content)) {
       for (const toolResult of (message.content as any[])) {
         items.push({
           type: 'function_call_output',
           call_id: toolResult.toolId,
-          output: typeof toolResult.result === 'string' 
-            ? toolResult.result 
+          output: typeof toolResult.result === 'string'
+            ? toolResult.result
             : JSON.stringify(toolResult.result)
         });
       }
     }
-    
+
     return items;
   }
 
@@ -378,7 +378,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
     data: ResponsesStreamEvent | FinishedEvent,
     result: LangMessages,
     onResult?: (result: LangMessages) => void,
-    streamState?: { sawAnyTextDelta: boolean },
+    streamState?: { sawAnyTextDelta: boolean; openaiResponseId?: string },
     itemBuffers?: StreamItemBuffers,
   ): void {
     // Completion or interruption
@@ -387,7 +387,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
         if (result.length > 0 && result[result.length - 1].role === 'assistant') {
           (result as any)[result.length - 1].content = result.answer;
         } else {
-          result.addAssistantMessage(result.answer);
+          result.addAssistantMessage(result.answer, { openaiResponseId: streamState?.openaiResponseId });
         }
       }
       result.finished = true;
@@ -397,13 +397,26 @@ export class OpenAIResponsesLang extends LanguageProvider {
 
     // Typed events via discriminated union
     if ('type' in data) switch (data.type) {
+      case 'response.created':
+      case 'response.in_progress': {
+        // Capture the response ID as soon as it's available
+        if (streamState && data.response?.id) {
+          streamState.openaiResponseId = data.response.id;
+        }
+        break;
+      }
       case 'response.completed':
       case 'response.incomplete': {
+        // Capture the response ID if we haven't already
+        if (streamState && data.response?.id && !streamState.openaiResponseId) {
+          streamState.openaiResponseId = data.response.id;
+        }
+        
         if (result.answer) {
           if (result.length > 0 && result[result.length - 1].role === 'assistant') {
             (result as any)[result.length - 1].content = result.answer;
           } else {
-            result.addAssistantMessage(result.answer);
+            result.addAssistantMessage(result.answer, { openaiResponseId: streamState?.openaiResponseId });
           }
         }
         result.finished = true;
@@ -438,7 +451,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
           return;
         }
         // Handle other item types (like function_call) using the same logic as non-streaming
-        this.handleOutputItem(item, result);
+        this.handleOutputItem(item, result, streamState?.openaiResponseId);
         onResult?.(result);
         return;
       }
@@ -502,12 +515,12 @@ export class OpenAIResponsesLang extends LanguageProvider {
   /**
    * Automatically execute tools if the assistant made tool calls as the last message
    */
-  private async executeToolsIfRequested(result: LangMessages): Promise<void> {
+  private async executeToolsIfRequested(result: LangMessages, openaiResponseId?: string): Promise<void> {
     // Check if there are any requested tools
     const requestedTools = (result.tools && result.tools.length > 0)
       ? result.tools
       : (result.toolsRequested as any) || [];
-    
+
     if (!requestedTools.length || !result.availableTools) {
       return;
     }
@@ -519,7 +532,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
     }
 
     // Execute the tools automatically
-    await result.executeRequestedTools();
+    await result.executeRequestedTools({ openaiResponseId });
 
     // Clear pending requested tools to avoid re-execution on subsequent turns
     (result as any).toolsRequested = null;

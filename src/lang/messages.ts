@@ -6,6 +6,7 @@ import type {
 export interface LangMessage {
   role: "user" | "assistant" | "tool" | "tool-results" | "system";
   content: string | LangContentPart[] | any;
+  meta?: Record<string, any>;
 }
 
 export type LangImageInput =
@@ -83,28 +84,28 @@ export class LangMessages extends Array<LangMessage> {
     return this.addUserContent(parts);
   }
 
-  addAssistantMessage(content: string): this {
-    this.push({ role: "assistant", content });
+  addAssistantMessage(content: string, meta?: Record<string, any>): this {
+    this.push({ role: "assistant", content, meta });
     return this;
   }
 
-  addAssistantContent(parts: LangContentPart[]): this {
-    this.push({ role: "assistant", content: parts });
+  addAssistantContent(parts: LangContentPart[], meta?: Record<string, any>): this {
+    this.push({ role: "assistant", content: parts, meta });
     return this;
   }
 
-  addAssistantToolCalls(toolCalls: ToolRequest[]): this {
-    this.push({ role: "tool", content: toolCalls });
+  addAssistantToolCalls(toolCalls: ToolRequest[], meta?: Record<string, any>): this {
+    this.push({ role: "tool", content: toolCalls, meta });
     return this;
   }
 
-  addToolUseMessage(toolResults: any): this {
-    this.push({ role: "tool-results", content: toolResults });
+  addToolUseMessage(toolResults: any, meta?: Record<string, any>): this {
+    this.push({ role: "tool-results", content: toolResults, meta });
     return this;
   }
 
-  addSystemMessage(content: string): this {
-    this.push({ role: "system", content });
+  addSystemMessage(content: string, meta?: Record<string, any>): this {
+    this.push({ role: "system", content, meta });
     return this;
   }
 
@@ -112,7 +113,7 @@ export class LangMessages extends Array<LangMessage> {
     return this.toolsRequested ?? null;
   }
 
-  async executeRequestedTools(): Promise<this> {
+  async executeRequestedTools(meta?: Record<string, any>): Promise<this> {
     // @TODO: no, add this automatically right after we get the response with tools
     const requestedTools = (this.tools && this.tools.length > 0)
       ? this.tools
@@ -139,7 +140,7 @@ export class LangMessages extends Array<LangMessage> {
     }
 
     // Append execution results
-    this.addToolUseMessage(toolResults);
+    this.addToolUseMessage(toolResults, meta);
 
     return this;
   }
