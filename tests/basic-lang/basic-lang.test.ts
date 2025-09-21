@@ -26,11 +26,7 @@ describe.skipIf(!run)('Basic Lang', () => {
       ]
     });
 
-    const options: LangOptions = stream ? { onResult: (res: LangMessages) => { 
-      console.log(res.answer);
-    } } : {};
-
-    const res = await lang.chat(messages, options);
+    const res = await lang.chat(messages);
 
     // After execution, check the last two messages should be tool request and tool results
     expect(res.length).toBeGreaterThanOrEqual(3); // user message + tool message + tool-results message
@@ -53,11 +49,20 @@ describe.skipIf(!run)('Basic Lang', () => {
     expect(toolCall.name).toBe('get_random_number');
     expect(toolCall.arguments).toBeDefined();
 
+    let streamingAnswer: string = '';
+    const options: LangOptions = stream ? { onResult: (res: LangMessages) => { 
+      streamingAnswer = res.answer;
+    } } : {};
+
     // Send the conversation back to the model to get the final response
     const finalRes = await lang.chat(res, options);
 
     // Expect the final answer to contain the tool result
     expect(finalRes.answer).toContain('3131');
+
+    if (stream) {
+      expect(streamingAnswer).toBe(finalRes.answer);
+    }
   }
 
   it('should be able to use tools (non-streaming)', async () => {
