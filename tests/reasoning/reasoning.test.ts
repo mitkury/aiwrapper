@@ -3,7 +3,14 @@ import { LangMessages, LangOptions, LanguageProvider } from '../../dist/index.js
 import { createLangTestRunner } from '../utils/lang-gatherer.js';
 
 describe('Reasoning Detection', () => {
-  createLangTestRunner(runReasoningTests);
+  createLangTestRunner(runReasoningTests, {
+    modelOverrides: {
+      openai: 'o1-preview',
+      openrouter: 'openai/o1-preview', 
+      anthropic: 'claude-3-5-sonnet-20241022',
+      deepseek: 'deepseek-reasoner'
+    }
+  });
 });
 
 async function runReasoningTests(lang: LanguageProvider) {
