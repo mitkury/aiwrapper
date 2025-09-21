@@ -59,8 +59,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
       : new LangMessages(messages);
 
     const result = messageCollection;
-    
-    // @TODO: no, fuck that - it's wrong; depending on whether we have responseId,
+
     // we should either send the whole list of messages or only the last message (with attached previous_response_id)
     const input = this.transformMessagesToResponsesInput(messageCollection);
     const providedTools: ToolWithHandler[] = (
@@ -238,53 +237,131 @@ export class OpenAIResponsesLang extends LanguageProvider {
     }));
   }
 
+  /**
+   * Converts our internal message format to OpenAI Responses API input format.
+   * 
+   * The Responses API expects a flat array of items, where:
+   * - Regular messages (system/user/assistant) become message items with content arrays
+   * - Tool calls become function_call items  
+   * - Tool results become function_call_output items
+   * - Previous raw output items are preserved for context
+   */
   private transformMessagesToResponsesInput(messages: LangMessages): any {
     const input: any[] = [];
-    const rawPrev: any[] = (messages as any)._responsesOutputItems || [];
-    for (const m of messages) {
-      // Only include roles the Responses API accepts as message items
-      if (m.role === 'system' || m.role === 'user' || m.role === 'assistant') {
-        const entry: any = { role: m.role, content: [] as any[] };
-        const content = (m as any).content;
-        if (Array.isArray(content)) {
-          for (const part of content as LangContentPart[]) {
-            if ((part as any).type === 'text') {
-              const isAssistant = m.role === 'assistant';
-              entry.content.push({ type: isAssistant ? 'output_text' : 'input_text', text: (part as any).text });
-            } else if ((part as any).type === 'image') {
-              const mapped = this.mapImageInput((part as any).image);
-              entry.content.push(mapped);
-            }
-          }
-        } else {
-          const isAssistant = m.role === 'assistant';
-          entry.content.push({ type: isAssistant ? 'output_text' : 'input_text', text: String(content) });
-        }
-        input.push(entry);
-        continue;
-      }
-
-      // Assistant tool call echoes -> top-level function_call items
-      if (m.role === 'tool' && Array.isArray(m.content)) {
-        for (const call of (m.content as any[])) {
-          input.push({ type: 'function_call', call_id: call.callId, name: call.name, arguments: JSON.stringify(call.arguments || {}) } as any);
-        }
-        continue;
-      }
-
-      // Tool execution results -> top-level function_call_output items
-      if (m.role === 'tool-results' && Array.isArray(m.content)) {
-        // Ensure we include any prior raw function_call items once
-        for (const it of rawPrev) {
-          if (it && (it.type === 'function_call' || it.type === 'reasoning')) input.push(it);
-        }
-        for (const tr of (m.content as any[])) {
-          input.push({ type: 'function_call_output', call_id: tr.toolId, output: typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result) } as any);
-        }
-        continue;
+    const previousOutputItems = this.getPreviousOutputItems(messages);
+    
+    for (const message of messages) {
+      switch (message.role) {
+        case 'system':
+        case 'user':
+        case 'assistant':
+          input.push(this.transformMessageToResponsesItem(message));
+          break;
+          
+        case 'tool':
+          input.push(...this.transformToolCallsToResponsesItems(message));
+          break;
+          
+        case 'tool-results':
+          input.push(...this.transformToolResultsToResponsesItems(message, previousOutputItems));
+          break;
       }
     }
+    
     return input;
+  }
+
+  /**
+   * Extract previous raw output items that need to be preserved for context
+   */
+  private getPreviousOutputItems(messages: LangMessages): any[] {
+    return (messages as any)._responsesOutputItems || [];
+  }
+
+  /**
+   * Transform a regular message (system/user/assistant) to Responses API format
+   */
+  private transformMessageToResponsesItem(message: LangMessage): any {
+    const isAssistant = message.role === 'assistant';
+    const content = (message as any).content;
+    
+    const entry = {
+      role: message.role,
+      content: [] as any[]
+    };
+    
+    if (Array.isArray(content)) {
+      // Handle multi-part content (text + images)
+      for (const part of content as LangContentPart[]) {
+        if ((part as any).type === 'text') {
+          entry.content.push({
+            type: isAssistant ? 'output_text' : 'input_text',
+            text: (part as any).text
+          });
+        } else if ((part as any).type === 'image') {
+          entry.content.push(this.mapImageInput((part as any).image));
+        }
+      }
+    } else {
+      // Handle simple string content
+      entry.content.push({
+        type: isAssistant ? 'output_text' : 'input_text',
+        text: String(content)
+      });
+    }
+    
+    return entry;
+  }
+
+  /**
+   * Transform tool call messages to function_call items
+   */
+  private transformToolCallsToResponsesItems(message: LangMessage): any[] {
+    if (!Array.isArray(message.content)) {
+      return [];
+    }
+    
+    const items: any[] = [];
+    for (const call of (message.content as any[])) {
+      items.push({
+        type: 'function_call',
+        call_id: call.callId,
+        name: call.name,
+        arguments: JSON.stringify(call.arguments || {})
+      });
+    }
+    
+    return items;
+  }
+
+  /**
+   * Transform tool result messages to function_call_output items
+   * Also includes any previous raw output items that need to be preserved
+   */
+  private transformToolResultsToResponsesItems(message: LangMessage, previousOutputItems: any[]): any[] {
+    const items: any[] = [];
+    
+    // Include previous raw function_call and reasoning items for context
+    for (const item of previousOutputItems) {
+      if (item && (item.type === 'function_call' || item.type === 'reasoning')) {
+        items.push(item);
+      }
+    }
+    
+    // Add function_call_output items for each tool result
+    if (Array.isArray(message.content)) {
+      for (const toolResult of (message.content as any[])) {
+        items.push({
+          type: 'function_call_output',
+          call_id: toolResult.toolId,
+          output: typeof toolResult.result === 'string' 
+            ? toolResult.result 
+            : JSON.stringify(toolResult.result)
+        });
+      }
+    }
+    
+    return items;
   }
 
   /**
