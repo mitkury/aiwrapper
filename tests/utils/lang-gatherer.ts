@@ -35,33 +35,33 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
 
   // OpenAI Completions API
   if (includeOpenAI && process.env.OPENAI_API_KEY) {
-    langs.push(Lang.openai({ 
-      apiKey: process.env.OPENAI_API_KEY as string, 
-      model: modelOverrides.openai || 'gpt-4o-mini' 
+    langs.push(Lang.openai({
+      apiKey: process.env.OPENAI_API_KEY as string,
+      model: modelOverrides.openai || 'gpt-4o-mini'
     }));
   }
 
   // OpenAI Responses API (same as regular OpenAI - it uses Responses API by default)
   if (includeOpenAIResponses && process.env.OPENAI_API_KEY && !includeOpenAI) {
-    langs.push(Lang.openai({ 
-      apiKey: process.env.OPENAI_API_KEY as string, 
+    langs.push(Lang.openai({
+      apiKey: process.env.OPENAI_API_KEY as string,
       model: modelOverrides.openaiResponses || 'gpt-4o-mini'
     }));
   }
 
   // OpenRouter
   if (includeOpenRouter && process.env.OPENROUTER_API_KEY) {
-    langs.push(Lang.openrouter({ 
-      apiKey: process.env.OPENROUTER_API_KEY as string, 
-      model: modelOverrides.openrouter || 'gpt-4o-mini' 
+    langs.push(Lang.openrouter({
+      apiKey: process.env.OPENROUTER_API_KEY as string,
+      model: modelOverrides.openrouter || 'gpt-4o-mini'
     }));
   }
 
   // Anthropic
   if (includeAnthropic && process.env.ANTHROPIC_API_KEY) {
-    langs.push(Lang.anthropic({ 
-      apiKey: process.env.ANTHROPIC_API_KEY as string, 
-      model: modelOverrides.anthropic || 'claude-3-5-sonnet-20240620' 
+    langs.push(Lang.anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY as string,
+      model: modelOverrides.anthropic || 'claude-3-5-sonnet-20240620'
     }));
   }
 
@@ -76,14 +76,12 @@ export function createLangTestRunner(
   options: LangGathererOptions = {}
 ) {
   const langs = gatherLangs(options);
-  
-  describe.skipIf(langs.length === 0)('Language Provider Tests', () => {
-    for (const lang of langs) {
-      describe(`${lang.name}`, () => {
-        testFunction(lang);
-      });
-    }
-  });
+
+  for (const lang of langs) {
+    describe(`${lang.constructor.name} (${lang.name})`, () => {
+      testFunction(lang);
+    });
+  }
 }
 
 /**
@@ -116,25 +114,25 @@ export function getProvider(name: string, model?: string): LanguageProvider | nu
   switch (name.toLowerCase()) {
     case 'openai':
       if (process.env.OPENAI_API_KEY) {
-        return Lang.openai({ 
-          apiKey: process.env.OPENAI_API_KEY as string, 
-          model: model || 'gpt-4o-mini' 
+        return Lang.openai({
+          apiKey: process.env.OPENAI_API_KEY as string,
+          model: model || 'gpt-4o-mini'
         });
       }
       break;
     case 'openrouter':
       if (process.env.OPENROUTER_API_KEY) {
-        return Lang.openrouter({ 
-          apiKey: process.env.OPENROUTER_API_KEY as string, 
-          model: model || 'gpt-4o-mini' 
+        return Lang.openrouter({
+          apiKey: process.env.OPENROUTER_API_KEY as string,
+          model: model || 'gpt-4o-mini'
         });
       }
       break;
     case 'anthropic':
       if (process.env.ANTHROPIC_API_KEY) {
-        return Lang.anthropic({ 
-          apiKey: process.env.ANTHROPIC_API_KEY as string, 
-          model: model || 'claude-3-5-sonnet-20240620' 
+        return Lang.anthropic({
+          apiKey: process.env.ANTHROPIC_API_KEY as string,
+          model: model || 'claude-3-5-sonnet-20240620'
         });
       }
       break;
