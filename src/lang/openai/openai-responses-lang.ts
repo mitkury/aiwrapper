@@ -60,12 +60,11 @@ export class OpenAIResponsesLang extends LanguageProvider {
 
     const result = messageCollection;
 
-    // we should either send the whole list of messages or only the last message (with attached previous_response_id)
-    const input = this.transformMessagesToResponsesInput(messageCollection);
+    // Check if we can use previous_response_id optimization
+    const inputConfig = this.prepareInputForResponses(messageCollection);
     const providedTools: ToolWithHandler[] = (
       messageCollection.availableTools as ToolWithHandler[]
     ) || (options?.tools as ToolWithHandler[]) || [];
-    // hasToolResults computed above
 
     // Enable streaming if onResult callback is provided
     const stream = typeof options?.onResult === 'function';
@@ -74,7 +73,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
 
     const body = {
       model: this._model,
-      input,
+      ...inputConfig,
       ...(typeof (options as any)?.maxTokens === 'number' ? { max_output_tokens: (options as any).maxTokens } : {}),
       ...(stream ? { stream: true } : {}),
       ...(providedTools && providedTools.length
@@ -99,6 +98,16 @@ export class OpenAIResponsesLang extends LanguageProvider {
         }
         if (res.status === 400) {
           const data = await res.text();
+          // Check if this is a previous_response_id not found error
+          if (inputConfig.previous_response_id && (
+            data.includes('previous_response_id') || 
+            data.includes('response not found') ||
+            data.includes('invalid response id')
+          )) {
+            // This is a special retry case - we'll handle it in the main logic
+            decision.retry = false; // Don't retry with the same request
+            throw new Error(`PREVIOUS_RESPONSE_ID_NOT_FOUND: ${data}`);
+          }
           decision.retry = false;
           throw new Error(data);
         }
@@ -106,9 +115,53 @@ export class OpenAIResponsesLang extends LanguageProvider {
       },
     } as const;
 
-    // @TODO: consider to catch a response-particular error about not existing id of the previous response
-    // and in that case send the whole input
-    const response = await fetch(apiUrl, common);
+    // Try the optimized request first (with previous_response_id if available)
+    let response: Response;
+    let useFullInput = false;
+    
+    try {
+      response = await fetch(apiUrl, common);
+    } catch (error: any) {
+      // Check if this is a previous_response_id not found error that we should retry with full input
+      if (error.message && error.message.startsWith('PREVIOUS_RESPONSE_ID_NOT_FOUND:')) {
+        // Previous response ID not found, falling back to full input
+        useFullInput = true;
+      } else {
+        throw error; // Re-throw if it's a different error
+      }
+    }
+    
+    // If we need to retry with full input, prepare the fallback request
+    if (useFullInput) {
+      const fallbackBody = {
+        model: this._model,
+        input: this.transformMessagesToResponsesInput(messageCollection),
+        ...(typeof (options as any)?.maxTokens === 'number' ? { max_output_tokens: (options as any).maxTokens } : {}),
+        ...(stream ? { stream: true } : {}),
+        ...(providedTools && providedTools.length
+          ? { tools: this.transformToolsForProvider(providedTools), tool_choice: 'auto' }
+          : {}),
+      };
+      
+      const fallbackCommon = {
+        ...common,
+        body: JSON.stringify(fallbackBody),
+        onNotOkResponse: async (res: Response, decision: DecisionOnNotOkResponse): Promise<DecisionOnNotOkResponse> => {
+          if (res.status === 401) {
+            decision.retry = false;
+            throw new Error("Authentication failed. Please check your credentials and try again.");
+          }
+          if (res.status === 400) {
+            const data = await res.text();
+            decision.retry = false;
+            throw new Error(data);
+          }
+          return decision;
+        },
+      };
+      
+      response = await fetch(apiUrl, fallbackCommon);
+    }
     if (stream) {
       // Keep minimal mutable stream state between events
       const streamState = { sawAnyTextDelta: false, openaiResponseId: undefined as string | undefined };
@@ -237,6 +290,50 @@ export class OpenAIResponsesLang extends LanguageProvider {
       description: tool.description,
       parameters: tool.parameters
     }));
+  }
+
+  /**
+   * Prepares input configuration for the Responses API, optimizing to use previous_response_id when possible.
+   * 
+   * Returns either:
+   * - { input: [...] } - Full message stack when optimization isn't possible
+   * - { previous_response_id: "resp_..." } - When we can reference a previous response
+   */
+  private prepareInputForResponses(messages: LangMessages): { input?: any[]; previous_response_id?: string } {
+    // Find the last message with an openaiResponseId
+    let lastMessageWithResponseId: LangMessage | undefined;
+    let lastMessageWithResponseIdIndex = -1;
+    
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].meta?.openaiResponseId) {
+        lastMessageWithResponseId = messages[i];
+        lastMessageWithResponseIdIndex = i;
+        break;
+      }
+    }
+    
+    if (lastMessageWithResponseId) {
+      if (lastMessageWithResponseIdIndex < messages.length - 1) {
+        // There are new messages after the last message with a response ID
+        // Use previous_response_id + only the new messages as input
+        const newMessages = messages.slice(lastMessageWithResponseIdIndex + 1);
+        const newInput = this.transformMessagesToResponsesInput(new LangMessages(newMessages));
+        return { 
+          previous_response_id: lastMessageWithResponseId.meta.openaiResponseId,
+          input: newInput
+        };
+      } else {
+        // The last message has a response ID and there are no new messages after it
+        // Use previous_response_id with empty input (let the API continue from that response)
+        return { 
+          previous_response_id: lastMessageWithResponseId.meta.openaiResponseId,
+          input: []
+        };
+      }
+    }
+    
+    // Fall back to sending full input
+    return { input: this.transformMessagesToResponsesInput(messages) };
   }
 
   /**
@@ -531,8 +628,8 @@ export class OpenAIResponsesLang extends LanguageProvider {
       return;
     }
 
-    // Execute the tools automatically
-    await result.executeRequestedTools({ openaiResponseId });
+    // Execute the tools automatically (don't add response ID to locally generated tool results)
+    await result.executeRequestedTools();
 
     // Clear pending requested tools to avoid re-execution on subsequent turns
     (result as any).toolsRequested = null;
