@@ -1,25 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { Lang, LangMessages, LangOptions, LanguageProvider } from '../../dist/index.js';
+import { LangMessages, LangOptions, LanguageProvider } from '../../dist/index.js';
+import { createLangTestRunner } from '../utils/lang-gatherer.js';
 
-const langs: LanguageProvider[] = [];
-
-if (process.env.OPENAI_API_KEY) {
-  langs.push(Lang.openai({ apiKey: process.env.OPENAI_API_KEY as string, model: 'gpt-4o-mini' }));
-}
-
-if (process.env.OPENROUTER_API_KEY) {
-  langs.push(Lang.openrouter({ apiKey: process.env.OPENROUTER_API_KEY as string, model: 'gpt-4o-mini' }));
-}
-
-if (process.env.ANTHROPIC_API_KEY) {
-  langs.push(Lang.anthropic({ apiKey: process.env.ANTHROPIC_API_KEY as string, model: 'claude-3-5-sonnet-20240620' }));
-}
-
-describe.skipIf(langs.length === 0)('Basic Lang', async () => {
-  for (const lang of langs) {
-    await runTest(lang);
-  }
-});
+createLangTestRunner(runTest);
 
 async function runTest(lang: LanguageProvider) {
   describe(`${lang.name}`, async () => {
