@@ -124,6 +124,18 @@ export class AnthropicLang extends LanguageProvider {
         }
         result.thinking = thinkingContent;
         result.finished = true;
+
+        // Add tool calls as assistant messages if any were detected
+        if (result.toolsRequested && result.toolsRequested.length > 0) {
+          const toolCallMessages = (result.toolsRequested as any).map((tc: any) => ({
+            callId: tc.id,
+            id: tc.id,
+            name: tc.name,
+            arguments: tc.arguments
+          }));
+          result.addAssistantToolCalls(toolCallMessages);
+        }
+
         onResult?.(result as any);
         return;
       }
@@ -288,6 +300,10 @@ export class AnthropicLang extends LanguageProvider {
         .catch((err) => { throw new Error(err); });
 
       await processResponseStream(response, onData);
+
+      // Automatically execute tools if assistant made tool calls
+      await result.executeRequestedTools();
+
       return result;
     }
 
@@ -296,16 +312,41 @@ export class AnthropicLang extends LanguageProvider {
 
     const data: any = await response.json();
     if (Array.isArray(data?.content)) {
+      const toolCalls: any[] = [];
       for (const block of data.content) {
         if (block?.type === 'text' && typeof block.text === 'string') {
           result.answer += block.text;
+        } else if (block?.type === 'tool_use') {
+          // Store tool calls for later processing
+          toolCalls.push({
+            id: block.id,
+            name: block.name,
+            arguments: block.input || {}
+          });
         }
       }
+      
+      // Add tool calls to toolsRequested and as messages
+      if (toolCalls.length > 0) {
+        result.toolsRequested = [] as any;
+        const toolCallMessages: any[] = [];
+        for (const tc of toolCalls) {
+          (result.toolsRequested as any).push({ id: tc.id, name: tc.name, arguments: tc.arguments });
+          toolCallMessages.push({ callId: tc.id, id: tc.id, name: tc.name, arguments: tc.arguments });
+        }
+        
+        // Add tool calls as assistant messages
+        result.addAssistantToolCalls(toolCallMessages);
+      }
     }
-    if (result.answer) {
+    if (result.answer && (!result.toolsRequested || result.toolsRequested.length === 0)) {
       result.push({ role: "assistant", content: result.answer });
     }
     result.finished = true;
+
+    // Automatically execute tools if assistant made tool calls
+    await result.executeRequestedTools();
+
     return result;
   }
 
@@ -313,6 +354,20 @@ export class AnthropicLang extends LanguageProvider {
     const out: any[] = [];
     for (const m of messages) {
       if (m.role === 'tool') {
+        // Tool calls from assistant
+        const contentAny = m.content as any;
+        if (Array.isArray(contentAny)) {
+          const blocks = contentAny.map(tc => ({
+            type: 'tool_use',
+            id: tc.callId || tc.id,
+            name: tc.name,
+            input: tc.arguments || {}
+          }));
+          out.push({ role: 'assistant', content: blocks });
+          continue;
+        }
+      }
+      if (m.role === 'tool-results') {
         const contentAny = m.content as any;
         if (Array.isArray(contentAny)) {
           const blocks = contentAny.map(tr => ({
@@ -340,8 +395,12 @@ export class AnthropicLang extends LanguageProvider {
       if (p.type === 'text') {
         return { type: 'text', text: p.text };
       }
-      const src = this.imageInputToAnthropicSource(p.image);
-      return { type: 'image', source: src } as any;
+      if (p.image) {
+        const src = this.imageInputToAnthropicSource(p.image);
+        return { type: 'image', source: src } as any;
+      }
+      // Handle other content types or fallback to text
+      return { type: 'text', text: JSON.stringify(p) };
     });
   }
 
