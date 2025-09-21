@@ -77,7 +77,9 @@ export class OpenAIResponsesLang extends LanguageProvider {
       input,
       ...(typeof (options as any)?.maxTokens === 'number' ? { max_output_tokens: (options as any).maxTokens } : {}),
       ...(stream ? { stream: true } : {}),
-      ...(!hasToolResults && providedTools && providedTools.length ? { tools: this.transformToolsForProvider(providedTools), tool_choice: 'auto' } : {}),
+      ...(providedTools && providedTools.length
+        ? { tools: this.transformToolsForProvider(providedTools), tool_choice: hasToolResults ? 'none' : 'auto' }
+        : {}),
     };
 
     const apiUrl = `${this._baseURL}/responses`;
