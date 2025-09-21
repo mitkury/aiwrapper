@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { Lang, executeToolsAndContinue } from '../../dist/index.js';
 
+// @TODO: re-write it for the new API
+
 async function runSequentialScenario(provider: any) {
   const tools = [
     { name: 'get_random_number', description: 'Return a predefined random number', parameters: { type: 'object', properties: {} } },
