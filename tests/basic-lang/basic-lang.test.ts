@@ -1,13 +1,22 @@
 import { describe, it, expect } from 'vitest';
-import { Lang, LangMessages, LangOptions } from '../../dist/index.js';
+import { Lang, LangMessages, LangOptions, LanguageProvider } from '../../dist/index.js';
 
-const apiKey = process.env.OPENAI_API_KEY;
-const run = !!apiKey;
+const langs: LanguageProvider[] = [];
 
-describe.skipIf(!run)('Basic Lang', () => {
-  const lang = Lang.openai({ apiKey: process.env.OPENAI_API_KEY as string, model: 'gpt-5-nano' });
+if (process.env.OPENAI_API_KEY) {
+  langs.push(Lang.openai({ apiKey: process.env.OPENAI_API_KEY as string, model: 'gpt-5-nano' }));
+}
+if (process.env.OPENROUTER_API_KEY) {
+  langs.push(Lang.openrouter({ apiKey: process.env.OPENROUTER_API_KEY as string, model: 'gpt-5-nano' }));
+}
 
-  // @TODO: make the test work with every distinct provider - run the same tests: OpenAI responses, OpenAI completions, Anthropic, Google, etc.
+describe.skipIf(langs.length === 0)('Basic Lang', async () => {
+  for (const lang of langs) {
+    await runTest(lang);
+  }
+});
+
+async function runTest(lang: LanguageProvider) {
 
   async function testUsingTools(stream: boolean) {
     const messages = new LangMessages([
@@ -30,17 +39,17 @@ describe.skipIf(!run)('Basic Lang', () => {
 
     // After execution, check the last two messages should be tool request and tool results
     expect(res.length).toBeGreaterThanOrEqual(3); // user message + tool message + tool-results message
-    
+
     const lastMessage = res[res.length - 1];
     const secondLastMessage = res[res.length - 2];
-    
+
     // Last message should be tool-results
     expect(lastMessage.role).toBe('tool-results');
     expect(Array.isArray(lastMessage.content)).toBe(true);
     const toolResult = lastMessage.content[0];
     expect(toolResult.toolId).toBeDefined();
     expect(toolResult.result).toBe(3131);
-    
+
     // Second to last message should be tool request
     expect(secondLastMessage.role).toBe('tool');
     expect(Array.isArray(secondLastMessage.content)).toBe(true);
@@ -50,9 +59,11 @@ describe.skipIf(!run)('Basic Lang', () => {
     expect(toolCall.arguments).toBeDefined();
 
     let streamingAnswer: string = '';
-    const options: LangOptions = stream ? { onResult: (res: LangMessages) => { 
-      streamingAnswer = res.answer;
-    } } : {};
+    const options: LangOptions = stream ? {
+      onResult: (res: LangMessages) => {
+        streamingAnswer = res.answer;
+      }
+    } : {};
 
     // Send the conversation back to the model to get the final response
     const finalRes = await lang.chat(res, options);
@@ -115,4 +126,4 @@ describe.skipIf(!run)('Basic Lang', () => {
     expect(typeof res.object).toBe('object');
     expect(res.object?.name).toBeDefined();
   });
-});
+}

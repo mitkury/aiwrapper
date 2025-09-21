@@ -161,6 +161,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
       
       response = await fetch(apiUrl, fallbackCommon);
     }
+    
     if (stream) {
       // Keep minimal mutable stream state between events
       const streamState = { sawAnyTextDelta: false, openaiResponseId: undefined as string | undefined };
@@ -187,7 +188,6 @@ export class OpenAIResponsesLang extends LanguageProvider {
 
     const data = await response.json();
 
-    // @TODO: save it somewhere, so we can use it as `body.previous_response_id` later
     const openaiResponseId = data?.id as string;
     const output = data?.output as unknown;
 
