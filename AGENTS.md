@@ -1,4 +1,4 @@
-This is a context for AI editor/agent about the project. It's generated with a tool Airul (https://github.com/mitkury/airul) out of 3 sources. Feel free to edit .airul.json to change the sources and configure editors. Run `airul gen` to update the context after making changes to .airul.json or the sources. Remember to update TODO-AI.md after major changes in the project, keeping track of completed tasks and new developments.
+This is a context for AI editor/agent about the project. It's generated with a tool Airul (https://github.com/mitkury/airul) out of 3 sources. Edit .airul.json to change sources or enabled outputs. After any change to sources or .airul.json, run `airul gen` to regenerate the context.
 
 # From README.md:
 
@@ -288,6 +288,7 @@ When publishing, follow these steps in order:
   "main": "./dist/index.js",
   "allowJs": true,
   "scripts": {
+    "preinstall": "npx airul gen",
     "prebuild": "rm -rf dist",
     "build": "node build.js",
     "serve": "npx serve .",
@@ -301,13 +302,14 @@ When publishing, follow these steps in order:
   },
   "dependencies": {
     "aimodels": "^0.4.15",
-    "jsonic": "^2.16.0",
     "ajv": "^8.17.1",
+    "jsonic": "^2.16.0",
     "zod": "^3.24.4"
   },
   "devDependencies": {
     "@playwright/test": "^1.42.1",
     "@types/node": "^20.11.16",
+    "airul": "^0.1.39",
     "dotenv": "^16.4.1",
     "dts-bundle-generator": "^9.5.1",
     "esbuild": "^0.25.2",
