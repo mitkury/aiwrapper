@@ -99,11 +99,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
         if (res.status === 400) {
           const data = await res.text();
           // Check if this is a previous_response_id not found error
-          if (inputConfig.previous_response_id && (
-            data.includes('previous_response_id') || 
-            data.includes('response not found') ||
-            data.includes('invalid response id')
-          )) {
+          if (inputConfig.previous_response_id && data.includes('previous_response_not_found')) {
             // This is a special retry case - we'll handle it in the main logic
             decision.retry = false; // Don't retry with the same request
             throw new Error(`PREVIOUS_RESPONSE_ID_NOT_FOUND: ${data}`);
