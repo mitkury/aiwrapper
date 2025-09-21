@@ -122,14 +122,6 @@ export function getProvider(name: string, model?: string): LanguageProvider | nu
         });
       }
       break;
-    case 'openai-responses':
-      if (process.env.OPENAI_API_KEY) {
-        return Lang.openai({ 
-          apiKey: process.env.OPENAI_API_KEY as string, 
-          model: model || 'gpt-4o-mini'
-        });
-      }
-      break;
     case 'openrouter':
       if (process.env.OPENROUTER_API_KEY) {
         return Lang.openrouter({ 
