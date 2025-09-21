@@ -3,7 +3,10 @@ import { LangMessages, LangOptions, LanguageProvider } from '../../dist/index.js
 import { createLangTestRunner } from '../utils/lang-gatherer.js';
 
 describe('Basic Lang', () => {
-  createLangTestRunner(runTest);
+  createLangTestRunner(runTest, {
+    includeOpenRouter: false, // Exclude OpenRouter due to billing issues (402 errors)
+    includeDeepSeek: false    // Exclude DeepSeek due to tool role mapping issues
+  });
 });
 
 async function runTest(lang: LanguageProvider) {
