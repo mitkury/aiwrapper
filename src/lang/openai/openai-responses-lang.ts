@@ -434,8 +434,18 @@ export class OpenAIResponsesLang extends LanguageProvider {
       return;
     }
 
+    // If the last message already contains tool-results, skip to avoid duplicates
+    const last = (result.length > 0) ? result[result.length - 1] : undefined;
+    if (last && last.role === 'tool-results') {
+      return;
+    }
+
     // Execute the tools automatically
     await result.executeRequestedTools();
+
+    // Clear pending requested tools to avoid re-execution on subsequent turns
+    (result as any).toolsRequested = null;
+    (result as any).tools = undefined;
   }
 
   private mapImageInput(image: LangImageInput): any {
