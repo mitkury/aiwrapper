@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { LangMessages, LangOptions, LanguageProvider } from '../../dist/index.js';
-import { createLangTestRunner } from '../utils/lang-gatherer.js';
+import { createLangTestRunner, printAvailableProviders } from '../utils/lang-gatherer.js';
+
+// Show available providers for debugging
+printAvailableProviders();
 
 describe('Basic Lang', () => {
   createLangTestRunner(runTest);
