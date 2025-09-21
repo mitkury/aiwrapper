@@ -12,7 +12,7 @@ async function runReasoningTests(lang: LanguageProvider) {
     const messages = new LangMessages([
       {
         role: 'user',
-        content: 'Solve this step by step: What is 25% of 240? Show your reasoning process.'
+        content: 'Think deeply about this complex question: How might the rise of artificial intelligence fundamentally change the way we approach education, work, and human creativity in the next 20 years? Consider the implications from multiple perspectives - economic, social, psychological, and ethical. What are the potential benefits and risks, and how might society need to adapt? Please think through this step by step.'
       }
     ]);
 
@@ -57,7 +57,7 @@ async function runReasoningTests(lang: LanguageProvider) {
     const messages = new LangMessages([
       {
         role: 'user',
-        content: 'A company has 100 employees. 30% are engineers, 25% are designers, 20% are managers, and the rest are in other roles. If they reduce headcount by 15%, how many people are left in each department? Show your detailed reasoning.'
+        content: 'Consider this philosophical and practical dilemma: In a world where climate change is accelerating, populations are aging, and technological disruption is constant, what should be the primary focus of national policy - economic growth, environmental sustainability, social equity, or technological advancement? Analyze the trade-offs between these priorities, considering both short-term and long-term consequences. Think about how different countries might approach this differently based on their current circumstances and values. Please provide a thoughtful analysis with your reasoning process.'
       }
     ]);
 

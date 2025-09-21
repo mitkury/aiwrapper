@@ -12,7 +12,7 @@ async function runInfrastructureTests(lang: LanguageProvider) {
     const messages = new LangMessages([
       {
         role: 'user',
-        content: 'What is 15% of 200?'
+        content: 'Analyze the potential impact of quantum computing on cybersecurity. What are the key challenges and opportunities, and how should organizations prepare for this technological shift? Consider both the threats posed by quantum computers to current encryption methods and the new security solutions they might enable.'
       }
     ]);
 
