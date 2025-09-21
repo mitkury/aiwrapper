@@ -49,7 +49,7 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
   if (includeOpenAIResponses && process.env.OPENAI_API_KEY && !includeOpenAI) {
     langs.push(Lang.openai({
       apiKey: process.env.OPENAI_API_KEY as string,
-      model: modelOverrides.openaiResponses || 'gpt-4o-mini'
+      model: modelOverrides.openaiResponses || 'gpt-5-nano'
     }));
   }
 
@@ -57,7 +57,7 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
   if (includeOpenRouter && process.env.OPENROUTER_API_KEY) {
     langs.push(Lang.openrouter({
       apiKey: process.env.OPENROUTER_API_KEY as string,
-      model: modelOverrides.openrouter || 'gpt-4o-mini'
+      model: modelOverrides.openrouter || 'gpt-5-nano'
     }));
   }
 
@@ -65,7 +65,7 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
   if (includeAnthropic && process.env.ANTHROPIC_API_KEY) {
     langs.push(Lang.anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY as string,
-      model: modelOverrides.anthropic || 'claude-3-5-sonnet-20240620'
+      model: modelOverrides.anthropic || 'claude-3-haiku-20240307'
     }));
   }
 

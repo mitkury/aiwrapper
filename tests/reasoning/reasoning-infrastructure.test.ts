@@ -5,9 +5,9 @@ import { createLangTestRunner } from '../utils/lang-gatherer.js';
 describe('Reasoning Infrastructure', () => {
   createLangTestRunner(runInfrastructureTests, {
     modelOverrides: {
-      openai: 'o1-preview',
-      openrouter: 'openai/o1-preview', 
-      anthropic: 'claude-3-5-sonnet-20241022',
+      openai: 'gpt-5',
+      openrouter: 'openai/gpt-5', 
+      anthropic: 'claude-sonnet-4-20250514',
       deepseek: 'deepseek-reasoner'
     }
   });
