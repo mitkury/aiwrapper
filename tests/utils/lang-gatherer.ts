@@ -1,6 +1,11 @@
 import { describe } from 'vitest';
 import { Lang, LanguageProvider } from '../../dist/index.js';
 
+export interface LangProvider {
+  name: string;
+  lang: LanguageProvider;
+}
+
 export interface LangGathererOptions {
   /** Include OpenAI Completions API */
   includeOpenAI?: boolean;
@@ -10,31 +15,76 @@ export interface LangGathererOptions {
   includeOpenRouter?: boolean;
   /** Include Anthropic */
   includeAnthropic?: boolean;
+  /** Include DeepSeek */
+  includeDeepSeek?: boolean;
   /** Custom model overrides */
   modelOverrides?: {
     openai?: string;
     openaiResponses?: string;
     openrouter?: string;
     anthropic?: string;
+    deepseek?: string;
   };
+  /** Specific providers to include (overrides other options) */
+  providers?: string[];
+}
+
+/**
+ * Gets provider filters from environment variables or command line
+ */
+function getProviderFilters(): string[] {
+  // First check environment variable
+  const envProviders = process.env.TEST_PROVIDERS;
+  if (envProviders) {
+    return envProviders.split(',').map(p => p.trim().toLowerCase());
+  }
+  
+  // Then check command line arguments (after vitest arguments)
+  const args = process.argv.slice(2);
+  const providers: string[] = [];
+  
+  for (let i = 0; i < args.length; i++) {
+    if (args[i].startsWith('--') && !args[i].startsWith('--reporter') && !args[i].startsWith('--run')) {
+      const providerName = args[i].substring(2).toLowerCase();
+      if (['openai', 'openrouter', 'anthropic', 'deepseek'].includes(providerName)) {
+        providers.push(providerName);
+      }
+    }
+  }
+  
+  return providers;
 }
 
 /**
  * Gathers available language providers based on environment variables and options
  */
 export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider[] {
+  // Check for provider filters
+  const providerFilters = getProviderFilters();
+  const useProviderFilter = providerFilters.length > 0;
+  
   const {
     includeOpenAI = true,
     includeOpenAIResponses = true,
     includeOpenRouter = true,
     includeAnthropic = true,
-    modelOverrides = {}
+    includeDeepSeek = true,
+    modelOverrides = {},
+    providers = providerFilters
   } = options;
 
   const langs: LanguageProvider[] = [];
 
+  // Helper function to check if provider should be included
+  const shouldIncludeProvider = (providerName: string): boolean => {
+    if (providers.length > 0) {
+      return providers.includes(providerName.toLowerCase());
+    }
+    return true;
+  };
+
   // OpenAI Completions API
-  if (includeOpenAI && process.env.OPENAI_API_KEY) {
+  if (includeOpenAI && process.env.OPENAI_API_KEY && shouldIncludeProvider('openai')) {
     langs.push(Lang.openai({
       apiKey: process.env.OPENAI_API_KEY as string,
       model: modelOverrides.openai || 'gpt-4o-mini'
@@ -42,30 +92,68 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
   }
 
   // OpenAI Responses API (same as regular OpenAI - it uses Responses API by default)
-  if (includeOpenAIResponses && process.env.OPENAI_API_KEY && !includeOpenAI) {
+  if (includeOpenAIResponses && process.env.OPENAI_API_KEY && !includeOpenAI && shouldIncludeProvider('openai')) {
     langs.push(Lang.openai({
       apiKey: process.env.OPENAI_API_KEY as string,
-      model: modelOverrides.openaiResponses || 'gpt-4o-mini'
+      model: modelOverrides.openaiResponses || 'gpt-5-nano'
     }));
   }
 
   // OpenRouter
-  if (includeOpenRouter && process.env.OPENROUTER_API_KEY) {
+  if (includeOpenRouter && process.env.OPENROUTER_API_KEY && shouldIncludeProvider('openrouter')) {
     langs.push(Lang.openrouter({
       apiKey: process.env.OPENROUTER_API_KEY as string,
-      model: modelOverrides.openrouter || 'gpt-4o-mini'
+      model: modelOverrides.openrouter || 'google/gemini-2.5-flash-lite'
     }));
   }
 
   // Anthropic
-  if (includeAnthropic && process.env.ANTHROPIC_API_KEY) {
+  if (includeAnthropic && process.env.ANTHROPIC_API_KEY && shouldIncludeProvider('anthropic')) {
     langs.push(Lang.anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY as string,
-      model: modelOverrides.anthropic || 'claude-3-5-sonnet-20240620'
+      model: modelOverrides.anthropic || 'claude-3-haiku-20240307'
+    }));
+  }
+
+  // DeepSeek
+  if (includeDeepSeek && process.env.DEEPSEEK_API_KEY && shouldIncludeProvider('deepseek')) {
+    langs.push(Lang.deepseek({
+      apiKey: process.env.DEEPSEEK_API_KEY as string,
+      model: modelOverrides.deepseek || 'deepseek-chat'
     }));
   }
 
   return langs;
+}
+
+/**
+ * Gathers available language providers with friendly names
+ */
+export function gatherLangsWithNames(options: LangGathererOptions = {}): LangProvider[] {
+  const langs = gatherLangs(options);
+  const namedLangs: LangProvider[] = [];
+
+  for (const lang of langs) {
+    let friendlyName = lang.constructor.name;
+    
+    // Add friendly names based on the provider type
+    if (lang.constructor.name === 'OpenAILang') {
+      friendlyName = 'OpenAI';
+    } else if (lang.constructor.name === 'OpenRouterLang') {
+      friendlyName = 'OpenRouter';
+    } else if (lang.constructor.name === 'AnthropicLang') {
+      friendlyName = 'Anthropic';
+    } else if (lang.constructor.name === 'DeepSeekLang') {
+      friendlyName = 'DeepSeek';
+    }
+
+    namedLangs.push({
+      name: `${friendlyName} (${lang.name})`,
+      lang: lang
+    });
+  }
+
+  return namedLangs;
 }
 
 /**
@@ -75,10 +163,10 @@ export function createLangTestRunner(
   testFunction: (lang: LanguageProvider) => void,
   options: LangGathererOptions = {}
 ) {
-  const langs = gatherLangs(options);
+  const namedLangs = gatherLangsWithNames(options);
 
-  for (const lang of langs) {
-    describe(`${lang.constructor.name} (${lang.name})`, () => {
+  for (const { name, lang } of namedLangs) {
+    describe(name, () => {
       testFunction(lang);
     });
   }
@@ -92,6 +180,36 @@ export function getAvailableLangs(options: LangGathererOptions = {}): LanguagePr
 }
 
 /**
+ * Gets available providers with friendly names for custom test logic
+ */
+export function getAvailableLangsWithNames(options: LangGathererOptions = {}): LangProvider[] {
+  return gatherLangsWithNames(options);
+}
+
+/**
+ * Prints available providers for debugging
+ */
+export function printAvailableProviders(options: LangGathererOptions = {}): void {
+  const namedLangs = getAvailableLangsWithNames(options);
+  const providerFilters = getProviderFilters();
+  
+  console.log('\n🔧 Available Language Providers:');
+  if (providerFilters.length > 0) {
+    console.log(`   Filtered by: ${providerFilters.join(', ')}`);
+  }
+  
+  if (namedLangs.length === 0) {
+    console.log('   ❌ No providers available');
+    return;
+  }
+  
+  for (const { name } of namedLangs) {
+    console.log(`   ✅ ${name}`);
+  }
+  console.log();
+}
+
+/**
  * Checks if a specific provider is available
  */
 export function isProviderAvailable(providerName: string): boolean {
@@ -102,6 +220,8 @@ export function isProviderAvailable(providerName: string): boolean {
       return !!process.env.OPENROUTER_API_KEY;
     case 'anthropic':
       return !!process.env.ANTHROPIC_API_KEY;
+    case 'deepseek':
+      return !!process.env.DEEPSEEK_API_KEY;
     default:
       return false;
   }
@@ -124,7 +244,7 @@ export function getProvider(name: string, model?: string): LanguageProvider | nu
       if (process.env.OPENROUTER_API_KEY) {
         return Lang.openrouter({
           apiKey: process.env.OPENROUTER_API_KEY as string,
-          model: model || 'gpt-4o-mini'
+          model: model || 'google/gemini-2.5-flash-lite'
         });
       }
       break;
@@ -133,6 +253,14 @@ export function getProvider(name: string, model?: string): LanguageProvider | nu
         return Lang.anthropic({
           apiKey: process.env.ANTHROPIC_API_KEY as string,
           model: model || 'claude-3-5-sonnet-20240620'
+        });
+      }
+      break;
+    case 'deepseek':
+      if (process.env.DEEPSEEK_API_KEY) {
+        return Lang.deepseek({
+          apiKey: process.env.DEEPSEEK_API_KEY as string,
+          model: model || 'deepseek-chat'
         });
       }
       break;
