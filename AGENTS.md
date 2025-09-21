@@ -295,7 +295,8 @@ When publishing, follow these steps in order:
     "pretest": "npm run build",
     "test": "vitest run",
     "test:basic-lang": "vitest run tests/basic-lang/*.test.ts",
-    "test:img-in": "vitest run tests/img-in/*.test.ts"
+    "test:img-in": "vitest run tests/img-in/*.test.ts",
+    "test:reasoning": "vitest run tests/reasoning/*.test.ts"
   },
   "dependencies": {
     "aimodels": "^0.4.15",

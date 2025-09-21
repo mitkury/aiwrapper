@@ -268,6 +268,8 @@ export class AnthropicLang extends LanguageProvider {
       system: systemContent,
       ...(isStreaming ? { stream: true } : {}),
       ...(tools ? { tools } : {}),
+      // Note: extended_thinking parameter is not yet supported by the API
+      // ...(this._config.extendedThinking ? { extended_thinking: true } : {}),
     };
 
     const commonRequest = {
