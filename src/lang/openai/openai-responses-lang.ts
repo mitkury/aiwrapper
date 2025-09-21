@@ -59,13 +59,14 @@ export class OpenAIResponsesLang extends LanguageProvider {
       : new LangMessages(messages);
 
     const result = messageCollection;
+    const hasToolResults = (messageCollection as any).some?.((m: any) => m.role === 'tool-results');
     // @TODO: no, fuck that - it's wrong; depending on whether we have responseId,
     // we should either send the whole list of messages or only the last message (with attached previous_response_id)
     const input = this.transformMessagesToResponsesInput(messageCollection);
     const providedTools: ToolWithHandler[] = (
       messageCollection.availableTools as ToolWithHandler[]
     ) || (options?.tools as ToolWithHandler[]) || [];
-    const hasToolResults = (messageCollection as any).some?.((m: any) => m.role === 'tool-results');
+    // hasToolResults computed above
 
     // Enable streaming if onResult callback is provided
     const stream = typeof options?.onResult === 'function';
@@ -243,12 +244,11 @@ export class OpenAIResponsesLang extends LanguageProvider {
         const parts: any[] = [];
         for (const tr of (m.content as any[])) {
           parts.push({
-            type: 'tool_result',
-            tool_call_id: tr.toolId,
-            content: typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result)
-          } as any);
+            type: 'input_text',
+            text: JSON.stringify({ tool_call_id: tr.toolId, result: tr.result })
+          });
         }
-        input.push({ role: 'tool', content: parts } as any);
+        input.push({ role: 'developer', content: parts } as any);
         continue;
       }
       if (m.role === 'tool') {
