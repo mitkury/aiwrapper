@@ -7,7 +7,7 @@ A unified abstraction for **agents** that can run either:
 * **One-off tasks** — execute once with a single input, produce a single output (e.g., summarization, web search).
 * **Long-running agents** — keep running for hours or days, accept additional inputs dynamically, or trigger their own actions (e.g., security monitor).
 
-Inputs and outputs are validated with **Zod** at runtime; TypeScript types are inferred from the same schemas.
+Inputs and outputs are validated with **TypeScript** types for compile-time safety and clean APIs.
 
 ---
 
@@ -39,7 +39,7 @@ Inputs and outputs are validated with **Zod** at runtime; TypeScript types are i
 ### Example: One-off agent (WebSearch)
 
 ```ts
-const webSearch = new WebSearchAgent(schemas);
+const webSearch = new WebSearchAgent();
 
 const unsubscribe = webSearch.subscribe(event => {
   if (event.type === "finished") {
@@ -73,7 +73,7 @@ type SecurityEvents =
   | { type: "incident_detected"; data: { severity: string; details: string } }
   | { type: "scan_progress"; data: { percentage: number } };
 
-const security = new SecurityAgent(schemas);
+const security = new SecurityAgent();
 
 const unsubscribe = security.subscribe(event => {
   if (event.type === "finished") {
@@ -113,32 +113,33 @@ unsubscribe();
 
 ## 4) How to Build Agents
 
-### Step 1. Define input/output schemas
+### Step 1. Define TypeScript types
 
 ```ts
-const InputSchema = z.object({
-  query: z.string()
-});
-const OutputSchema = z.string();
+type InputType = {
+  query: string;
+  context?: string;
+};
+type OutputType = string;
 ```
 
 ### Step 2. Extend the base `Agent`
 
 ```ts
-class MyAgent extends Agent<z.infer<typeof InputSchema>, z.infer<typeof OutputSchema>> {
+class MyAgent extends Agent<InputType, OutputType> {
   constructor() {
-    super({ input: InputSchema, output: OutputSchema });
+    super();
   }
 
-  protected async runInternal(input) {
+  protected async runInternal(input: InputType): Promise<OutputType> {
     // implement one-off logic
     const result = `Result for query: ${input.query}`;
     this.emit({ type: "finished", output: result });
     return result;
   }
 
-  // Optional: handle input processing after validation
-  protected inputInternal(input) {
+  // Optional: handle input processing
+  protected inputInternal(input: InputType): void {
     // Process input immediately when received
     console.log("Processing input:", input.query);
   }
@@ -164,12 +165,13 @@ unsub();
 ### Example: Agent with custom events
 
 ```ts
+type VideoInput = { prompt: string };
 type VideoEvents = 
   | { type: "video_chunk"; data: { chunk: Uint8Array; progress: number } }
   | { type: "video_complete"; data: { url: string } };
 
-class VideoAgent extends Agent<InputSchema, string, VideoEvents> {
-  protected async runInternal(input) {
+class VideoAgent extends Agent<VideoInput, string, VideoEvents> {
+  protected async runInternal(input: VideoInput): Promise<string> {
     // Emit custom events during processing
     this.emit({ type: "video_chunk", data: { chunk: new Uint8Array(), progress: 0.5 } });
     this.emit({ type: "video_chunk", data: { chunk: new Uint8Array(), progress: 1.0 } });
@@ -185,8 +187,8 @@ class VideoAgent extends Agent<InputSchema, string, VideoEvents> {
 
 ## 5) Checklist for New Agents
 
-1. Define **InputSchema** and **OutputSchema** with Zod.
-2. Extend `Agent<Input, Output, CustomEvents?>` and provide schemas to `super`.
+1. Define **InputType** and **OutputType** with TypeScript.
+2. Extend `Agent<Input, Output, CustomEvents?>` with simple `super()` call.
 3. Implement `runInternal(input)` - decide whether to:
    - Return `TOutput` for one-off tasks
    - Return `void` for long-running agents
@@ -199,9 +201,10 @@ class VideoAgent extends Agent<InputSchema, string, VideoEvents> {
 
 ## 6) Key Features
 
-- **Type Safety**: Full TypeScript support with Zod validation
+- **Type Safety**: Full TypeScript support with compile-time validation
 - **Event-Driven**: Subscribe to agent events (finished, error, state, input, custom)
 - **Flexible Execution**: One-off or long-running agent patterns
 - **State Management**: Built-in idle/running state tracking
 - **Extensible Events**: Define custom event types for domain-specific needs
 - **Input Processing**: Optional immediate input handling via `inputInternal`
+- **Simple Setup**: No complex schema definitions needed

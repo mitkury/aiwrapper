@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 // Agent state
 export type AgentState = "idle" | "running";
 
@@ -31,7 +29,7 @@ export interface AgentCustomEvent<TType extends string, TData = any> {
 }
 
 // Union of all possible agent events - extensible for custom events
-export type AgentEvent<TInput, TOutput, TCustomEvents = never> =
+export type AgentEvent<TInput, TOutput, TCustomEvents = never> = 
   | AgentFinishedEvent<TOutput>
   | AgentErrorEvent
   | AgentStateEvent
@@ -44,23 +42,14 @@ export type AgentEventListener<TInput, TOutput, TCustomEvents = never> = (event:
 // Subscription token for unsubscribing
 export type SubscriptionToken = () => void;
 
-// Schema configuration for input/output validation
-export interface AgentSchemas<TInput, TOutput> {
-  input: z.ZodSchema<TInput>;
-  output: z.ZodSchema<TOutput>;
-}
-
 // Abstract base Agent class
 export abstract class Agent<TInput, TOutput, TCustomEvents = never> {
   private listeners: AgentEventListener<TInput, TOutput, TCustomEvents>[] = [];
   private lastInput: TInput | null = null;
   private _state: AgentState = "idle";
-  protected schemas: AgentSchemas<TInput, TOutput>;
 
-  constructor(
-    schemas: AgentSchemas<TInput, TOutput>
-  ) {
-    this.schemas = schemas;
+  constructor() {
+    // No schemas needed - just TypeScript types
   }
 
   // Get current agent state
@@ -81,13 +70,11 @@ export abstract class Agent<TInput, TOutput, TCustomEvents = never> {
 
   // Provide input to the agent
   input(data: TInput): void {
-    // Validate input with Zod schema
-    const validatedInput = this.schemas.input.parse(data);
-    this.lastInput = validatedInput;
-    this.emit({ type: "input", input: validatedInput });
+    this.lastInput = data;
+    this.emit({ type: "input", input: data });
 
     // Allow implementations to handle input processing
-    this.inputInternal?.(validatedInput);
+    this.inputInternal?.(data);
   }
 
   // Run the agent either with a new input or the provided in this.lastInput
@@ -95,7 +82,11 @@ export abstract class Agent<TInput, TOutput, TCustomEvents = never> {
     this.setState("running");
 
     try {
-      const inputToUse = input ? this.schemas.input.parse(input) : this.lastInput;
+      const inputToUse = input || this.lastInput;
+      if (!inputToUse) {
+        throw new Error("No input provided. Call input() first or pass input to run().");
+      }
+      
       const result = await this.runInternal(inputToUse);
       this.setState("idle");
       return result;
