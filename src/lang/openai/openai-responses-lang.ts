@@ -181,7 +181,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
       result.finished = true;
 
       // Automatically execute tools if assistant made tool calls
-      await this.executeToolsIfRequested(result, streamState?.openaiResponseId);
+      await result.executeRequestedTools();
 
       return result;
     }
@@ -211,7 +211,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
     result.finished = true;
 
     // Automatically execute tools if assistant made tool calls
-    await this.executeToolsIfRequested(result, openaiResponseId);
+    await result.executeRequestedTools();
 
     return result;
   }
@@ -244,12 +244,23 @@ export class OpenAIResponsesLang extends LanguageProvider {
       case 'function_call':
       case 'tool':
       case 'tool_call':
+        // Parse arguments if they come as a JSON string
+        let parsedArgs = item.arguments;
+        if (typeof item.arguments === 'string') {
+          try {
+            parsedArgs = JSON.parse(item.arguments);
+          } catch (e) {
+            console.warn('Failed to parse tool arguments:', e);
+            parsedArgs = {};
+          }
+        }
+        
         // Also append as assistant tool_calls message for transcript
         result.addAssistantToolCalls([
           {
             callId: item.call_id || item.id,
             name: item.name,
-            arguments: item.arguments
+            arguments: parsedArgs
           }
         ], { openaiResponseId })
 
@@ -605,33 +616,6 @@ export class OpenAIResponsesLang extends LanguageProvider {
         // ignore other events; they don't carry text we need
         break;
     }
-  }
-
-  /**
-   * Automatically execute tools if the assistant made tool calls as the last message
-   */
-  private async executeToolsIfRequested(result: LangMessages, openaiResponseId?: string): Promise<void> {
-    // Check if there are any requested tools
-    const requestedTools = (result.tools && result.tools.length > 0)
-      ? result.tools
-      : (result.toolsRequested as any) || [];
-
-    if (!requestedTools.length || !result.availableTools) {
-      return;
-    }
-
-    // If the last message already contains tool-results, skip to avoid duplicates
-    const last = (result.length > 0) ? result[result.length - 1] : undefined;
-    if (last && last.role === 'tool-results') {
-      return;
-    }
-
-    // Execute the tools automatically (don't add response ID to locally generated tool results)
-    await result.executeRequestedTools();
-
-    // Clear pending requested tools to avoid re-execution on subsequent turns
-    (result as any).toolsRequested = null;
-    (result as any).tools = undefined;
   }
 
   private mapImageInput(image: LangImageInput): any {

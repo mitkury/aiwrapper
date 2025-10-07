@@ -83,16 +83,8 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
     return true;
   };
 
-  // OpenAI Completions API
-  if (includeOpenAI && process.env.OPENAI_API_KEY && shouldIncludeProvider('openai')) {
-    langs.push(Lang.openai({
-      apiKey: process.env.OPENAI_API_KEY as string,
-      model: modelOverrides.openai || 'gpt-4o-mini'
-    }));
-  }
-
-  // OpenAI Responses API (same as regular OpenAI - it uses Responses API by default)
-  if (includeOpenAIResponses && process.env.OPENAI_API_KEY && !includeOpenAI && shouldIncludeProvider('openai')) {
+  // OpenAI
+  if (includeOpenAIResponses && process.env.OPENAI_API_KEY && shouldIncludeProvider('openai')) {
     langs.push(Lang.openai({
       apiKey: process.env.OPENAI_API_KEY as string,
       model: modelOverrides.openaiResponses || 'gpt-5-nano'
@@ -103,7 +95,7 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
   if (includeOpenRouter && process.env.OPENROUTER_API_KEY && shouldIncludeProvider('openrouter')) {
     langs.push(Lang.openrouter({
       apiKey: process.env.OPENROUTER_API_KEY as string,
-      model: modelOverrides.openrouter || 'openai/gpt-5-nano'
+      model: modelOverrides.openrouter || 'google/gemini-2.5-flash'
     }));
   }
 

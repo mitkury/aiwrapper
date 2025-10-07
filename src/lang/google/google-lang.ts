@@ -166,6 +166,9 @@ export class GoogleLang extends LanguageProvider {
 
     await processResponseStream(response, onData);
 
+    // Automatically execute tools if assistant made tool calls
+    await result.executeRequestedTools();
+
     return result;
   }
 

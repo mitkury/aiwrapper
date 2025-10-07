@@ -3,14 +3,13 @@ import { LanguageProvider, ChatAgent } from '../../dist/index.js';
 import { createLangTestRunner } from '../utils/lang-gatherer.js';
 
 describe('ChatAgent', () => {
-  createLangTestRunner(runTest, { providers: ['anthropic'] });
+  createLangTestRunner(runTest, { providers: ['anthropic', 'openrouter', 'openai'] });
 });
 
 async function runTest(lang: LanguageProvider) {
- 
   it('should handle single message', async () => {
     console.log('Testing single message');
-    
+
     const agent = new ChatAgent(lang);
     const result = await agent.run({
       role: 'user',
@@ -20,13 +19,13 @@ async function runTest(lang: LanguageProvider) {
     expect(result).toBeDefined();
     expect(result!.answer).toContain('Hello from ChatAgent');
     expect(result!.messages.length).toBeGreaterThanOrEqual(2); // user + assistant
-    
+
     console.log('✅ Single message test passed');
   });
 
   it('should handle message array', async () => {
     console.log('Testing message array');
-    
+
     const agent = new ChatAgent(lang);
     const result = await agent.run([
       { role: 'user', content: 'What is 2+2?' },
@@ -37,38 +36,38 @@ async function runTest(lang: LanguageProvider) {
     expect(result).toBeDefined();
     expect(result!.answer).toContain('8');
     expect(result!.messages.length).toBeGreaterThanOrEqual(4); // 3 input + assistant response
-    
+
     console.log('✅ Message array test passed');
   });
 
   it('should handle conversation flow', async () => {
     console.log('Testing conversation flow');
-    
+
     const agent = new ChatAgent(lang);
-    
+
     // Start conversation
     agent.input({ role: 'user', content: 'My name is Alice.' });
     const result1 = await agent.run();
-    
+
     expect(result1).toBeDefined();
     expect(result1!.answer).toContain('Alice');
-    
+
     // Continue conversation
     const result2 = await agent.run({ role: 'user', content: 'What is my name?' });
-    
+
     expect(result2).toBeDefined();
     expect(result2!.answer).toContain('Alice');
-    
+
     // Check conversation history is maintained
     const conversation = agent.getConversation();
     expect(conversation.length).toBeGreaterThanOrEqual(4); // 2 user + 2 assistant messages
-    
+
     console.log('✅ Conversation flow test passed');
   });
 
   it('should handle event subscription', async () => {
     console.log('Testing event subscription');
-    
+
     const agent = new ChatAgent(lang);
     const events: any[] = [];
     const unsubscribe = agent.subscribe(event => {
@@ -77,35 +76,35 @@ async function runTest(lang: LanguageProvider) {
 
     // Test state changes and events
     expect(agent.state).toBe('idle');
-    
+
     // Use agent.input() first to trigger input event, then run()
     agent.input({
       role: 'user',
       content: 'Say "Events working!" and nothing else.'
     });
-    
+
     const result = await agent.run();
 
     // Should have received events
     expect(events.length).toBeGreaterThan(0);
-    
+
     // Should have state change events
     const stateEvents = events.filter(e => e.type === 'state');
     expect(stateEvents.length).toBeGreaterThan(0);
-    
+
     // Should have input event
     const inputEvents = events.filter(e => e.type === 'input');
     expect(inputEvents.length).toBeGreaterThan(0);
-    
+
     // Should have finished event
     const finishedEvents = events.filter(e => e.type === 'finished');
     expect(finishedEvents.length).toBeGreaterThan(0);
-    
+
     // Final state should be idle
     expect(agent.state).toBe('idle');
-    
+
     unsubscribe();
-    
+
     console.log('✅ Event subscription test passed');
   });
 
@@ -149,6 +148,16 @@ async function runTest(lang: LanguageProvider) {
   it('should handle multiple sequential tool calls', async () => {
     console.log('Testing multiple sequential tool calls');
 
+    // Here we have a task that specifically asks to use all 3 provided tools. We expect the agent
+    // to use those tools without breaking the agentic loop before finishing the task.
+    // We are not testing how smart the agent is but rather whether it can use multiple tools in a loop.
+    const task = `Provide and summarize the current bug report status. To do that: 
+1. Send an email to dev-team@company.com asking for the current status (keep it simple, just ask for the status)
+2. Wait for their status update with the wait_for_response tool
+3. Read the bug tracking URL they provide and summarize the current status here. 
+
+Make sure you use all 3 provided tools.`;
+
     const agent = new ChatAgent(lang, {
       tools: [
         {
@@ -164,7 +173,7 @@ async function runTest(lang: LanguageProvider) {
             required: ['to', 'subject', 'message']
           },
           handler: (args: any) => ({
-            email_id: 'email_12345',
+            email_id: 'email_0',
             status: 'sent',
             to: args.to,
             subject: args.subject,
@@ -201,7 +210,7 @@ async function runTest(lang: LanguageProvider) {
             required: ['url']
           },
           handler: (args: any) => {
-            if (args.url?.includes('bugs.company.com')) {
+            if (args.url?.toLowerCase().includes('bugs.company.com/bug-2024-001')) {
               return {
                 url: args.url,
                 title: 'Bug Report BUG-2024-001',
@@ -226,7 +235,7 @@ async function runTest(lang: LanguageProvider) {
 
     const result = await agent.run({
       role: 'user',
-      content: 'Follow up on the critical bug report. Send an email to dev-team@company.com, wait for their status update, then read the bug tracking URL they provide and summarize the current resolution status.'
+      content: task
     });
 
     expect(result).toBeDefined();
