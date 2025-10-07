@@ -6,12 +6,10 @@ import {
   LangResult, 
   LangOptions, 
   LangMessage,
-  ToolRequest,
-  ToolResult,
   Schema,
   z
 } from "./language-provider.ts";
-import { LangMessages, ToolWithHandler } from "./messages.ts";
+import { LangMessages, ToolWithHandler, ToolRequest, ToolResult } from "./messages.ts";
 
 // Export classes
 export { Lang, LangVecs, LanguageProvider, LangResult, LangMessages, z, MockOpenAILikeLang };

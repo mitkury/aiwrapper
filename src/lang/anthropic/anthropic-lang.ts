@@ -143,8 +143,6 @@ export class AnthropicLang extends LanguageProvider {
       if (data.type === "content_block_start" && data.content_block?.type === "tool_use") {
         const id = data.content_block?.id;
         const name = data.content_block?.name || '';
-        if (!result.toolsRequested) result.toolsRequested = [] as any;
-        (result.toolsRequested as any).push({ id, name, arguments: {} });
         pendingToolInputs.set(id, { name, buffer: '' });
         return;
       }
@@ -330,10 +328,8 @@ export class AnthropicLang extends LanguageProvider {
       
       // Add tool calls to toolsRequested and as messages
       if (toolCalls.length > 0) {
-        result.toolsRequested = [] as any;
         const toolCallMessages: any[] = [];
         for (const tc of toolCalls) {
-          (result.toolsRequested as any).push({ id: tc.id, name: tc.name, arguments: tc.arguments });
           toolCallMessages.push({ callId: tc.id, id: tc.id, name: tc.name, arguments: tc.arguments });
         }
         

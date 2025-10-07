@@ -122,19 +122,25 @@ export class OpenAILikeLang extends LanguageProvider {
      messages: LangMessage[] | LangMessages,
      options?: LangOptions,
    ): Promise<LangMessages> {
-     let messageCollection: LangMessages;
-     if (messages instanceof LangMessages) {
-       messageCollection = messages;
-     } else {
-       messageCollection = new LangMessages(messages);
-     }
+    let messageCollection: LangMessages;
+    if (messages instanceof LangMessages) {
+      messageCollection = messages;
+    } else {
+      messageCollection = new LangMessages(messages);
+    }
+    
+    // CRITICAL FIX: If we created a new instance but the original had availableTools, preserve them
+    // Check if messages has availableTools property (regardless of instanceof due to module resolution issues)
+    if (messageCollection !== messages && (messages as any).availableTools) {
+      messageCollection.availableTools = (messages as any).availableTools;
+    }
      
      const onResult = options?.onResult;
  
      const requestMaxTokens = this.modelInfo 
        ? calculateModelResponseTokens(
            this.modelInfo,
-           messages,
+           messageCollection,
            this._config.maxTokens
          )
        : this._config.maxTokens || 4000;
@@ -159,7 +165,7 @@ export class OpenAILikeLang extends LanguageProvider {
       ...(isStreaming ? { stream: true } : {}),
       max_tokens: requestMaxTokens,
       ...this._config.bodyProperties,
-      ...(messageCollection.availableTools ? { tools: this.formatTools(messageCollection.availableTools as ToolWithHandler[]) } : {}),
+      ...(messageCollection.availableTools ? { tools: this.formatTools(messageCollection.availableTools) } : {}),
       ...(options?.schema ? { response_format: { type: 'json_object' } } : {}),
     });
  
@@ -241,7 +247,6 @@ export class OpenAILikeLang extends LanguageProvider {
 
     const toolCalls = msg?.tool_calls;
     if (Array.isArray(toolCalls) && toolCalls.length > 0) {
-      messageCollection.toolsRequested = [] as any;
       const toolCallMessages: any[] = [];
       for (const tc of toolCalls) {
         const id: string = tc?.id || '';
@@ -254,7 +259,6 @@ export class OpenAILikeLang extends LanguageProvider {
           } catch {
           }
         }
-        (messageCollection.toolsRequested as any).push({ id, name, arguments: parsedArgs });
         toolCallMessages.push({ callId: id, name, arguments: parsedArgs });
       }
       
@@ -436,9 +440,6 @@ export class OpenAILikeLang extends LanguageProvider {
       }
       
       if (delta.tool_calls) {
-        if (!result.toolsRequested) {
-          result.toolsRequested = [] as any;
-        }
         (result as any)._hasPendingToolArgs = true;
 
         for (const toolCall of delta.tool_calls) {

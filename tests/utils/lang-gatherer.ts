@@ -103,7 +103,7 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
   if (includeOpenRouter && process.env.OPENROUTER_API_KEY && shouldIncludeProvider('openrouter')) {
     langs.push(Lang.openrouter({
       apiKey: process.env.OPENROUTER_API_KEY as string,
-      model: modelOverrides.openrouter || 'google/gemini-2.5-flash-lite'
+      model: modelOverrides.openrouter || 'openai/gpt-5-nano'
     }));
   }
 
@@ -225,45 +225,4 @@ export function isProviderAvailable(providerName: string): boolean {
     default:
       return false;
   }
-}
-
-/**
- * Gets a single provider by name (useful for focused testing)
- */
-export function getProvider(name: string, model?: string): LanguageProvider | null {
-  switch (name.toLowerCase()) {
-    case 'openai':
-      if (process.env.OPENAI_API_KEY) {
-        return Lang.openai({
-          apiKey: process.env.OPENAI_API_KEY as string,
-          model: model || 'gpt-4o-mini'
-        });
-      }
-      break;
-    case 'openrouter':
-      if (process.env.OPENROUTER_API_KEY) {
-        return Lang.openrouter({
-          apiKey: process.env.OPENROUTER_API_KEY as string,
-          model: model || 'google/gemini-2.5-flash-lite'
-        });
-      }
-      break;
-    case 'anthropic':
-      if (process.env.ANTHROPIC_API_KEY) {
-        return Lang.anthropic({
-          apiKey: process.env.ANTHROPIC_API_KEY as string,
-          model: model || 'claude-3-5-sonnet-20240620'
-        });
-      }
-      break;
-    case 'deepseek':
-      if (process.env.DEEPSEEK_API_KEY) {
-        return Lang.deepseek({
-          apiKey: process.env.DEEPSEEK_API_KEY as string,
-          model: model || 'deepseek-chat'
-        });
-      }
-      break;
-  }
-  return null;
 }

@@ -81,7 +81,6 @@ export class GroqLang extends OpenAILikeLang {
         const message = data.choices[0].message;
         const toolCalls = message?.tool_calls;
         if (Array.isArray(toolCalls) && toolCalls.length > 0) {
-          messageCollection.toolsRequested = [] as any;
           for (const tc of toolCalls) {
             const id: string = tc?.id || '';
             const name: string = tc?.function?.name || '';
@@ -92,7 +91,7 @@ export class GroqLang extends OpenAILikeLang {
                 parsedArgs = JSON.parse(rawArgs);
               } catch {}
             }
-            (messageCollection.toolsRequested as any).push({ id, name, arguments: parsedArgs });
+            messageCollection.addAssistantToolCalls([{ callId: id, name, arguments: parsedArgs }]);
           }
         }
 

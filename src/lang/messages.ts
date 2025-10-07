@@ -1,11 +1,24 @@
-import type { 
-  ToolRequest, 
-  ToolResult 
-} from "./language-provider.ts";
+/**
+ * Interface for tool requests that can be sent to language models
+ */
+export interface ToolRequest {
+  callId: string;
+  name: string;
+  arguments: Record<string, any>;
+}
+
+// @TODO: not sure I need this, let's explore message types
+/**
+ * Interface for tool execution results
+ */
+export interface ToolResult {
+  toolId: string;
+  result: any;
+}
 
 export interface LangMessage {
   role: "user" | "assistant" | "tool" | "tool-results" | "system";
-  content: string | LangContentPart[] | any;
+  content: string | LangContentPart[] | ToolRequest[] | ToolResult[];
   meta?: Record<string, any>;
 }
 
@@ -41,10 +54,12 @@ export type ToolWithHandler = {
 export class LangMessages extends Array<LangMessage> {
   availableTools?: ToolWithHandler[];
 
+  // @TODO: add instructions that will be automatically added to the start of the messages 
+  // as "system" message or "instructions" in the openai responses
+
   // Merged result fields
   answer: string = "";
   object: any | null = null;
-  toolsRequested: ToolRequest[] | null = null; // deprecated internal alias
   // Requested tool calls from the provider (normalized)
   tools?: Array<{ id: string; name: string; arguments: Record<string, any> }>;
   finished: boolean = false;
@@ -67,6 +82,21 @@ export class LangMessages extends Array<LangMessage> {
     if (opts?.tools) {
       this.availableTools = opts.tools;
     }
+  }
+
+  get toolsRequested(): ToolRequest[] {
+    // Get the last message with role "tool"
+
+    if (this.length === 0) {
+      return [];
+    }
+
+    const lastMessage = this[this.length - 1];
+    if (lastMessage.role !== "tool") {
+      return [];
+    }
+
+    return lastMessage.content as ToolRequest[];
   }
 
   addUserMessage(content: string): this {
@@ -99,7 +129,7 @@ export class LangMessages extends Array<LangMessage> {
     return this;
   }
 
-  addToolUseMessage(toolResults: any, meta?: Record<string, any>): this {
+  addToolUseMessage(toolResults: ToolResult[], meta?: Record<string, any>): this {
     this.push({ role: "tool-results", content: toolResults, meta });
     return this;
   }
@@ -109,20 +139,13 @@ export class LangMessages extends Array<LangMessage> {
     return this;
   }
 
-  get requestedToolUse(): ToolRequest[] | null {
-    return this.toolsRequested ?? null;
-  }
-
   async executeRequestedTools(meta?: Record<string, any>): Promise<this> {
-    // @TODO: no, add this automatically right after we get the response with tools
-    const requestedTools = (this.tools && this.tools.length > 0)
-      ? this.tools
-      : (this.toolsRequested as any) || [];
-    if (!requestedTools.length) {
+    if (this.toolsRequested.length === 0) {
       return this;
     }
 
     if (!this.availableTools) {
+      console.warn("Requested tool names:", this.toolsRequested.map(t => t.name));
       return this;
     }
 
@@ -131,11 +154,11 @@ export class LangMessages extends Array<LangMessage> {
     const toolsByName = new Map<string, ToolWithHandler>(
       (this.availableTools || []).map((t) => [t.name, t])
     );
-    for (const call of requestedTools) {
-      const toolName = (call as any).name as string | undefined;
+    for (const call of this.toolsRequested) {
+      const toolName = call.name as string | undefined;
       if (!toolName || !toolsByName.has(toolName)) continue;
-      const outcome = await Promise.resolve(toolsByName.get(toolName)!.handler((call as any).arguments || {}));
-      const id = (call as any).id || (call as any).callId;
+      const outcome = await Promise.resolve(toolsByName.get(toolName)!.handler(call.arguments || {}));
+      const id = call.callId;
       toolResults.push({ toolId: id, result: outcome });
     }
 
@@ -146,6 +169,7 @@ export class LangMessages extends Array<LangMessage> {
   }
 
   toString(): string {
+    // @TODO: should we output the messages?
     return this.answer;
   }
 }

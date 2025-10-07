@@ -1,7 +1,7 @@
 import { Agent } from "./agent.ts";
-import type { LanguageProvider } from "../lang/language-provider.ts";
+import type { LanguageProvider, LangOptions } from "../lang/language-provider.ts";
 import { LangMessages } from "../lang/messages.ts";
-import type { LangMessage } from "../lang/messages.ts";
+import type { LangMessage, ToolWithHandler } from "../lang/messages.ts";
 
 export type ChatInput = LangMessage | LangMessage[];
 export type ChatOutput = {
@@ -10,13 +10,19 @@ export type ChatOutput = {
 };
 
 export class ChatAgent extends Agent<ChatInput, ChatOutput> {
-  private languageProvider: LanguageProvider;
-  private conversationHistory: LangMessages;
+  private lang: LanguageProvider;
+  private messages: LangMessages;
+  private tools?: ToolWithHandler[];
 
-  constructor(languageProvider: LanguageProvider) {
+  constructor(languageProvider: LanguageProvider, options?: { tools?: ToolWithHandler[] }) {
     super();
-    this.languageProvider = languageProvider;
-    this.conversationHistory = new LangMessages();
+    this.lang = languageProvider;
+    this.tools = options?.tools;
+    
+    // Create conversation history with tools if provided
+    this.messages = new LangMessages([], {
+      tools: this.tools,
+    });
   }
 
   protected async runInternal(input: ChatInput): Promise<ChatOutput> {
@@ -24,25 +30,36 @@ export class ChatAgent extends Agent<ChatInput, ChatOutput> {
     if (Array.isArray(input)) {
       // Array of messages - add all to conversation
       for (const message of input) {
-        this.conversationHistory.push(message);
+        this.messages.push(message);
       }
     } else {
       // Single message - add to conversation
-      this.conversationHistory.push(input);
+      this.messages.push(input);
     }
 
-    // Get response from language provider
-    const response = await this.languageProvider.chat(this.conversationHistory);
+    // Agentic loop. Will go in multiple cicles if it is using tools.
+    while (true) {
+      // Get response from language provider (tools are already set in conversationHistory)
+      const response = await this.lang.chat(this.messages);
 
-    // Add assistant response to conversation history
-    if (response.length > 0) {
-      this.conversationHistory.push(response[response.length - 1]);
+      // Update conversation history with the complete response
+      // The response contains all messages including tool calls and results
+      // But we need to preserve the availableTools since response might not have them
+      this.messages = response;
+
+      // We continue the loop if the last message is a tool results.
+      // In that case, we need to get the model's response to the tool results.
+      const lastMessage = this.messages[this.messages.length - 1];
+      const lastMessageHasToolResults = lastMessage && lastMessage.role === 'tool-results';
+      if (!lastMessageHasToolResults) {
+        break;
+      }
     }
 
-    // Emit finished event with the response
+    // Emit finished event with the final response
     const result: ChatOutput = {
-      answer: response.answer,
-      messages: [...this.conversationHistory],
+      answer: this.messages.answer,
+      messages: [...this.messages],
     };
 
     this.emit({ type: "finished", output: result });
@@ -52,21 +69,25 @@ export class ChatAgent extends Agent<ChatInput, ChatOutput> {
   // Optional: handle input processing
   protected inputInternal(input: ChatInput): void {
     // Could add message preprocessing, validation, etc.
-    console.log("Processing chat input:", input);
   }
 
   // Helper method to get current conversation
   getConversation(): LangMessages {
-    return this.conversationHistory;
+    return this.messages;
   }
 
   // Helper method to clear conversation
   clearConversation(): void {
-    this.conversationHistory = new LangMessages();
+    this.messages = new LangMessages([], { tools: this.tools });
   }
 
   // Helper method to add system message
   addSystemMessage(message: string): void {
-    this.conversationHistory.addSystemMessage(message);
+    this.messages.addSystemMessage(message);
+  }
+
+  // Helper method to set tools
+  setTools(tools: ToolWithHandler[]): void {
+    this.tools = tools;
   }
 }

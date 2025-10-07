@@ -33,24 +33,6 @@ export type LangImageOutput = {
 };
 
 /**
- * Interface for tool requests that can be sent to language models
- */
-export interface ToolRequest {
-  callId: string;
-  name: string;
-  arguments: Record<string, any>;
-}
-
-// @TODO: not sure I need this, let's explore message types
-/**
- * Interface for tool execution results
- */
-export interface ToolResult {
-  toolId: string;
-  result: any;
-}
-
-/**
  * Options that can be passed to language model methods
  */
 export interface LangOptions {

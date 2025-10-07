@@ -99,8 +99,8 @@ export class OpenAIResponsesLang extends LanguageProvider {
           try {
             const errorObj = JSON.parse(data);
             // Check if this is a previous_response_id not found error
-            if (inputConfig.previous_response_id && 
-                errorObj.error?.param === 'previous_response_id') {
+            if (inputConfig.previous_response_id &&
+              errorObj.error?.param === 'previous_response_id') {
               // This is a special retry case - we'll handle it in the main logic
               throw new Error(`PREVIOUS_RESPONSE_ID_NOT_FOUND: ${data}`);
             }
@@ -119,7 +119,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
     // Try the optimized request first (with previous_response_id if available)
     let response: Response;
     let useFullInput = false;
-    
+
     try {
       response = await fetch(apiUrl, common);
     } catch (error: any) {
@@ -131,7 +131,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
         throw error; // Re-throw if it's a different error
       }
     }
-    
+
     // If we need to retry with full input, prepare the fallback request
     if (useFullInput) {
       const fallbackBody = {
@@ -143,7 +143,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
           ? { tools: this.transformToolsForProvider(providedTools), tool_choice: 'auto' }
           : {}),
       };
-      
+
       const fallbackCommon = {
         ...common,
         body: JSON.stringify(fallbackBody),
@@ -158,10 +158,10 @@ export class OpenAIResponsesLang extends LanguageProvider {
           // For other errors, let the default retry behavior handle it
         },
       };
-      
+
       response = await fetch(apiUrl, fallbackCommon);
     }
-    
+
     if (stream) {
       // Keep minimal mutable stream state between events
       const streamState = { sawAnyTextDelta: false, openaiResponseId: undefined as string | undefined };
@@ -240,13 +240,11 @@ export class OpenAIResponsesLang extends LanguageProvider {
           result.addUserMessage(item.content);
         }
         break;
+
+      // @TODO: why 3 of them with the same handling?
       case 'function_call':
       case 'tool':
       case 'tool_call':
-        // Record requested tool use for API consumers
-        if (!result.toolsRequested) (result as any).toolsRequested = [] as any;
-        (result.toolsRequested as any).push({ id: item.call_id || item.id, name: item.name, arguments: item.arguments || {} });
-
         // Also append as assistant tool_calls message for transcript
         result.addAssistantToolCalls([
           {
@@ -255,6 +253,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
             arguments: item.arguments
           }
         ], { openaiResponseId })
+
         break;
       case 'output_image':
         break;
@@ -302,7 +301,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
     // Find the last message with an openaiResponseId
     let lastMessageWithResponseId: LangMessage | undefined;
     let lastMessageWithResponseIdIndex = -1;
-    
+
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].meta?.openaiResponseId) {
         lastMessageWithResponseId = messages[i];
@@ -310,27 +309,27 @@ export class OpenAIResponsesLang extends LanguageProvider {
         break;
       }
     }
-    
+
     if (lastMessageWithResponseId) {
       if (lastMessageWithResponseIdIndex < messages.length - 1) {
         // There are new messages after the last message with a response ID
         // Use previous_response_id + only the new messages as input
         const newMessages = messages.slice(lastMessageWithResponseIdIndex + 1);
         const newInput = this.transformMessagesToResponsesInput(new LangMessages(newMessages));
-        return { 
+        return {
           previous_response_id: lastMessageWithResponseId.meta.openaiResponseId,
           input: newInput
         };
       } else {
         // The last message has a response ID and there are no new messages after it
         // Use previous_response_id with empty input (let the API continue from that response)
-        return { 
+        return {
           previous_response_id: lastMessageWithResponseId.meta.openaiResponseId,
           input: []
         };
       }
     }
-    
+
     // Fall back to sending full input
     return { input: this.transformMessagesToResponsesInput(messages) };
   }
@@ -507,7 +506,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
         if (streamState && data.response?.id && !streamState.openaiResponseId) {
           streamState.openaiResponseId = data.response.id;
         }
-        
+
         if (result.answer) {
           if (result.length > 0 && result[result.length - 1].role === 'assistant') {
             (result as any)[result.length - 1].content = result.answer;

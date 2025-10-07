@@ -14,3 +14,6 @@ export * from "./text2speech/index.ts";
 export * from 'aimodels';
 // Img
 export * from "./img/img.ts";
+
+// Agents
+export * from "./agents/index.ts";

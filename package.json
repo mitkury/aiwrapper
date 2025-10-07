@@ -42,6 +42,7 @@
     "pretest": "npm run build",
     "test": "vitest run",
     "test:basic-lang": "vitest run tests/basic-lang/*.test.ts",
+    "test:agents": "npm run build && vitest run tests/agents/*.test.ts",
     "test:img-in": "vitest run tests/img-in/*.test.ts",
     "test:reasoning": "vitest run tests/reasoning/*.test.ts",
     "test:openai": "TEST_PROVIDERS=openai vitest run tests/basic-lang/*.test.ts",

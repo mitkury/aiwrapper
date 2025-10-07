@@ -125,9 +125,8 @@ export class GoogleLang extends LanguageProvider {
           result.images.push({ url: p.fileData.fileUri, provider: this.name, model: this._model });
         }
         if (p.functionCall) {
-          if (!result.toolsRequested) result.toolsRequested = [] as any;
           const { name, args } = p.functionCall;
-          (result.toolsRequested as any).push({ id: name, name, arguments: args || {} });
+          result.addAssistantToolCalls([{ callId: name, name, arguments: args || {} }]);
         }
       }
 
