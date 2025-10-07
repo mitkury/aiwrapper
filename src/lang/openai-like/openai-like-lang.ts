@@ -56,6 +56,76 @@ export class OpenAILikeLang extends LanguageProvider {
     this._config = config;
   }
 
+  /** Normalize incoming messages to LangMessages while preserving availableTools if present */
+  private normalizeMessages(messages: LangMessage[] | LangMessages): LangMessages {
+    if (messages instanceof LangMessages) {
+      return messages;
+    }
+    const normalized = new LangMessages(messages);
+    if ((messages as any).availableTools) {
+      (normalized as any).availableTools = (messages as any).availableTools;
+    }
+    return normalized;
+  }
+
+  /** Decide how many tokens to request based on model info and optional limits */
+  private computeRequestMaxTokens(messageCollection: LangMessages): number {
+    if (this.modelInfo) {
+      return calculateModelResponseTokens(
+        this.modelInfo,
+        messageCollection,
+        this._config.maxTokens
+      );
+    }
+    return this._config.maxTokens || 4000;
+  }
+
+  /** Build OpenAI-like request body including tools and json schema toggles */
+  private buildRequestBody(
+    messageCollection: LangMessages,
+    isStreaming: boolean,
+    requestMaxTokens: number,
+    options?: LangOptions,
+  ): Record<string, unknown> {
+    const providerMessages = this.transformMessagesForProvider(messageCollection);
+    const base: Record<string, unknown> = {
+      model: this._config.model,
+      messages: providerMessages,
+      ...(isStreaming ? { stream: true } : {}),
+      max_tokens: requestMaxTokens,
+      ...this._config.bodyProperties,
+      ...(messageCollection.availableTools ? { tools: this.formatTools(messageCollection.availableTools) } : {}),
+      ...(options?.schema ? { response_format: { type: 'json_object' } } : {}),
+    };
+    return this.transformBody(base);
+  }
+
+  /** Build common request init for fetch */
+  private buildCommonRequest(isStreaming: boolean, body: Record<string, unknown>) {
+    return {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(isStreaming ? { "Accept": "text/event-stream" } : {}),
+        ...(this._config.apiKey ? { "Authorization": `Bearer ${this._config.apiKey}` } : {}),
+        ...this._config.headers,
+      },
+      body: JSON.stringify(body),
+      onError: async (res: Response, _error: Error): Promise<void> => {
+        if (res.status === 401) {
+          throw new Error(
+            "Authentication failed. Please check your credentials and try again.",
+          );
+        }
+        if (res.status === 400) {
+          const data = await res.text();
+          throw new Error(data);
+        }
+        // For other errors, let the default retry behavior handle it
+      },
+    } as const;
+  }
+
   static custom(options: {
     apiKey?: string;
     model: string;
@@ -118,83 +188,28 @@ export class OpenAILikeLang extends LanguageProvider {
     return false;
   }
 
-    async chat(
+   async chat(
      messages: LangMessage[] | LangMessages,
      options?: LangOptions,
    ): Promise<LangMessages> {
-    let messageCollection: LangMessages;
-    if (messages instanceof LangMessages) {
-      messageCollection = messages;
-    } else {
-      messageCollection = new LangMessages(messages);
-    }
-    
-    // CRITICAL FIX: If we created a new instance but the original had availableTools, preserve them
-    // Check if messages has availableTools property (regardless of instanceof due to module resolution issues)
-    if (messageCollection !== messages && (messages as any).availableTools) {
-      messageCollection.availableTools = (messages as any).availableTools;
-    }
-     
-     const onResult = options?.onResult;
- 
-     const requestMaxTokens = this.modelInfo 
-       ? calculateModelResponseTokens(
-           this.modelInfo,
-           messageCollection,
-           this._config.maxTokens
-         )
-       : this._config.maxTokens || 4000;
-       
-     if (this.supportsReasoning() && this._config.maxCompletionTokens === undefined) {
-       this._config.maxCompletionTokens = Math.max(requestMaxTokens, 25000);
-     }
-
-    const toolArgBuffers = new Map<string, { name: string; buffer: string }>();
-
-    const onData = (data: any) => {
-      this.handleStreamData(data, messageCollection, messageCollection, onResult, toolArgBuffers);
-    };
-
-    const providerMessages = this.transformMessagesForProvider(messageCollection);
-
+    const messageCollection = this.normalizeMessages(messages);
+    const onResult = options?.onResult;
     const isStreaming = typeof onResult === 'function';
 
-    const body = this.transformBody({
-      model: this._config.model,
-      messages: providerMessages,
-      ...(isStreaming ? { stream: true } : {}),
-      max_tokens: requestMaxTokens,
-      ...this._config.bodyProperties,
-      ...(messageCollection.availableTools ? { tools: this.formatTools(messageCollection.availableTools) } : {}),
-      ...(options?.schema ? { response_format: { type: 'json_object' } } : {}),
-    });
- 
-    const commonRequest = {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(isStreaming ? { "Accept": "text/event-stream" } : {}),
-        ...(this._config.apiKey ? { "Authorization": `Bearer ${this._config.apiKey}` } : {}),
-        ...this._config.headers,
-      },
-      body: JSON.stringify(body),
-      onError: async (res: Response, error: Error): Promise<void> => {
-        if (res.status === 401) {
-          throw new Error(
-            "Authentication failed. Please check your credentials and try again.",
-          );
-        }
+    const requestMaxTokens = this.computeRequestMaxTokens(messageCollection);
+    if (this.supportsReasoning() && this._config.maxCompletionTokens === undefined) {
+      this._config.maxCompletionTokens = Math.max(requestMaxTokens, 25000);
+    }
 
-        if (res.status === 400) {
-          const data = await res.text();
-          throw new Error(data);
-        }
-
-        // For other errors, let the default retry behavior handle it
-      },
-    } as const;
+    const body = this.buildRequestBody(messageCollection, isStreaming, requestMaxTokens, options);
+    const commonRequest = this.buildCommonRequest(isStreaming, body);
 
     if (isStreaming) {
+      const toolArgBuffers = new Map<string, { name: string; buffer: string }>();
+      const onData = (data: any) => {
+        this.handleStreamData(data, messageCollection, messageCollection, onResult, toolArgBuffers);
+      };
+
       const response = await fetch(`${this._config.baseURL}/chat/completions`, commonRequest as any).catch((err) => {
         throw new Error(err);
       });
@@ -210,16 +225,16 @@ export class OpenAILikeLang extends LanguageProvider {
           } catch {
           }
         }
-        
-        // Add tool calls as assistant messages
-        if (messageCollection.toolsRequested && messageCollection.toolsRequested.length > 0) {
-          const toolCallMessages = (messageCollection.toolsRequested as any).map((tc: any) => ({
-            callId: tc.id,
-            name: tc.name,
-            arguments: tc.arguments
-          }));
-          messageCollection.addAssistantToolCalls(toolCallMessages);
-        }
+      }
+
+      // Add tool calls as assistant messages
+      if (messageCollection.toolsRequested && messageCollection.toolsRequested.length > 0) {
+        const toolCallMessages = (messageCollection.toolsRequested as any).map((tc: any) => ({
+          callId: tc.id,
+          name: tc.name,
+          arguments: tc.arguments
+        }));
+        messageCollection.addAssistantToolCalls(toolCallMessages);
       }
 
       messageCollection.finished = true;
