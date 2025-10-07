@@ -241,7 +241,6 @@ export class OpenAIResponsesLang extends LanguageProvider {
         }
         break;
 
-      // @TODO: why 3 of them with the same handling?
       case 'function_call':
       case 'tool':
       case 'tool_call':
@@ -257,6 +256,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
         break;
       case 'output_image':
         break;
+      // @TODO: this is what we send. Let's remove all "output" from this switch?
       case 'computer_call_output':
         break;
       case 'function_call_output':

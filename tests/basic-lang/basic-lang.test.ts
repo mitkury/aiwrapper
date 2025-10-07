@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { LangMessages, LangOptions, LanguageProvider } from '../../dist/index.js';
+import { LangMessages, LangOptions, LanguageProvider, ToolRequest, ToolResult } from '../../dist/index.js';
 import { createLangTestRunner, printAvailableProviders } from '../utils/lang-gatherer.js';
 
 // Show available providers for debugging
@@ -38,14 +38,14 @@ async function runTest(lang: LanguageProvider) {
     // Last message should be tool-results
     expect(lastMessage.role).toBe('tool-results');
     expect(Array.isArray(lastMessage.content)).toBe(true);
-    const toolResult = lastMessage.content[0];
+    const toolResult = lastMessage.content[0] as ToolResult;
     expect(toolResult.toolId).toBeDefined();
     expect(toolResult.result).toBe(3131);
 
     // Second to last message should be tool request
     expect(secondLastMessage.role).toBe('tool');
     expect(Array.isArray(secondLastMessage.content)).toBe(true);
-    const toolCall = secondLastMessage.content[0];
+    const toolCall = secondLastMessage.content[0] as ToolRequest;
     expect(toolCall.callId).toBeDefined();
     expect(toolCall.name).toBe('get_random_number');
     expect(toolCall.arguments).toBeDefined();

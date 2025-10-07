@@ -1,16 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { LanguageProvider, ChatAgent } from '../../dist/index.js';
-import { createLangTestRunner, printAvailableProviders } from '../utils/lang-gatherer.js';
-
-// Show available providers for debugging
-//printAvailableProviders({ providers: ['openai'] });
+import { createLangTestRunner } from '../utils/lang-gatherer.js';
 
 describe('ChatAgent', () => {
-  createLangTestRunner(runTest, { providers: ['openrouter'] });
+  createLangTestRunner(runTest, { providers: ['anthropic'] });
 });
 
 async function runTest(lang: LanguageProvider) {
-  /*
+ 
   it('should handle single message', async () => {
     console.log('Testing single message');
     
@@ -111,7 +108,6 @@ async function runTest(lang: LanguageProvider) {
     
     console.log('✅ Event subscription test passed');
   });
-  */
 
   it('should handle tool calling', async () => {
     console.log('Testing tool calling');
@@ -148,6 +144,109 @@ async function runTest(lang: LanguageProvider) {
     expect(result!.answer).toContain('3131');
 
     console.log('✅ Tool calling test passed - tool was used correctly');
+  });
+
+  it('should handle multiple sequential tool calls', async () => {
+    console.log('Testing multiple sequential tool calls');
+
+    const agent = new ChatAgent(lang, {
+      tools: [
+        {
+          name: 'send_email',
+          description: 'Send an email to a recipient with a subject and message',
+          parameters: {
+            type: 'object',
+            properties: {
+              to: { type: 'string', description: 'Email recipient' },
+              subject: { type: 'string', description: 'Email subject line' },
+              message: { type: 'string', description: 'Email message content' }
+            },
+            required: ['to', 'subject', 'message']
+          },
+          handler: (args: any) => ({
+            email_id: 'email_12345',
+            status: 'sent',
+            to: args.to,
+            subject: args.subject,
+            timestamp: new Date().toISOString()
+          })
+        },
+        {
+          name: 'wait_for_response',
+          description: 'Wait for and retrieve a response to a previously sent email',
+          parameters: {
+            type: 'object',
+            properties: {
+              email_id: { type: 'string', description: 'ID of the email to wait for response to' }
+            },
+            required: ['email_id']
+          },
+          handler: (args: any) => ({
+            email_id: args.email_id,
+            response_received: true,
+            from: 'dev-team@company.com',
+            subject: 'Re: Critical Bug Report - BUG-2024-001',
+            message: 'We have investigated the issue. Please check the bug tracking system: https://bugs.company.com/BUG-2024-001',
+            timestamp: new Date().toISOString()
+          })
+        },
+        {
+          name: 'read_url',
+          description: 'Read and parse content from a URL',
+          parameters: {
+            type: 'object',
+            properties: {
+              url: { type: 'string', description: 'URL to read content from' }
+            },
+            required: ['url']
+          },
+          handler: (args: any) => {
+            if (args.url?.includes('bugs.company.com')) {
+              return {
+                url: args.url,
+                title: 'Bug Report BUG-2024-001',
+                status: 'In Progress',
+                priority: 'Critical',
+                assigned_to: 'John Smith',
+                description: 'Database connection timeout causing 500 errors',
+                last_updated: '2024-01-15T14:30:00Z',
+                estimated_resolution: '2024-01-16T10:00:00Z'
+              };
+            }
+            return {
+              url: args.url,
+              title: 'Page not found (404)',
+              content: 'The page you are looking for does not exist',
+              timestamp: new Date().toISOString()
+            };
+          }
+        }
+      ]
+    });
+
+    const result = await agent.run({
+      role: 'user',
+      content: 'Follow up on the critical bug report. Send an email to dev-team@company.com, wait for their status update, then read the bug tracking URL they provide and summarize the current resolution status.'
+    });
+
+    expect(result).toBeDefined();
+
+    // Check conversation for multiple tool calls
+    const conversation = agent.getConversation();
+    console.log(`Conversation length: ${conversation.length}`);
+    console.log(`Final answer: "${result!.answer}"`);
+
+    // Count tool result messages
+    const toolResultMessages = conversation.filter(msg => msg.role === 'tool-results');
+    console.log(`Tool result messages: ${toolResultMessages.length}`);
+
+    // Should have multiple tool calls (at least 3 for send_email, wait_for_response, read_url)
+    expect(toolResultMessages.length).toBeGreaterThanOrEqual(3);
+
+    // Verify the answer contains information from the final tool call
+    expect(result!.answer.toLowerCase()).toMatch(/in progress|critical|john smith|database|timeout/i);
+
+    console.log('✅ Multiple sequential tool calls test passed');
   });
 }
 
