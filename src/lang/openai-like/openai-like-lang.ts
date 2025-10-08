@@ -207,14 +207,25 @@ export class OpenAILikeLang extends LanguageProvider {
 
       await processResponseStream(response, onData);
 
-      if ((result as any)._hasPendingToolArgs && toolArgBuffers.size > 0) {
+      // Convert accumulated tool arguments from buffers into tool call messages
+      if (toolArgBuffers.size > 0) {
+        const toolCallMessages: any[] = [];
         for (const [id, acc] of toolArgBuffers) {
-          const entry = result.toolsRequested?.find(t => (t as any).id === id);
-          if (!entry) continue;
+          let parsedArgs = {};
           try {
-            (entry as any).arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
+            parsedArgs = acc.buffer ? JSON.parse(acc.buffer) : {};
           } catch {
           }
+          toolCallMessages.push({
+            callId: id,
+            name: acc.name,
+            arguments: parsedArgs
+          });
+        }
+        
+        // Add tool calls as assistant messages
+        if (toolCallMessages.length > 0) {
+          result.addAssistantToolCalls(toolCallMessages);
         }
       }
 
@@ -465,6 +476,8 @@ export class OpenAILikeLang extends LanguageProvider {
         result[result.length - 1].role === "assistant") {
         result[result.length - 1].content = result.answer;
       } else if (result.answer) {
+        // Only add assistant message if there's actual content
+        // Tool calls will be added separately after streaming completes
         result.push({
           role: "assistant",
           content: result.answer,
