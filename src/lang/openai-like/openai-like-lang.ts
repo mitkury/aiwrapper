@@ -56,6 +56,64 @@ export class OpenAILikeLang extends LanguageProvider {
     this._config = config;
   }
 
+  /** Decide how many tokens to request based on model info and optional limits */
+  private computeRequestMaxTokens(messageCollection: LangMessages): number {
+    if (this.modelInfo) {
+      return calculateModelResponseTokens(
+        this.modelInfo,
+        messageCollection,
+        this._config.maxTokens
+      );
+    }
+    return this._config.maxTokens || 4000;
+  }
+
+  /** Build OpenAI-like request body including tools and json schema toggles */
+  private buildRequestBody(
+    messageCollection: LangMessages,
+    isStreaming: boolean,
+    requestMaxTokens: number,
+    options?: LangOptions,
+  ): Record<string, unknown> {
+    const providerMessages = this.transformMessagesForProvider(messageCollection);
+    const base: Record<string, unknown> = {
+      model: this._config.model,
+      messages: providerMessages,
+      ...(isStreaming ? { stream: true } : {}),
+      max_tokens: requestMaxTokens,
+      ...this._config.bodyProperties,
+      ...(messageCollection.availableTools ? { tools: this.formatTools(messageCollection.availableTools) } : {}),
+      ...(options?.schema ? { response_format: { type: 'json_object' } } : {}),
+    };
+    return this.transformBody(base);
+  }
+
+  /** Build common request init for fetch */
+  private buildCommonRequest(isStreaming: boolean, body: Record<string, unknown>) {
+    return {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(isStreaming ? { "Accept": "text/event-stream" } : {}),
+        ...(this._config.apiKey ? { "Authorization": `Bearer ${this._config.apiKey}` } : {}),
+        ...this._config.headers,
+      },
+      body: JSON.stringify(body),
+      onError: async (res: Response, _error: Error): Promise<void> => {
+        if (res.status === 401) {
+          throw new Error(
+            "Authentication failed. Please check your credentials and try again.",
+          );
+        }
+        if (res.status === 400) {
+          const data = await res.text();
+          throw new Error(data);
+        }
+        // For other errors, let the default retry behavior handle it
+      },
+    } as const;
+  }
+
   static custom(options: {
     apiKey?: string;
     model: string;
@@ -118,116 +176,54 @@ export class OpenAILikeLang extends LanguageProvider {
     return false;
   }
 
-    async chat(
-     messages: LangMessage[] | LangMessages,
-     options?: LangOptions,
-   ): Promise<LangMessages> {
-    let messageCollection: LangMessages;
-    if (messages instanceof LangMessages) {
-      messageCollection = messages;
-    } else {
-      messageCollection = new LangMessages(messages);
-    }
-    
-    // CRITICAL FIX: If we created a new instance but the original had availableTools, preserve them
-    // Check if messages has availableTools property (regardless of instanceof due to module resolution issues)
-    if (messageCollection !== messages && (messages as any).availableTools) {
-      messageCollection.availableTools = (messages as any).availableTools;
-    }
-     
-     const onResult = options?.onResult;
- 
-     const requestMaxTokens = this.modelInfo 
-       ? calculateModelResponseTokens(
-           this.modelInfo,
-           messageCollection,
-           this._config.maxTokens
-         )
-       : this._config.maxTokens || 4000;
-       
-     if (this.supportsReasoning() && this._config.maxCompletionTokens === undefined) {
-       this._config.maxCompletionTokens = Math.max(requestMaxTokens, 25000);
-     }
+  async chat(
+    messages: LangMessage[] | LangMessages,
+    options?: LangOptions,
+  ): Promise<LangMessages> {
+    const result = messages instanceof LangMessages
+      ? messages
+      : new LangMessages(messages);
 
-    const toolArgBuffers = new Map<string, { name: string; buffer: string }>();
-
-    const onData = (data: any) => {
-      this.handleStreamData(data, messageCollection, messageCollection, onResult, toolArgBuffers);
-    };
-
-    const providerMessages = this.transformMessagesForProvider(messageCollection);
-
+    const onResult = options?.onResult;
     const isStreaming = typeof onResult === 'function';
 
-    const body = this.transformBody({
-      model: this._config.model,
-      messages: providerMessages,
-      ...(isStreaming ? { stream: true } : {}),
-      max_tokens: requestMaxTokens,
-      ...this._config.bodyProperties,
-      ...(messageCollection.availableTools ? { tools: this.formatTools(messageCollection.availableTools) } : {}),
-      ...(options?.schema ? { response_format: { type: 'json_object' } } : {}),
-    });
- 
-    const commonRequest = {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(isStreaming ? { "Accept": "text/event-stream" } : {}),
-        ...(this._config.apiKey ? { "Authorization": `Bearer ${this._config.apiKey}` } : {}),
-        ...this._config.headers,
-      },
-      body: JSON.stringify(body),
-      onError: async (res: Response, error: Error): Promise<void> => {
-        if (res.status === 401) {
-          throw new Error(
-            "Authentication failed. Please check your credentials and try again.",
-          );
-        }
+    const requestMaxTokens = this.computeRequestMaxTokens(result);
+    if (this.supportsReasoning() && this._config.maxCompletionTokens === undefined) {
+      this._config.maxCompletionTokens = Math.max(requestMaxTokens, 25000);
+    }
 
-        if (res.status === 400) {
-          const data = await res.text();
-          throw new Error(data);
-        }
-
-        // For other errors, let the default retry behavior handle it
-      },
-    } as const;
+    const body = this.buildRequestBody(result, isStreaming, requestMaxTokens, options);
+    const commonRequest = this.buildCommonRequest(isStreaming, body);
 
     if (isStreaming) {
+      const toolArgBuffers = new Map<string, { name: string; buffer: string }>();
+      const onData = (data: any) => {
+        this.handleStreamData(data, result, result, onResult, toolArgBuffers);
+      };
+
       const response = await fetch(`${this._config.baseURL}/chat/completions`, commonRequest as any).catch((err) => {
         throw new Error(err);
       });
 
       await processResponseStream(response, onData);
 
-      if ((messageCollection as any)._hasPendingToolArgs && toolArgBuffers.size > 0) {
+      if ((result as any)._hasPendingToolArgs && toolArgBuffers.size > 0) {
         for (const [id, acc] of toolArgBuffers) {
-          const entry = messageCollection.toolsRequested?.find(t => (t as any).id === id);
+          const entry = result.toolsRequested?.find(t => (t as any).id === id);
           if (!entry) continue;
           try {
             (entry as any).arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
           } catch {
           }
         }
-        
-        // Add tool calls as assistant messages
-        if (messageCollection.toolsRequested && messageCollection.toolsRequested.length > 0) {
-          const toolCallMessages = (messageCollection.toolsRequested as any).map((tc: any) => ({
-            callId: tc.id,
-            name: tc.name,
-            arguments: tc.arguments
-          }));
-          messageCollection.addAssistantToolCalls(toolCallMessages);
-        }
       }
 
-      messageCollection.finished = true;
+      result.finished = true;
 
-      // Automatically execute tools if assistant made tool calls
-      await messageCollection.executeRequestedTools();
+      // Automatically execute tools if the assistant requested them
+      await result.executeRequestedTools();
 
-      return messageCollection;
+      return result;
     }
 
     const response = await fetch(`${this._config.baseURL}/chat/completions`, commonRequest as any).catch((err) => {
@@ -235,13 +231,6 @@ export class OpenAILikeLang extends LanguageProvider {
     });
 
     const data: any = await response.json();
-    try {
-      const dbg = (typeof process !== 'undefined' && process?.env?.DEBUG_OPENAI_TOOLS) || '';
-      if (dbg === '1' || dbg === 'true') {
-        const preview = JSON.stringify(data);
-        console.log('[OpenAILike][nonstream-response]', preview.length > 4000 ? preview.slice(0, 4000) + '…' : preview);
-      }
-    } catch {}
     const choice = data?.choices?.[0];
     const msg = choice?.message;
 
@@ -261,9 +250,9 @@ export class OpenAILikeLang extends LanguageProvider {
         }
         toolCallMessages.push({ callId: id, name, arguments: parsedArgs });
       }
-      
+
       // Add tool calls as assistant messages
-      messageCollection.addAssistantToolCalls(toolCallMessages);
+      result.addAssistantToolCalls(toolCallMessages);
     }
     let accumulated = '';
 
@@ -276,29 +265,29 @@ export class OpenAILikeLang extends LanguageProvider {
         } else if (part?.type === 'text' && typeof part.text === 'string') {
           accumulated += part.text;
         } else if (part?.type === 'image_url' && part.image_url?.url) {
-          messageCollection.images = messageCollection.images || [];
-          messageCollection.images.push({ url: part.image_url.url, provider: this.name, model: this._config.model });
+          result.images = result.images || [];
+          result.images.push({ url: part.image_url.url, provider: this.name, model: this._config.model });
         } else if ((part?.type === 'output_image' || part?.type === 'inline_data') && (part.b64_json || part.data)) {
           const base64 = part.b64_json || part.data;
           const mimeType = part.mime_type || part.mimeType || 'image/png';
-          messageCollection.images = messageCollection.images || [];
-          messageCollection.images.push({ base64, mimeType, provider: this.name, model: this._config.model });
+          result.images = result.images || [];
+          result.images.push({ base64, mimeType, provider: this.name, model: this._config.model });
         }
       }
     }
 
     if (accumulated) {
-      messageCollection.answer = accumulated;
-      messageCollection.addAssistantMessage(messageCollection.answer);
+      result.answer = accumulated;
+      result.addAssistantMessage(result.answer);
     }
 
-    messageCollection.finished = true;
+    result.finished = true;
 
-    // Automatically execute tools if assistant made tool calls
-    await messageCollection.executeRequestedTools();
+    // Automatically execute tools if the assistant requested them
+    await result.executeRequestedTools();
 
-    return messageCollection;
-   }
+    return result;
+  }
 
   protected formatTools(tools: ToolWithHandler[]): any[] {
     return tools.map(tool => ({
@@ -391,7 +380,7 @@ export class OpenAILikeLang extends LanguageProvider {
   }
 
   protected handleStreamData(
-    data: any, 
+    data: any,
     result: LangMessages,
     messages: LangMessages,
     onResult?: (result: LangMessages) => void,
@@ -416,7 +405,7 @@ export class OpenAILikeLang extends LanguageProvider {
 
     if (data.choices !== undefined) {
       const delta = data.choices[0].delta;
-      
+
       if (delta.content) {
         if (typeof delta.content === 'string') {
           result.answer += delta.content;
@@ -438,7 +427,7 @@ export class OpenAILikeLang extends LanguageProvider {
           }
         }
       }
-      
+
       if (delta.tool_calls) {
         (result as any)._hasPendingToolArgs = true;
 
@@ -472,8 +461,8 @@ export class OpenAILikeLang extends LanguageProvider {
         }
       }
 
-      if (result.length > 0 && 
-          result[result.length - 1].role === "assistant") {
+      if (result.length > 0 &&
+        result[result.length - 1].role === "assistant") {
         result[result.length - 1].content = result.answer;
       } else if (result.answer) {
         result.push({

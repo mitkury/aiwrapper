@@ -36,8 +36,6 @@ export type LangImageOutput = {
  * Options that can be passed to language model methods
  */
 export interface LangOptions {
-  tools?: ToolWithHandler[];
-
   schema?: Schema;
   
   // Streaming callback

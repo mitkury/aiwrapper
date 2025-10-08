@@ -301,7 +301,7 @@ export class AnthropicLang extends LanguageProvider {
 
       await processResponseStream(response, onData);
 
-      // Automatically execute tools if assistant made tool calls
+      // Automatically execute tools if the assistant requested them
       await result.executeRequestedTools();
 
       return result;
@@ -342,7 +342,7 @@ export class AnthropicLang extends LanguageProvider {
     }
     result.finished = true;
 
-    // Automatically execute tools if assistant made tool calls
+    // Automatically execute tools if the assistant requested them
     await result.executeRequestedTools();
 
     return result;
