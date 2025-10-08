@@ -15,7 +15,7 @@ Tests that verify reasoning detection and streaming work across AI providers.
 npm run test:reasoning
 
 # Run for specific provider
-TEST_PROVIDERS=deepseek npm run test:reasoning
+PROVIDERS=deepseek npm run test:reasoning
 ```
 
 ## What You'll See

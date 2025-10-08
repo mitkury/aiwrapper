@@ -34,7 +34,7 @@ export interface LangGathererOptions {
  */
 function getProviderFilters(): string[] {
   // First check environment variable
-  const envProviders = process.env.TEST_PROVIDERS;
+  const envProviders = process.env.PROVIDERS;
   if (envProviders) {
     return envProviders.split(',').map(p => p.trim().toLowerCase());
   }
@@ -61,11 +61,9 @@ function getProviderFilters(): string[] {
 export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider[] {
   // Check for provider filters
   const providerFilters = getProviderFilters();
-  const useProviderFilter = providerFilters.length > 0;
   
   const {
     includeOpenAI = true,
-    includeOpenAIResponses = true,
     includeOpenRouter = true,
     includeAnthropic = true,
     includeDeepSeek = true,
@@ -84,7 +82,7 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
   };
 
   // OpenAI
-  if (includeOpenAIResponses && process.env.OPENAI_API_KEY && shouldIncludeProvider('openai')) {
+  if (includeOpenAI && process.env.OPENAI_API_KEY && shouldIncludeProvider('openai')) {
     langs.push(Lang.openai({
       apiKey: process.env.OPENAI_API_KEY as string,
       model: modelOverrides.openaiResponses || 'gpt-5-nano'

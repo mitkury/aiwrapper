@@ -298,10 +298,10 @@ When publishing, follow these steps in order:
     "test:agents": "npm run build && vitest run tests/agents/*.test.ts",
     "test:img-in": "vitest run tests/img-in/*.test.ts",
     "test:reasoning": "vitest run tests/reasoning/*.test.ts",
-    "test:openai": "TEST_PROVIDERS=openai vitest run tests/basic-lang/*.test.ts",
-    "test:anthropic": "TEST_PROVIDERS=anthropic vitest run tests/basic-lang/*.test.ts",
-    "test:deepseek": "TEST_PROVIDERS=deepseek vitest run tests/basic-lang/*.test.ts",
-    "test:openrouter": "TEST_PROVIDERS=openrouter vitest run tests/basic-lang/*.test.ts"
+    "test:openai": "PROVIDERS=openai vitest run tests/basic-lang/*.test.ts",
+    "test:anthropic": "PROVIDERS=anthropic vitest run tests/basic-lang/*.test.ts",
+    "test:deepseek": "PROVIDERS=deepseek vitest run tests/basic-lang/*.test.ts",
+    "test:openrouter": "PROVIDERS=openrouter vitest run tests/basic-lang/*.test.ts"
   },
   "dependencies": {
     "aimodels": "^0.4.15",
