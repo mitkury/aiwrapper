@@ -9,7 +9,13 @@ export type ChatOutput = {
   messages: LangMessage[];
 };
 
-export class ChatAgent extends Agent<ChatInput, ChatOutput> {
+// Custom streaming event type
+export interface ChatStreamingEvent {
+  type: "streaming";
+  data: LangMessages;
+}
+
+export class ChatAgent extends Agent<ChatInput, ChatOutput, ChatStreamingEvent> {
   private lang: LanguageProvider;
   private messages: LangMessages;
   private tools?: ToolWithHandler[];
@@ -18,7 +24,7 @@ export class ChatAgent extends Agent<ChatInput, ChatOutput> {
     super();
     this.lang = languageProvider;
     this.tools = options?.tools;
-    
+
     // Create conversation history with tools if provided
     this.messages = new LangMessages([], {
       tools: this.tools,
@@ -39,16 +45,18 @@ export class ChatAgent extends Agent<ChatInput, ChatOutput> {
 
     // Agentic loop. Will go in multiple cicles if it is using tools.
     while (true) {
-      // Get response from language provider (tools are already set in conversationHistory)
-      const response = await this.lang.chat(this.messages);
+      const response = await this.lang.chat(this.messages, {
+        onResult: (result) => {
+          this.emit({ type: "streaming", data: result });
+        }
+      });
 
       // Update conversation history with the complete response
-      // The response contains all messages including tool calls and results
-      // But we need to preserve the availableTools since response might not have them
+      // @TODO: how about openai responses that may contain only the latest answers (without the whole history)? Is it ok if we don't get them all?
       this.messages = response;
 
       // We continue the loop if the last message is a tool results.
-      // In that case, we need to get the model's response to the tool results.
+      // In that case, we need to get the model's response, so we continue the loop.
       const lastMessage = this.messages[this.messages.length - 1];
       const lastMessageHasToolResults = lastMessage && lastMessage.role === 'tool-results';
       if (!lastMessageHasToolResults) {

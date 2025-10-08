@@ -3,7 +3,7 @@ import { LanguageProvider, ChatAgent } from '../../dist/index.js';
 import { createLangTestRunner } from '../utils/lang-gatherer.js';
 
 describe('ChatAgent', () => {
-  createLangTestRunner(runTest, { providers: ['anthropic', 'openrouter', 'openai'] });
+  createLangTestRunner(runTest);
 });
 
 async function runTest(lang: LanguageProvider) {
@@ -106,6 +106,48 @@ async function runTest(lang: LanguageProvider) {
     unsubscribe();
 
     console.log('✅ Event subscription test passed');
+  });
+
+  it('should emit streaming events', async () => {
+    console.log('Testing streaming events');
+
+    const agent = new ChatAgent(lang);
+    const streamingEvents: any[] = [];
+    
+    const unsubscribe = agent.subscribe(event => {
+      if (event.type === 'streaming') {
+        streamingEvents.push(event);
+      }
+    });
+
+    const result = await agent.run({
+      role: 'user',
+      content: 'Introduce yourself in 140 characters'
+    });
+
+    // Should have received streaming events
+    expect(streamingEvents.length).toBeGreaterThan(0);
+    console.log(`Received ${streamingEvents.length} streaming events`);
+
+    // Each streaming event should have the correct structure
+    for (const event of streamingEvents) {
+      expect(event.type).toBe('streaming');
+      expect(event.data).toBeDefined();
+      expect(event.data.answer).toBeDefined();
+      expect(typeof event.data.answer).toBe('string');
+    }
+
+    // The streaming events should build up progressively
+    const answers = streamingEvents.map(e => e.data.answer);
+    console.log(`Streaming progression: ${answers.length} updates`);
+    
+    // Final streaming answer should match or be close to the final result
+    const lastStreamingAnswer = answers[answers.length - 1];
+    expect(result!.answer).equals(lastStreamingAnswer);
+
+    unsubscribe();
+
+    console.log('✅ Streaming events test passed');
   });
 
   it('should handle tool calling', async () => {
