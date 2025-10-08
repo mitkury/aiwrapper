@@ -63,7 +63,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
     const inputConfig = this.prepareInputForResponses(messageCollection);
     const providedTools: ToolWithHandler[] = (
       messageCollection.availableTools as ToolWithHandler[]
-    ) || (options?.tools as ToolWithHandler[]) || [];
+    ) || [];
 
     // Enable streaming if onResult callback is provided
     const stream = typeof options?.onResult === 'function';
@@ -180,7 +180,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
 
       result.finished = true;
 
-      // Automatically execute tools if assistant made tool calls
+      // Automatically execute tools if the assistant requested them
       await result.executeRequestedTools();
 
       return result;
@@ -210,7 +210,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
 
     result.finished = true;
 
-    // Automatically execute tools if assistant made tool calls
+    // Automatically execute tools if the assistant requested them
     await result.executeRequestedTools();
 
     return result;
