@@ -72,6 +72,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
 
     const body = {
       model: this._model,
+      ...(messageCollection.instructions ? { instructions: messageCollection.instructions } : {}),
       ...inputConfig,
       ...(typeof (options as any)?.maxTokens === 'number' ? { max_output_tokens: (options as any).maxTokens } : {}),
       ...(stream ? { stream: true } : {}),

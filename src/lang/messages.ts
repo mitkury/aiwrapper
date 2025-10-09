@@ -60,12 +60,11 @@ export class LangMessages extends Array<LangMessage> {
   // Merged result fields
   answer: string = "";
   object: any | null = null;
-  // Requested tool calls from the provider (normalized)
-  tools?: Array<{ id: string; name: string; arguments: Record<string, any> }>;
   finished: boolean = false;
   thinking?: string;
   validationErrors: string[] = [];
   images?: LangImageOutput[];
+  instructions?: string;
 
   constructor();
   constructor(initialPrompt: string, opts?: { tools?: ToolWithHandler[] });

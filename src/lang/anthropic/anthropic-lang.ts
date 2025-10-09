@@ -79,16 +79,22 @@ export class AnthropicLang extends LanguageProvider {
       : new LangMessages(messages);
 
     const processedMessages: any[] = [];
-    let systemContent = '';
+    const systemContent: string[] = [];
 
-    for (const message of messageCollection as any) {
-      if ((message as any).role === "system") {
-        systemContent += (message as any).content + '\n';
+    if (messageCollection.instructions) {
+      systemContent.push(messageCollection.instructions);
+    }
+
+    for (const message of messageCollection) {
+      // We don't include "system" messages in the processed messages and instead edit the system content
+      if (message.role === "system") {
+        systemContent.push(message.content as string);
       } else {
         processedMessages.push(message);
       }
     }
 
+    const system = systemContent.join('\n\n');
     const providerMessages = this.transformMessagesForProvider(processedMessages as any);
 
     const modelInfo = models.id(this._config.model);
@@ -263,7 +269,7 @@ export class AnthropicLang extends LanguageProvider {
       model: this._config.model,
       messages: providerMessages,
       max_tokens: requestMaxTokens,
-      system: systemContent,
+      system,
       ...(isStreaming ? { stream: true } : {}),
       ...(tools ? { tools } : {}),
       // Note: extended_thinking parameter is not yet supported by the API

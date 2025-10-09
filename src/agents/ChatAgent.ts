@@ -51,12 +51,10 @@ export class ChatAgent extends Agent<ChatInput, ChatOutput, ChatStreamingEvent> 
         }
       });
 
-      // Update conversation history with the complete response
-      // @TODO: how about openai responses that may contain only the latest answers (without the whole history)? Is it ok if we don't get them all?
+      // Update conversation history with the complete response.
       this.messages = response;
 
-      // We continue the loop if the last message is a tool results.
-      // In that case, we need to get the model's response, so we continue the loop.
+      // We continue the loop if the last message is a tool usage results.
       const lastMessage = this.messages[this.messages.length - 1];
       const lastMessageHasToolResults = lastMessage && lastMessage.role === 'tool-results';
       if (!lastMessageHasToolResults) {

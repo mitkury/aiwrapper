@@ -118,4 +118,12 @@ async function runTest(lang: LanguageProvider) {
     expect(typeof res.object).toBe('object');
     expect(res.object?.name).toBeDefined();
   });
+
+  it('should follow instructions', async () => {
+    const messages = new LangMessages();
+    messages.addUserMessage('What is the capital of France?');
+    messages.instructions = 'The first word of your respond MUST be "GOT IT"';
+    const res = await lang.chat(messages);
+    expect(res.answer.toLocaleLowerCase()).toContain('got it');
+  });
 }

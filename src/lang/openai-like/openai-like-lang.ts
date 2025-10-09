@@ -312,9 +312,8 @@ export class OpenAILikeLang extends LanguageProvider {
   }
 
   protected transformMessagesForProvider(messages: LangMessages): any[] {
-    const arr = messages instanceof Array ? messages : [...messages];
     const out: any[] = [];
-    for (const msg of arr) {
+    for (const msg of messages) {
       if (msg.role === "tool") {
         // Treat 'tool' role here as assistant tool_calls (requested by AI)
         const contentAny = msg.content as any;
@@ -354,6 +353,12 @@ export class OpenAILikeLang extends LanguageProvider {
       }
       out.push(msg);
     }
+
+    // Add instructions as the first system message
+    if (messages.instructions) {
+      out.unshift({ role: "system", content: messages.instructions });
+    }
+
     return out;
   }
 
