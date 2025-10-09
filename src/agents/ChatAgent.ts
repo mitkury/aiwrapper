@@ -1,5 +1,5 @@
 import { Agent } from "./agent.ts";
-import type { LanguageProvider, LangOptions } from "../lang/language-provider.ts";
+import type { LanguageProvider } from "../lang/language-provider.ts";
 import { LangMessages } from "../lang/messages.ts";
 import type { LangMessage, ToolWithHandler } from "../lang/messages.ts";
 

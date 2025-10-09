@@ -54,9 +54,6 @@ export type ToolWithHandler = {
 export class LangMessages extends Array<LangMessage> {
   availableTools?: ToolWithHandler[];
 
-  // @TODO: add instructions that will be automatically added to the start of the messages 
-  // as "system" message or "instructions" in the openai responses
-
   // Merged result fields
   answer: string = "";
   object: any | null = null;
