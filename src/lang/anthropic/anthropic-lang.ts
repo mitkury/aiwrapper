@@ -18,6 +18,13 @@ type AnthropicTool = {
   input_schema: Record<string, any>;
 };
 
+type StreamState = {
+  isReceivingThinking: boolean;
+  thinkingContent: string;
+  toolCalls: Array<{ id: string; name: string; arguments: any }>;
+  pendingToolInputs: Map<string, { name: string; buffer: string }>;
+};
+
 export type AnthropicLangOptions = {
   apiKey: string;
   model?: string;
@@ -78,193 +85,12 @@ export class AnthropicLang extends LanguageProvider {
       ? messages
       : new LangMessages(messages);
 
-    const processedMessages: any[] = [];
-    const systemContent: string[] = [];
-
-    if (messageCollection.instructions) {
-      systemContent.push(messageCollection.instructions);
-    }
-
-    for (const message of messageCollection) {
-      // We don't include "system" messages in the processed messages and instead edit the system content
-      if (message.role === "system") {
-        systemContent.push(message.content as string);
-      } else {
-        processedMessages.push(message);
-      }
-    }
-
-    const system = systemContent.join('\n\n');
-    const providerMessages = this.transformMessagesForProvider(processedMessages as any);
-
-    const modelInfo = models.id(this._config.model);
-    if (!modelInfo) {
-      throw new Error(`Model info not found for ${this._config.model}`);
-    }
-
-    const requestMaxTokens = calculateModelResponseTokens(
-      modelInfo,
-      processedMessages,
-      this._config.maxTokens
-    );
-
-    let isReceivingThinking = false;
-    let thinkingContent = "";
-    const pendingToolInputs = new Map<string, { name: string; buffer: string }>();
-
-    const onResult = options?.onResult;
-    const isStreaming = typeof onResult === 'function';
+    const { system, providerMessages, requestMaxTokens, tools } = 
+      this.prepareRequest(messageCollection);
 
     const result = messageCollection;
+    const isStreaming = typeof options?.onResult === 'function';
 
-    const onData = (data: any) => {
-      if (data.type === "message_stop") {
-        if (result.toolsRequested && result.toolsRequested.length > 0) {
-          for (const [id, acc] of pendingToolInputs) {
-            const entry = (result.toolsRequested as any).find((t: any) => t.id === id);
-            if (!entry) continue;
-            try {
-              (entry as any).arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
-            } catch {}
-          }
-        }
-        result.thinking = thinkingContent;
-        result.finished = true;
-
-        // Add tool calls as assistant messages if any were detected
-        if (result.toolsRequested && result.toolsRequested.length > 0) {
-          const toolCallMessages = (result.toolsRequested as any).map((tc: any) => ({
-            callId: tc.id,
-            id: tc.id,
-            name: tc.name,
-            arguments: tc.arguments
-          }));
-          result.addAssistantToolCalls(toolCallMessages);
-        }
-
-        onResult?.(result as any);
-        return;
-      }
-
-      if (data.type === "content_block_start" && data.content_block?.type === "tool_use") {
-        const id = data.content_block?.id;
-        const name = data.content_block?.name || '';
-        pendingToolInputs.set(id, { name, buffer: '' });
-        return;
-      }
-
-      if (data.type === "content_block_delta") {
-        if (data.delta?.type === "thinking_delta" && data.delta.thinking) {
-          isReceivingThinking = true;
-          thinkingContent += data.delta.thinking;
-          result.thinking = thinkingContent;
-          onResult?.(result as any);
-          return;
-        }
-
-        const toolUseId = data.content_block_id;
-        if (toolUseId && pendingToolInputs.has(toolUseId)) {
-          const acc = pendingToolInputs.get(toolUseId)!;
-          if (typeof data.delta?.partial_json === 'string') {
-            acc.buffer += data.delta.partial_json;
-            try {
-              const parsed = JSON.parse(acc.buffer);
-              const entry = (result.toolsRequested as any)?.find((t: any) => t.id === toolUseId);
-              if (entry) (entry as any).arguments = parsed;
-            } catch {}
-            return;
-          }
-          if (data.delta?.input_json_delta && typeof data.delta.input_json_delta === 'string') {
-            acc.buffer += data.delta.input_json_delta;
-            try {
-              const parsed = JSON.parse(acc.buffer);
-              const entry = (result.toolsRequested as any)?.find((t: any) => t.id === toolUseId);
-              if (entry) (entry as any).arguments = parsed;
-            } catch {}
-            return;
-          }
-          if (data.delta?.text) {
-            acc.buffer += data.delta.text;
-            return;
-          }
-        }
-
-        const deltaContent = data.delta.text ? data.delta.text : "";
-        if (!toolUseId) {
-          if (isReceivingThinking) {
-            thinkingContent += deltaContent;
-            result.thinking = thinkingContent;
-            onResult?.(result as any);
-            return;
-          }
-          result.answer += deltaContent;
-          if (result.length > 0 && result[result.length - 1].role === "assistant") {
-            result[result.length - 1].content = result.answer;
-          } else {
-            result.push({ role: "assistant", content: result.answer });
-          }
-          onResult?.(result as any);
-          return;
-        }
-      }
-
-      if (data.type === "content_block_stop" && data.content_block?.type === "tool_use") {
-        const id = data.content_block?.id;
-        if (id && pendingToolInputs.has(id)) {
-          const acc = pendingToolInputs.get(id)!;
-          const entry = (result.toolsRequested as any)?.find((t: any) => t.id === id);
-          if (entry) {
-            try { (entry as any).arguments = acc.buffer ? JSON.parse(acc.buffer) : {}; } catch {}
-          }
-        }
-        return;
-      }
-
-      if (data.type === "content_block_start" && data.content_block?.type === "thinking") {
-        isReceivingThinking = true;
-        return;
-      }
-
-      if (data.type === "content_block_stop" && isReceivingThinking) {
-        isReceivingThinking = false;
-        result.thinking = thinkingContent;
-        onResult?.(result as any);
-        return;
-      }
-
-      if (
-        data.type === "message_delta" && data.delta.stop_reason === "end_turn"
-      ) {
-        const choices = data.delta.choices;
-        if (choices && choices.length > 0) {
-          const deltaContent = choices[0].delta.content
-            ? choices[0].delta.content
-            : "";
-          result.answer += deltaContent;
-          
-          if (result.length > 0 && 
-              result[result.length - 1].role === "assistant") {
-            result[result.length - 1].content = result.answer;
-          } else {
-            result.push({ role: "assistant", content: result.answer });
-          }
-          
-          onResult?.(result as any);
-        }
-      }
-    };
-    
-    // Prepare tools from messages.tools
-    let tools: AnthropicTool[] | undefined;
-    if (messageCollection.availableTools && Array.isArray(messageCollection.availableTools)) {
-      const arr = messageCollection.availableTools as ToolWithHandler[];
-      tools = arr.map((t) => ({
-        name: t.name,
-        description: t.description || "",
-        input_schema: t.parameters,
-      }));
-    }
-    
     const requestBody: any = {
       model: this._config.model,
       messages: providerMessages,
@@ -272,11 +98,9 @@ export class AnthropicLang extends LanguageProvider {
       system,
       ...(isStreaming ? { stream: true } : {}),
       ...(tools ? { tools } : {}),
-      // Note: extended_thinking parameter is not yet supported by the API
-      // ...(this._config.extendedThinking ? { extended_thinking: true } : {}),
     };
 
-    const commonRequest = {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -287,71 +111,222 @@ export class AnthropicLang extends LanguageProvider {
       body: JSON.stringify(requestBody),
       onError: async (res: Response, error: Error): Promise<void> => {
         if (res.status === 401) {
-          throw new Error(
-            "API key is invalid. Please check your API key and try again.",
-          );
+          throw new Error("API key is invalid. Please check your API key and try again.");
         }
-
         if (res.status === 400) {
           const data = await res.text();
           throw new Error(data);
         }
-
-        // For other errors, let the default retry behavior handle it
       },
-    } as const;
+    } as any).catch((err) => { throw new Error(err); });
 
     if (isStreaming) {
-      const response = await fetch("https://api.anthropic.com/v1/messages", commonRequest as any)
-        .catch((err) => { throw new Error(err); });
+      const streamState: StreamState = {
+        isReceivingThinking: false,
+        thinkingContent: "",
+        toolCalls: [],
+        pendingToolInputs: new Map(),
+      };
 
-      await processResponseStream(response, onData);
+      await processResponseStream(response, (data: any) => 
+        this.handleStreamEvent(data, result, options?.onResult, streamState)
+      );
 
-      // Automatically execute tools if the assistant requested them
       await result.executeRequestedTools();
-
       return result;
     }
 
-    const response = await fetch("https://api.anthropic.com/v1/messages", commonRequest as any)
-      .catch((err) => { throw new Error(err); });
-
+    // Non-streaming response
     const data: any = await response.json();
-    if (Array.isArray(data?.content)) {
-      const toolCalls: any[] = [];
-      for (const block of data.content) {
-        if (block?.type === 'text' && typeof block.text === 'string') {
-          result.answer += block.text;
-        } else if (block?.type === 'tool_use') {
-          // Store tool calls for later processing
-          toolCalls.push({
-            id: block.id,
-            name: block.name,
-            arguments: block.input || {}
-          });
-        }
-      }
-      
-      // Add tool calls to toolsRequested and as messages
-      if (toolCalls.length > 0) {
-        const toolCallMessages: any[] = [];
-        for (const tc of toolCalls) {
-          toolCallMessages.push({ callId: tc.id, id: tc.id, name: tc.name, arguments: tc.arguments });
-        }
-        
-        // Add tool calls as assistant messages
-        result.addAssistantToolCalls(toolCallMessages);
+    this.processNonStreamingResponse(data, result);
+    result.finished = true;
+    
+    await result.executeRequestedTools();
+    return result;
+  }
+
+  private prepareRequest(messageCollection: LangMessages) {
+    const processedMessages: any[] = [];
+    const systemContent: string[] = [];
+
+    if (messageCollection.instructions) {
+      systemContent.push(messageCollection.instructions);
+    }
+
+    for (const message of messageCollection) {
+      if (message.role === "system") {
+        systemContent.push(message.content as string);
+      } else {
+        processedMessages.push(message);
       }
     }
-    if (result.answer && (!result.toolsRequested || result.toolsRequested.length === 0)) {
+
+    const system = systemContent.join('\n\n');
+    const providerMessages = this.transformMessagesForProvider(processedMessages);
+
+    const modelInfo = models.id(this._config.model);
+    if (!modelInfo) {
+      console.warn(`Model info not found for ${this._config.model}`);
+    }
+
+    const requestMaxTokens = modelInfo ? calculateModelResponseTokens(
+      modelInfo,
+      processedMessages,
+      this._config.maxTokens
+    ) : this._config.maxTokens || 16000;
+
+    let tools: AnthropicTool[] | undefined;
+    if (messageCollection.availableTools?.length) {
+      tools = messageCollection.availableTools.map((t) => ({
+        name: t.name,
+        description: t.description || "",
+        input_schema: t.parameters,
+      }));
+    }
+
+    return { system, providerMessages, requestMaxTokens, tools };
+  }
+
+  private handleStreamEvent(
+    data: any,
+    result: LangMessages,
+    onResult?: (result: LangMessages) => void,
+    streamState?: StreamState
+  ): void {
+    if (!streamState) return;
+
+    if (data.type === "message_stop") {
+      this.finalizeStreamingResponse(result, streamState);
+      onResult?.(result);
+      return;
+    }
+
+    if (data.type === "content_block_start") {
+      if (data.content_block?.type === "tool_use") {
+        const id = data.content_block.id;
+        const name = data.content_block.name || '';
+        streamState.pendingToolInputs.set(id, { name, buffer: '' });
+        streamState.toolCalls.push({ id, name, arguments: {} });
+      } else if (data.content_block?.type === "thinking") {
+        streamState.isReceivingThinking = true;
+      }
+      return;
+    }
+
+    if (data.type === "content_block_delta") {
+      if (data.delta?.type === "thinking_delta" && data.delta.thinking) {
+        streamState.isReceivingThinking = true;
+        streamState.thinkingContent += data.delta.thinking;
+        result.thinking = streamState.thinkingContent;
+        onResult?.(result);
+        return;
+      }
+
+      const toolUseId = data.content_block_id;
+      if (toolUseId && streamState.pendingToolInputs.has(toolUseId)) {
+        this.handleToolDelta(data.delta, toolUseId, streamState);
+        return;
+      }
+
+      const deltaText = data.delta.text || "";
+      if (!toolUseId && deltaText) {
+        if (streamState.isReceivingThinking) {
+          streamState.thinkingContent += deltaText;
+          result.thinking = streamState.thinkingContent;
+        } else {
+          result.answer += deltaText;
+        }
+        onResult?.(result);
+      }
+      return;
+    }
+
+    if (data.type === "content_block_stop") {
+      if (streamState.isReceivingThinking) {
+        streamState.isReceivingThinking = false;
+        result.thinking = streamState.thinkingContent;
+        onResult?.(result);
+      }
+      return;
+    }
+  }
+
+  private handleToolDelta(delta: any, toolUseId: string, streamState: StreamState): void {
+    const acc = streamState.pendingToolInputs.get(toolUseId)!;
+    const argChunk = delta.partial_json || delta.input_json_delta || delta.text;
+    
+    if (typeof argChunk === 'string') {
+      acc.buffer += argChunk;
+      try {
+        const parsed = JSON.parse(acc.buffer);
+        const entry = streamState.toolCalls.find((t) => t.id === toolUseId);
+        if (entry) entry.arguments = parsed;
+      } catch {}
+    }
+  }
+
+  private finalizeStreamingResponse(result: LangMessages, streamState: StreamState): void {
+    // Finalize tool arguments from buffered inputs
+    for (const [id, acc] of streamState.pendingToolInputs) {
+      const entry = streamState.toolCalls.find((t) => t.id === id);
+      if (entry) {
+        try {
+          entry.arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
+        } catch {}
+      }
+    }
+
+    // Add messages in the correct order
+    if (streamState.toolCalls.length > 0) {
+      if (result.answer) {
+        result.push({ role: "assistant", content: result.answer });
+      }
+      result.addAssistantToolCalls(streamState.toolCalls.map(tc => ({
+        callId: tc.id,
+        id: tc.id,
+        name: tc.name,
+        arguments: tc.arguments
+      })));
+    } else if (result.answer) {
+      if (result.length === 0 || result[result.length - 1].role !== "assistant") {
+        result.push({ role: "assistant", content: result.answer });
+      }
+    }
+
+    result.thinking = streamState.thinkingContent;
+    result.finished = true;
+  }
+
+  private processNonStreamingResponse(data: any, result: LangMessages): void {
+    if (!Array.isArray(data?.content)) return;
+
+    const toolCalls: any[] = [];
+    
+    for (const block of data.content) {
+      if (block?.type === 'text' && typeof block.text === 'string') {
+        result.answer += block.text;
+      } else if (block?.type === 'tool_use') {
+        toolCalls.push({
+          id: block.id,
+          name: block.name,
+          arguments: block.input || {}
+        });
+      }
+    }
+
+    if (toolCalls.length > 0) {
+      if (result.answer) {
+        result.push({ role: "assistant", content: result.answer });
+      }
+      result.addAssistantToolCalls(toolCalls.map(tc => ({
+        callId: tc.id,
+        id: tc.id,
+        name: tc.name,
+        arguments: tc.arguments
+      })));
+    } else if (result.answer) {
       result.push({ role: "assistant", content: result.answer });
     }
-    result.finished = true;
-
-    // Automatically execute tools if the assistant requested them
-    await result.executeRequestedTools();
-
-    return result;
   }
 
   protected transformMessagesForProvider(messages: LangMessage[]): any[] {
