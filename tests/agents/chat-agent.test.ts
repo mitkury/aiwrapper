@@ -46,8 +46,7 @@ async function runTest(lang: LanguageProvider) {
     const agent = new ChatAgent(lang);
 
     // Start conversation
-    agent.input({ role: 'user', content: 'My name is Alice.' });
-    const result1 = await agent.run();
+    const result1 = await agent.run({ role: 'user', content: 'My name is Alice.' });
 
     expect(result1).toBeDefined();
     expect(result1!.answer).toContain('Alice');
@@ -77,13 +76,10 @@ async function runTest(lang: LanguageProvider) {
     // Test state changes and events
     expect(agent.state).toBe('idle');
 
-    // Use agent.input() first to trigger input event, then run()
-    agent.input({
+    await agent.run({
       role: 'user',
       content: 'Say "Events working!" and nothing else.'
     });
-
-    const result = await agent.run();
 
     // Should have received events
     expect(events.length).toBeGreaterThan(0);
@@ -91,10 +87,6 @@ async function runTest(lang: LanguageProvider) {
     // Should have state change events
     const stateEvents = events.filter(e => e.type === 'state');
     expect(stateEvents.length).toBeGreaterThan(0);
-
-    // Should have input event
-    const inputEvents = events.filter(e => e.type === 'input');
-    expect(inputEvents.length).toBeGreaterThan(0);
 
     // Should have finished event
     const finishedEvents = events.filter(e => e.type === 'finished');
@@ -299,5 +291,8 @@ Make sure you use all 3 provided tools.`;
 
     console.log('✅ Multiple sequential tool calls test passed');
   });
+
+  // @TODO: add a test that requires to use multiple tools with a single call (should finish with 4 messages in total):
+  // user message, tool call request, tool call results, final answer
 }
 
