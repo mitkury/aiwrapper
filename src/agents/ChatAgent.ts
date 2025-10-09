@@ -72,11 +72,6 @@ export class ChatAgent extends Agent<ChatInput, ChatOutput, ChatStreamingEvent> 
     return result;
   }
 
-  // Optional: handle input processing
-  protected inputInternal(input: ChatInput): void {
-    // Could add message preprocessing, validation, etc.
-  }
-
   // Helper method to get current conversation
   getConversation(): LangMessages {
     return this.messages;
