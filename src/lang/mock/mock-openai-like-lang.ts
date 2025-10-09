@@ -4,7 +4,7 @@ import {
   LanguageProvider
 } from "../language-provider.ts";
 import { LangMessages } from "../messages.ts";
-import { OpenAILikeLang } from "../openai-like/openai-like-lang.ts";
+import { OpenAIChatCompletionsLang } from "../openai/openai-chat-completions-lang.ts";
 
 export type MockOpenAILikeOptions = {
   model?: string;
@@ -25,7 +25,7 @@ export type MockOpenAILikeOptions = {
  * Mock provider that behaves like an OpenAI-compatible API without network calls.
  * It emits streaming deltas shaped as OpenAI chat completions SSE payloads.
  */
-export class MockOpenAILikeLang extends OpenAILikeLang {
+export class MockOpenAILikeLang extends OpenAIChatCompletionsLang {
   private readonly mockConfig: MockOpenAILikeOptions;
 
   constructor(options: MockOpenAILikeOptions = {}) {

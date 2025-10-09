@@ -44,7 +44,7 @@ export type TokenUsageDetails = {
   completionTokensDetails?: ReasoningTokenDetails;
 };
 
-export class OpenAILikeLang extends LanguageProvider {
+export class OpenAIChatCompletionsLang extends LanguageProvider {
   protected _config: OpenAILikeConfig;
   protected modelInfo?: Model;
 
@@ -124,8 +124,8 @@ export class OpenAILikeLang extends LanguageProvider {
     headers?: Record<string, string>;
     bodyProperties?: Record<string, unknown>;
     reasoningEffort?: ReasoningEffort;
-  }): OpenAILikeLang {
-    return new OpenAILikeLang({
+  }): OpenAIChatCompletionsLang {
+    return new OpenAIChatCompletionsLang({
       apiKey: options.apiKey,
       model: options.model,
       systemPrompt: options.systemPrompt || "",
@@ -493,7 +493,7 @@ export class OpenAILikeLang extends LanguageProvider {
     }
   }
 
-  setReasoningEffort(effort: ReasoningEffort): OpenAILikeLang {
+  setReasoningEffort(effort: ReasoningEffort): OpenAIChatCompletionsLang {
     this._config.reasoningEffort = effort;
     return this;
   }
@@ -502,7 +502,7 @@ export class OpenAILikeLang extends LanguageProvider {
     return this._config.reasoningEffort;
   }
 
-  setMaxCompletionTokens(maxTokens: number): OpenAILikeLang {
+  setMaxCompletionTokens(maxTokens: number): OpenAIChatCompletionsLang {
     this._config.maxCompletionTokens = maxTokens;
     return this;
   }

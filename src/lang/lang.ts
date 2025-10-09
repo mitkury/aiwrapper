@@ -9,7 +9,7 @@ import { GoogleLang, GoogleLangOptions } from "./google/google-lang.ts";
 import { CohereLang, CohereLangOptions } from "./cohere/cohere-lang.ts";
 import { OpenRouterLang, OpenRouterLangOptions } from "./openrouter/openrouter-lang.ts";
 import { MistralLang, MistralLangOptions } from "./mistral/mistral-lang.ts";
-import { OpenAILikeLang } from "./openai-like/openai-like-lang.ts";
+import { OpenAIChatCompletionsLang } from "./openai/openai-chat-completions-lang.ts";
 import { MockOpenAILikeLang, MockOpenAILikeOptions } from "./mock/mock-openai-like-lang.ts";
 
 /**
@@ -84,8 +84,8 @@ export abstract class Lang {
     maxTokens?: number;
     headers?: Record<string, string>;
     bodyProperties?: Record<string, unknown>;
-  }): OpenAILikeLang {
-    return OpenAILikeLang.custom(options);
+  }): OpenAIChatCompletionsLang {
+    return OpenAIChatCompletionsLang.custom(options);
   }
 
   /** Create a Mock OpenAI-like provider (no network) */

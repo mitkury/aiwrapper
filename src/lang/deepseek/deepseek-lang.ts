@@ -1,4 +1,4 @@
-import { OpenAILikeLang, OpenAILikeConfig } from "../openai-like/openai-like-lang.ts";
+import { OpenAIChatCompletionsLang, OpenAILikeConfig } from "../openai/openai-chat-completions-lang.ts";
 import { LangOptions } from "../language-provider.ts";
 import { LangMessages } from "../messages.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
@@ -13,7 +13,7 @@ export type DeepSeekLangOptions = {
   maxTokens?: number;
 };
 
-export class DeepSeekLang extends OpenAILikeLang {
+export class DeepSeekLang extends OpenAIChatCompletionsLang {
   constructor(options: DeepSeekLangOptions) {
     const modelName = options.model || "deepseek-chat";
     super({

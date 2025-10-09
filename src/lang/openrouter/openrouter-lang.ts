@@ -1,4 +1,4 @@
-import { OpenAILikeLang } from "../openai-like/openai-like-lang.ts";
+import { OpenAIChatCompletionsLang } from "../openai/openai-chat-completions-lang.ts";
 
 export type OpenRouterLangOptions = {
   apiKey: string;
@@ -7,7 +7,7 @@ export type OpenRouterLangOptions = {
   maxTokens?: number;
 };
 
-export class OpenRouterLang extends OpenAILikeLang {
+export class OpenRouterLang extends OpenAIChatCompletionsLang {
   constructor(options: OpenRouterLangOptions) {
     const modelName = options.model || "openai/gpt-3.5-turbo";
     

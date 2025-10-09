@@ -1,4 +1,4 @@
-import { OpenAILikeLang } from "../openai-like/openai-like-lang.ts";
+import { OpenAIChatCompletionsLang } from "../openai/openai-chat-completions-lang.ts";
 
 export type MistralLangOptions = {
   apiKey: string;
@@ -7,7 +7,7 @@ export type MistralLangOptions = {
   maxTokens?: number;
 };
 
-export class MistralLang extends OpenAILikeLang {
+export class MistralLang extends OpenAIChatCompletionsLang {
   constructor(options: MistralLangOptions) {
     const modelName = options.model || "mistral-large-latest";
     

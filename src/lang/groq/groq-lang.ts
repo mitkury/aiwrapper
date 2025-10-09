@@ -1,4 +1,4 @@
-import { OpenAILikeLang } from "../openai-like/openai-like-lang.ts";
+import { OpenAIChatCompletionsLang } from "../openai/openai-chat-completions-lang.ts";
 import { models } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
 import { 
@@ -15,7 +15,7 @@ export type GroqLangOptions = {
   bodyProperties?: Record<string, any>;
 };
 
-export class GroqLang extends OpenAILikeLang {
+export class GroqLang extends OpenAIChatCompletionsLang {
   constructor(options: GroqLangOptions) {
     const modelName = options.model || "llama3-70b-8192";
     super({
