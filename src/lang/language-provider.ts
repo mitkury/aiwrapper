@@ -5,7 +5,7 @@ import {
   validateAgainstSchema 
 } from "./schema/schema-utils.ts";
 import { LangMessages } from "./messages.ts";
-import type { LangMessage, ToolWithHandler } from "./messages.ts";
+import type { LangMessage } from "./messages.ts";
 
 // Export zod for convenience
 export { z };

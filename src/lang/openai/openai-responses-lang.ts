@@ -5,7 +5,7 @@ import {
   LangContentPart,
   LangImageInput
 } from "../language-provider.ts";
-import { LangMessages, ToolWithHandler } from "../messages.ts";
+import { LangMessages, LangTool, LangToolWithHandler } from "../messages.ts";
 import {
   httpRequestWithRetry as fetch,
 } from "../../http-request.ts";
@@ -15,6 +15,17 @@ type FinishedEvent = { finished: true };
 
 // Minimal per-item buffers for concurrent stream updates
 type StreamItemBuffers = Map<string, { parts: Map<number, string> }>; // key: item_id
+
+/**
+ * OpenAI-specific built-in tools
+ */
+export type OpenAIBuiltInTool = 
+  | { type: "web_search" }
+  | { type: "file_search"; vector_store_ids: string[] }
+  | { type: "mcp"; server_label: string; server_description: string; server_url: string; require_approval: "never" | "always" | "if_needed" }
+  | { type: "image_generation" }
+  | { type: "code_interpreter" }
+  | { type: "computer_use" };
 
 export type OpenAIResponsesOptions = {
   apiKey: string;
@@ -61,9 +72,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
 
     // Check if we can use previous_response_id optimization
     const inputConfig = this.prepareInputForResponses(messageCollection);
-    const providedTools: ToolWithHandler[] = (
-      messageCollection.availableTools as ToolWithHandler[]
-    ) || [];
+    const providedTools: LangTool[] = messageCollection.availableTools || [];
 
     // Enable streaming if onResult callback is provided
     const stream = typeof options?.onResult === 'function';
@@ -292,14 +301,24 @@ export class OpenAIResponsesLang extends LanguageProvider {
     }
   }
 
-  protected transformToolsForProvider(tools: ToolWithHandler[]): any[] {
-    // OpenAI Responses API expects top-level name/parameters on tool objects
-    return tools.map(tool => ({
-      type: "function",
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters
-    }));
+  protected transformToolsForProvider(tools: LangTool[]): any[] {
+    return tools.map(tool => {
+      // Check if this is a custom function tool (has a handler)
+      if ('handler' in tool) {
+        // Custom function tool - transform to OpenAI function format
+        return {
+          type: "function",
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters
+        };
+      } else {
+        // Built-in tool (e.g "web_search")
+        return {
+          type: tool.name
+        }
+      }
+    });
   }
 
   /**

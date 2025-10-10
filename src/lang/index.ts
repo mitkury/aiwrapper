@@ -9,13 +9,13 @@ import {
   Schema,
   z
 } from "./language-provider.ts";
-import { LangMessages, ToolWithHandler, ToolRequest, ToolResult } from "./messages.ts";
+import { LangMessages, LangToolWithHandler, ToolRequest, ToolResult, LangTool } from "./messages.ts";
 
 // Export classes
 export { Lang, LangVecs, LanguageProvider, LangResult, LangMessages, z, MockOpenAILikeLang };
 
 // Export types
-export type { LangOptions, LangMessage, ToolWithHandler, ToolRequest, ToolResult, Schema };
+export type { LangOptions, LangMessage, LangToolWithHandler as ToolWithHandler, ToolRequest, ToolResult, LangTool as Tool, Schema };
 
 // Re-export image and content part types
 export type { LangImageInput, LangContentPart, LangImageOutput } from "./language-provider.ts";

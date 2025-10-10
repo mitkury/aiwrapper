@@ -1,46 +1,42 @@
-import { Agent } from "./agent.ts";
-import type { LanguageProvider } from "../lang/language-provider.ts";
-import { LangMessages } from "../lang/messages.ts";
-import type { LangMessage, ToolWithHandler } from "../lang/messages.ts";
+import { Agent } from "./agent";
+import { LangMessage, LangMessages, LanguageProvider, ToolWithHandler } from "../lang/index.ts";
+import { LangTool } from "../lang/messages";
 
-export type ChatInput = LangMessage | LangMessage[];
 export type ChatOutput = {
   answer: string;
   messages: LangMessage[];
 };
 
-// Custom streaming event type
 export interface ChatStreamingEvent {
   type: "streaming";
   data: LangMessages;
 }
 
-export class ChatAgent extends Agent<ChatInput, ChatOutput, ChatStreamingEvent> {
-  private lang: LanguageProvider;
+export class ChatAgent extends Agent<LangMessages | LangMessage[], LangMessages, ChatStreamingEvent> {
+  private lang?: LanguageProvider;
   private messages: LangMessages;
-  private tools?: ToolWithHandler[];
 
-  constructor(languageProvider: LanguageProvider, options?: { tools?: ToolWithHandler[] }) {
+  constructor(lang?: LanguageProvider, options?: { tools?: LangTool[] }) {
     super();
-    this.lang = languageProvider;
-    this.tools = options?.tools;
+    this.lang = lang;
 
-    // Create conversation history with tools if provided
     this.messages = new LangMessages([], {
-      tools: this.tools,
+      tools: options?.tools,
     });
   }
 
-  protected async runInternal(input: ChatInput): Promise<ChatOutput> {
-    // Handle different input types
-    if (Array.isArray(input)) {
-      // Array of messages - add all to conversation
+  protected async runInternal(input: LangMessages | LangMessage[]): Promise<LangMessages> {
+    if (input instanceof LangMessages) {
+      this.messages = input;
+    }
+    else {
       for (const message of input) {
         this.messages.push(message);
       }
-    } else {
-      // Single message - add to conversation
-      this.messages.push(input);
+    }
+
+    if (!this.lang) {
+      throw new Error("Language provider not set");
     }
 
     // Agentic loop. Will go in multiple cicles if it is using tools.
@@ -51,7 +47,6 @@ export class ChatAgent extends Agent<ChatInput, ChatOutput, ChatStreamingEvent> 
         }
       });
 
-      // Update conversation history with the complete response.
       this.messages = response;
 
       // We continue the loop if the last message is a tool usage results.
@@ -62,33 +57,20 @@ export class ChatAgent extends Agent<ChatInput, ChatOutput, ChatStreamingEvent> 
       }
     }
 
-    // Emit finished event with the final response
-    const result: ChatOutput = {
-      answer: this.messages.answer,
-      messages: [...this.messages],
-    };
+    this.emit({ type: "finished", output: this.messages });
 
-    this.emit({ type: "finished", output: result });
-    return result;
-  }
-
-  // Helper method to get current conversation
-  getConversation(): LangMessages {
     return this.messages;
   }
 
-  // Helper method to clear conversation
-  clearConversation(): void {
-    this.messages = new LangMessages([], { tools: this.tools });
+  getMessages(): LangMessages {
+    return this.messages;
   }
 
-  // Helper method to add system message
-  addSystemMessage(message: string): void {
-    this.messages.addSystemMessage(message);
+  setLanguageProvider(lang: LanguageProvider): void {
+    this.lang = lang;
   }
 
-  // Helper method to set tools
   setTools(tools: ToolWithHandler[]): void {
-    this.tools = tools;
+    this.messages.availableTools = tools;
   }
 }

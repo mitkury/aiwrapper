@@ -10,7 +10,7 @@ import {
 import { models } from 'aimodels';
 import { LangContentPart, LangImageInput } from "../language-provider.ts";
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
-import { LangMessages, ToolWithHandler } from "../messages.ts";
+import { LangMessages, LangToolWithHandler } from "../messages.ts";
 
 type AnthropicTool = {
   name: string;

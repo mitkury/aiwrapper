@@ -10,7 +10,7 @@ import { processResponseStream } from "../../process-response-stream.ts";
 import { models, Model } from 'aimodels';
 import { LangContentPart, LangImageInput } from "../language-provider.ts";
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
-import { LangMessages, ToolWithHandler } from "../messages.ts";
+import { LangMessages, LangToolWithHandler } from "../messages.ts";
 
 export type GoogleLangOptions = {
   apiKey: string;
@@ -79,7 +79,7 @@ export class GoogleLang extends LanguageProvider {
 
     let tools: any | undefined;
     if (messageCollection.availableTools && Array.isArray(messageCollection.availableTools)) {
-      const arr = messageCollection.availableTools as ToolWithHandler[];
+      const arr = messageCollection.availableTools as LangToolWithHandler[];
       tools = {
         functionDeclarations: arr.map((t) => ({
           name: t.name,

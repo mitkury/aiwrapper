@@ -4,13 +4,14 @@ import {
   LangContentPart,
   LangImageInput,
 } from "../language-provider.ts";
-import { LangMessages, LangMessage, ToolWithHandler } from "../messages.ts";
+import { LangMessages, LangMessage, LangToolWithHandler, LangTool } from "../messages.ts";
 import {
   httpRequestWithRetry as fetch,
 } from "../../http-request.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
 import { models, Model } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
+import { ToolWithHandler } from "../index.ts";
 
 export type ReasoningEffort = "low" | "medium" | "high";
 
@@ -42,6 +43,15 @@ export type TokenUsageDetails = {
     audioTokens?: number;
   };
   completionTokensDetails?: ReasoningTokenDetails;
+};
+
+type OpenAICompletionsTool = {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, any>;
+  };
 };
 
 export class OpenAIChatCompletionsLang extends LanguageProvider {
@@ -300,7 +310,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     return result;
   }
 
-  protected formatTools(tools: ToolWithHandler[]): any[] {
+  protected formatTools(tools: LangTool[]): OpenAICompletionsTool[] {
     return tools.map(tool => ({
       type: "function",
       function: {

@@ -5,7 +5,7 @@ import {
   LangOptions, 
   LangMessage
 } from "../language-provider.ts";
-import { LangMessages, ToolWithHandler } from "../messages.ts";
+import { LangMessages, LangToolWithHandler } from "../messages.ts";
 
 export type GroqLangOptions = {
   apiKey: string;
@@ -50,8 +50,8 @@ export class GroqLang extends OpenAIChatCompletionsLang {
     const onResult = options?.onResult;
     
     if (!onResult) {
-      const effectiveTools: ToolWithHandler[] | undefined = messageCollection.availableTools
-        ? (messageCollection.availableTools as ToolWithHandler[])
+      const effectiveTools: LangToolWithHandler[] | undefined = messageCollection.availableTools
+        ? (messageCollection.availableTools as LangToolWithHandler[])
         : undefined;
 
       const body: any = {

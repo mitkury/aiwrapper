@@ -44,15 +44,29 @@ export type LangContentPart =
   | { type: "image"; image: LangImageInput; alt?: string };
 
 
-export type ToolWithHandler = {
+export type LangToolWithHandler = {
   name: string;
   description: string;
   parameters: Record<string, any>;
   handler: (args: Record<string, any>) => any | Promise<any>;
 }
 
+/**
+ * Built-in tools provided by the language model provider
+ * These tools don't require handlers as they're executed by the provider
+ */
+export type BuiltInLangTool = {
+  name: string;
+  [key: string]: any;
+};
+
+/**
+ * Union type for all tool types: custom functions with handlers and built-in provider tools
+ */
+export type LangTool = LangToolWithHandler | BuiltInLangTool;
+
 export class LangMessages extends Array<LangMessage> {
-  availableTools?: ToolWithHandler[];
+  availableTools?: LangTool[];
 
   // Merged result fields
   answer: string = "";
@@ -64,11 +78,11 @@ export class LangMessages extends Array<LangMessage> {
   instructions?: string;
 
   constructor();
-  constructor(initialPrompt: string, opts?: { tools?: ToolWithHandler[] });
-  constructor(initialMessages: LangMessage[], opts?: { tools?: ToolWithHandler[] });
+  constructor(initialPrompt: string, opts?: { tools?: LangTool[] });
+  constructor(initialMessages: LangMessage[], opts?: { tools?: LangTool[] });
   constructor(
     initial?: string | LangMessage[],
-    opts?: { tools?: ToolWithHandler[] }
+    opts?: { tools?: LangTool[] }
   ) {
     // When extending Array, call super with the initial elements if provided
     super(...(Array.isArray(initial) ? (initial as LangMessage[]) : []));
@@ -145,10 +159,15 @@ export class LangMessages extends Array<LangMessage> {
       return this;
     }
 
+    // Filter only custom function tools (those with handlers)
+    const customTools = (this.availableTools || []).filter(
+      (t): t is LangToolWithHandler => 'handler' in t
+    );
+
     // Execute requested tools
     const toolResults: ToolResult[] = [];
-    const toolsByName = new Map<string, ToolWithHandler>(
-      (this.availableTools || []).map((t) => [t.name, t])
+    const toolsByName = new Map<string, LangToolWithHandler>(
+      customTools.map((t) => [t.name, t])
     );
     for (const call of this.toolsRequested) {
       const toolName = call.name as string | undefined;

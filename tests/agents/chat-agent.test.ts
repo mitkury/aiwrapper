@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { LanguageProvider, ChatAgent } from '../../dist/index.js';
+import { LanguageProvider, ChatAgent, LangMessages } from '../../dist/index.js';
 import { createLangTestRunner } from '../utils/lang-gatherer.js';
 
 describe('ChatAgent', () => {
@@ -8,24 +8,31 @@ describe('ChatAgent', () => {
 
 async function runTest(lang: LanguageProvider) {
   it('should handle single message', async () => {
-    console.log('Testing single message');
-
     const agent = new ChatAgent(lang);
-    const result = await agent.run({
+    const result = await agent.run([{
       role: 'user',
-      content: 'Say "Hello from ChatAgent!" and nothing else.'
-    });
+      content: 'Say "test passed" and nothing else.'
+    }]);
 
     expect(result).toBeDefined();
-    expect(result!.answer).toContain('Hello from ChatAgent');
-    expect(result!.messages.length).toBeGreaterThanOrEqual(2); // user + assistant
+    expect(result!.answer.toLowerCase()).toContain('test passed');
+    expect(result!.length).toBeGreaterThanOrEqual(2); // user + assistant
+  });
 
-    console.log('✅ Single message test passed');
+  it('should handle instructions', async () => {
+    const agent = new ChatAgent(lang);
+  
+    const messages = new LangMessages();
+    messages.instructions = 'Respond with "test passed"';
+    messages.addUserMessage('Hey');
+
+    const result = await agent.run(messages);
+
+    expect(result).toBeDefined();
+    expect(result!.answer.toLowerCase()).toContain('test passed');
   });
 
   it('should handle message array', async () => {
-    console.log('Testing message array');
-
     const agent = new ChatAgent(lang);
     const result = await agent.run([
       { role: 'user', content: 'What is 2+2?' },
@@ -35,33 +42,27 @@ async function runTest(lang: LanguageProvider) {
 
     expect(result).toBeDefined();
     expect(result!.answer).toContain('8');
-    expect(result!.messages.length).toBeGreaterThanOrEqual(4); // 3 input + assistant response
-
-    console.log('✅ Message array test passed');
+    expect(result!.length).toBeGreaterThanOrEqual(4); // 3 input + assistant response
   });
 
   it('should handle conversation flow', async () => {
-    console.log('Testing conversation flow');
-
     const agent = new ChatAgent(lang);
 
     // Start conversation
-    const result1 = await agent.run({ role: 'user', content: 'My name is Alice.' });
+    const result1 = await agent.run([{ role: 'user', content: 'My name is Alice.' }]);
 
     expect(result1).toBeDefined();
     expect(result1!.answer).toContain('Alice');
 
     // Continue conversation
-    const result2 = await agent.run({ role: 'user', content: 'What is my name?' });
+    const result2 = await agent.run([{ role: 'user', content: 'What is my name?' }]);
 
     expect(result2).toBeDefined();
     expect(result2!.answer).toContain('Alice');
 
     // Check conversation history is maintained
-    const conversation = agent.getConversation();
+    const conversation = agent.getMessages();
     expect(conversation.length).toBeGreaterThanOrEqual(4); // 2 user + 2 assistant messages
-
-    console.log('✅ Conversation flow test passed');
   });
 
   it('should handle event subscription', async () => {
@@ -76,10 +77,10 @@ async function runTest(lang: LanguageProvider) {
     // Test state changes and events
     expect(agent.state).toBe('idle');
 
-    await agent.run({
+    await agent.run([{
       role: 'user',
       content: 'Say "Events working!" and nothing else.'
-    });
+    }]);
 
     // Should have received events
     expect(events.length).toBeGreaterThan(0);
@@ -112,10 +113,10 @@ async function runTest(lang: LanguageProvider) {
       }
     });
 
-    const result = await agent.run({
+    const result = await agent.run([{
       role: 'user',
       content: 'Introduce yourself in 140 characters'
-    });
+    }]);
 
     // Should have received streaming events
     expect(streamingEvents.length).toBeGreaterThan(0);
@@ -156,15 +157,15 @@ async function runTest(lang: LanguageProvider) {
       ]
     });
 
-    const result = await agent.run({
+    const result = await agent.run([{
       role: 'user',
       content: 'Give me a random number using a tool'
-    });
+    }]);
 
     expect(result).toBeDefined();
 
     // Check that tool calls and results were added to conversation
-    const conversation = agent.getConversation();
+    const conversation = agent.getMessages();
     console.log(`Conversation length: ${conversation.length}`);
     console.log(`Final answer: "${result!.answer}"`);
 
@@ -267,15 +268,15 @@ Make sure you use all 3 provided tools.`;
       ]
     });
 
-    const result = await agent.run({
+    const result = await agent.run([{
       role: 'user',
       content: task
-    });
+    }]);
 
     expect(result).toBeDefined();
 
     // Check conversation for multiple tool calls
-    const conversation = agent.getConversation();
+    const conversation = agent.getMessages();
     console.log(`Conversation length: ${conversation.length}`);
     console.log(`Final answer: "${result!.answer}"`);
 
