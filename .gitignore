@@ -30,7 +30,6 @@ jspm_packages/
 *.tsbuildinfo
 
 # AI rules specific to editors
-AGENTS.md
 .cursorrules
 .windsurfrules
 .clinerules
