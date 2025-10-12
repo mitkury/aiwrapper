@@ -1,5 +1,5 @@
 import { OpenAIChatCompletionsLang, OpenAILikeConfig } from "../openai/openai-chat-completions-lang.ts";
-import { LangOptions } from "../language-provider.ts";
+import { LangOptions, LangMessage } from "../language-provider.ts";
 import { LangMessages } from "../messages.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
 import { httpRequestWithRetry as fetch } from "../../http-request.ts";
@@ -35,22 +35,23 @@ export class DeepSeekLang extends OpenAIChatCompletionsLang {
   protected override handleStreamData(
     data: any,
     result: LangMessages,
-    messages: LangMessages,
-    onResult?: (result: LangMessages) => void
+    onResult?: (result: LangMessage) => void
   ): void {
     if (data.finished) {
       result.finished = true;
-      onResult?.(result);
+      const last = result.length > 0 ? result[result.length - 1] : undefined;
+      if (last) onResult?.(last);
       return;
     }
 
     if (data.choices && data.choices[0].delta.reasoning_content) {
       const reasoningContent = data.choices[0].delta.reasoning_content;
       result.thinking = (result.thinking || "") + reasoningContent;
-      onResult?.(result);
+      const last = result.length > 0 ? result[result.length - 1] : undefined;
+      if (last) onResult?.(last);
       return;
     }
 
-    super.handleStreamData(data, result, messages, onResult);
+    super.handleStreamData(data, result, onResult);
   }
 } 

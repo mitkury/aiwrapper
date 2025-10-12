@@ -69,7 +69,6 @@ export class LangMessages extends Array<LangMessage> {
   availableTools?: LangTool[];
 
   // Merged result fields
-  answer: string = "";
   object: any | null = null;
   finished: boolean = false;
   thinking?: string;
@@ -92,6 +91,49 @@ export class LangMessages extends Array<LangMessage> {
     if (opts?.tools) {
       this.availableTools = opts.tools;
     }
+  }
+
+  get answer(): string {
+    for (let i = this.length - 1; i >= 0; i--) {
+      const msg = this[i];
+      if (msg.role === "assistant") {
+        const content: any = (msg as any).content;
+        if (typeof content === "string") return content;
+        if (Array.isArray(content)) {
+          let text = "";
+          for (const part of content) {
+            if (part && part.type === "text" && typeof part.text === "string") {
+              text += part.text;
+            }
+          }
+          return text;
+        }
+      }
+    }
+    return "";
+  }
+
+  /**
+   * Ensure there is an assistant message with string content at the end and return it
+   */
+  ensureAssistantTextMessage(): LangMessage {
+    const last = this.length > 0 ? this[this.length - 1] : undefined;
+    if (last && last.role === "assistant") {
+      if (typeof last.content !== "string") (last as any).content = "";
+      return last;
+    }
+    const created: LangMessage = { role: "assistant", content: "" };
+    this.push(created);
+    return created;
+  }
+
+  /**
+   * Append text to the last assistant message (creating if needed)
+   */
+  appendToAssistantText(text: string): LangMessage {
+    const msg = this.ensureAssistantTextMessage();
+    (msg as any).content = String((msg as any).content || "") + text;
+    return msg;
   }
 
   get toolsRequested(): ToolRequest[] {
@@ -149,14 +191,14 @@ export class LangMessages extends Array<LangMessage> {
     return this;
   }
 
-  async executeRequestedTools(meta?: Record<string, any>): Promise<this> {
+  async executeRequestedTools(meta?: Record<string, any>): Promise<LangMessage | null> {
     if (this.toolsRequested.length === 0) {
-      return this;
+      return null;
     }
 
     if (!this.availableTools) {
       console.warn("Requested tool names:", this.toolsRequested.map(t => t.name));
-      return this;
+      return null;
     }
 
     // Filter only custom function tools (those with handlers)
@@ -179,8 +221,8 @@ export class LangMessages extends Array<LangMessage> {
 
     // Append execution results
     this.addToolUseMessage(toolResults, meta);
-
-    return this;
+    // We return the tool results message we've just added
+    return this[this.length - 1];
   }
 
   toString(): string {

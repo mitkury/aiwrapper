@@ -52,10 +52,10 @@ export class OpenAIImg {
     result.images = result.images || [];
     if (dataItem.b64_json) {
       result.images.push({ base64: dataItem.b64_json, mimeType: 'image/png', provider: 'openai', model: this._model, metadata: { created: json?.created } });
-      result.answer = 'image://base64';
+      result.addAssistantMessage('image://base64');
     } else if (dataItem.url) {
       result.images.push({ url: dataItem.url, provider: 'openai', model: this._model, metadata: { created: json?.created } });
-      result.answer = dataItem.url;
+      result.addAssistantMessage(dataItem.url);
     }
     result.finished = true;
     return result;
@@ -85,10 +85,10 @@ export class OpenAIImg {
     result.images = result.images || [];
     if (dataItem.b64_json) {
       result.images.push({ base64: dataItem.b64_json, mimeType: 'image/png', provider: 'openai', model: this._model, metadata: { created: json?.created } });
-      result.answer = 'image://base64';
+      result.addAssistantMessage('image://base64');
     } else if (dataItem.url) {
       result.images.push({ url: dataItem.url, provider: 'openai', model: this._model, metadata: { created: json?.created } });
-      result.answer = dataItem.url;
+      result.addAssistantMessage(dataItem.url);
     }
     result.finished = true;
     return result;
@@ -118,10 +118,10 @@ export class OpenAIImg {
     result.images = result.images || [];
     if (dataItem.b64_json) {
       result.images.push({ base64: dataItem.b64_json, mimeType: 'image/png', provider: 'openai', model: this._model, metadata: { created: json?.created } });
-      result.answer = 'image://base64';
+      result.addAssistantMessage('image://base64');
     } else if (dataItem.url) {
       result.images.push({ url: dataItem.url, provider: 'openai', model: this._model, metadata: { created: json?.created } });
-      result.answer = dataItem.url;
+      result.addAssistantMessage(dataItem.url);
     }
     result.finished = true;
     return result;

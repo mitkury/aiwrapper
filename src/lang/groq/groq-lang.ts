@@ -95,20 +95,18 @@ export class GroqLang extends OpenAIChatCompletionsLang {
           }
         }
 
+        let finalText = message?.content || "";
         if (message.reasoning) {
           messageCollection.thinking = message.reasoning;
-          messageCollection.answer = message.content || "";
         } else {
-          messageCollection.answer = message.content || "";
-          const thinkingContent = this.extractThinking(messageCollection.answer);
+          const thinkingContent = this.extractThinking(finalText);
           if (thinkingContent.thinking) {
             messageCollection.thinking = thinkingContent.thinking;
-            messageCollection.answer = thinkingContent.answer;
+            finalText = thinkingContent.answer;
           }
         }
-        
-        if (messageCollection.answer) {
-          messageCollection.addAssistantMessage(messageCollection.answer);
+        if (finalText) {
+          messageCollection.addAssistantMessage(finalText);
         }
       }
       
@@ -125,7 +123,8 @@ export class GroqLang extends OpenAIChatCompletionsLang {
         const extracted = this.extractThinking(visibleContent);
         if (extracted.thinking) {
           messageCollection.thinking = extracted.thinking;
-          messageCollection.answer = extracted.answer;
+          const msg = messageCollection.ensureAssistantTextMessage();
+          msg.content = extracted.answer;
         }
         
         messageCollection.finished = true;
@@ -154,12 +153,11 @@ export class GroqLang extends OpenAIChatCompletionsLang {
           }
         }
         
-        messageCollection.answer = messageCollection.thinking ? messageCollection.answer : visibleContent;
-        
+        const textToShow = messageCollection.thinking ? messageCollection.answer : visibleContent;
         if (messageCollection.length > 0 && messageCollection[messageCollection.length - 1].role === "assistant") {
-          messageCollection[messageCollection.length - 1].content = messageCollection.answer;
+          messageCollection[messageCollection.length - 1].content = textToShow;
         } else {
-          messageCollection.addAssistantMessage(messageCollection.answer);
+          messageCollection.addAssistantMessage(textToShow);
         }
         
         options?.onResult?.(messageCollection as any);
@@ -206,7 +204,8 @@ export class GroqLang extends OpenAIChatCompletionsLang {
     
     if (extracted.thinking) {
       result.thinking = extracted.thinking;
-      result.answer = extracted.answer;
+      const msg = result.ensureAssistantTextMessage();
+      msg.content = extracted.answer;
       return;
     }
     
@@ -219,7 +218,8 @@ export class GroqLang extends OpenAIChatCompletionsLang {
         const potentialThinkingContent = fullContent.substring(lastOpenTagIndex + 7).trim();
         
         result.thinking = potentialThinkingContent;
-        result.answer = beforeThinkingContent;
+        const msg = result.ensureAssistantTextMessage();
+        msg.content = beforeThinkingContent;
         return;
       }
       
@@ -231,10 +231,12 @@ export class GroqLang extends OpenAIChatCompletionsLang {
         const afterThinking = fullContent.substring(fullContent.indexOf("</think>") + 8).trim();
         
         result.thinking = thinkingContent;
-        result.answer = (beforeThinking + " " + afterThinking).trim();
+        const msg = result.ensureAssistantTextMessage();
+        msg.content = (beforeThinking + " " + afterThinking).trim();
       }
     } else {
-      result.answer = fullContent;
+      const msg = result.ensureAssistantTextMessage();
+      msg.content = fullContent;
     }
   }
 

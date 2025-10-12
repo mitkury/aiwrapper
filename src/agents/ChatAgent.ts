@@ -9,7 +9,7 @@ export type ChatOutput = {
 
 export interface ChatStreamingEvent {
   type: "streaming";
-  data: LangMessages;
+  data: { msg: LangMessage; idx: number };
 }
 
 export class ChatAgent extends Agent<LangMessages | LangMessage[], LangMessages, ChatStreamingEvent> {
@@ -40,14 +40,24 @@ export class ChatAgent extends Agent<LangMessages | LangMessage[], LangMessages,
     }
 
     // Agentic loop. Will go in multiple cicles if it is using tools.
+    let streamIdx = 0;
     while (true) {
+      const baseIdx = streamIdx;
+      let lastRoleInRun: LangMessage["role"] | null = null;
+      let localOffset = -1;
+
       const response = await this.lang.chat(this.messages, {
-        onResult: (result) => {
-          this.emit({ type: "streaming", data: result });
+        onResult: (msg) => {
+          if (msg.role !== lastRoleInRun) {
+            lastRoleInRun = msg.role;
+            localOffset += 1;
+          }
+          this.emit({ type: "streaming", data: { msg, idx: baseIdx + localOffset } });
         }
       });
 
       this.messages = response;
+      streamIdx = baseIdx + (localOffset >= 0 ? localOffset + 1 : 0);
 
       // We continue the loop if the last message is a tool usage results.
       const lastMessage = this.messages[this.messages.length - 1];

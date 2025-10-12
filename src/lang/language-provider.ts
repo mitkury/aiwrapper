@@ -39,7 +39,7 @@ export interface LangOptions {
   schema?: Schema;
   
   // Streaming callback
-  onResult?: (result: LangMessages) => void;
+  onResult?: (result: LangMessage) => void;
   
   // Preferred image output format if the provider can generate images
   imageOutput?: "auto" | "url" | "base64";

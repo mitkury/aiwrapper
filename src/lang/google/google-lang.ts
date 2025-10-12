@@ -112,7 +112,7 @@ export class GoogleLang extends LanguageProvider {
       const parts = candidate?.content?.parts || [];
       for (const p of parts) {
         if (p.text) {
-          result.answer += p.text;
+          const msg = result.appendToAssistantText(p.text);
         }
         if (p.inlineData && (p.inlineData.data || p.inlineData.b64_json)) {
           const base64 = p.inlineData.data || p.inlineData.b64_json;

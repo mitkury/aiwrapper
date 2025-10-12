@@ -52,8 +52,10 @@ async function runTest(lang: LanguageProvider) {
 
     let streamingAnswer: string = '';
     const options: LangOptions = stream ? {
-      onResult: (res: LangMessages) => {
-        streamingAnswer = res.answer;
+      onResult: (msg: any) => {
+        if (msg && typeof msg.content === 'string') {
+          streamingAnswer = msg.content;
+        }
       }
     } : {};
 
@@ -89,8 +91,10 @@ async function runTest(lang: LanguageProvider) {
   it('should be able to stream an answer', async () => {
     let streamingAnswers: string[] = [];
     const res = await lang.ask('Introduce yourself in 140 characters', {
-      onResult: (msgs) => {
-        streamingAnswers.push(msgs.answer);
+      onResult: (msg: any) => {
+        if (msg && typeof msg.content === 'string') {
+          streamingAnswers.push(msg.content);
+        }
       }
     });
     expect(streamingAnswers.length).toBeGreaterThan(0);

@@ -89,11 +89,13 @@ export class OllamaLang extends LanguageProvider {
         const extracted = this.extractThinking(visibleContent);
         if (extracted.thinking) {
           result.thinking = extracted.thinking;
-          result.answer = extracted.answer;
+          const msg = result.ensureAssistantTextMessage();
+          msg.content = extracted.answer;
         }
         
         result.finished = true;
-        options?.onResult?.(result);
+        const last = result.length > 0 ? result[result.length - 1] : undefined;
+        if (last) options?.onResult?.(last as any);
         return;
       }
 
@@ -115,7 +117,8 @@ export class OllamaLang extends LanguageProvider {
         }
       }
 
-      options?.onResult?.(result);
+      const last = result.length > 0 ? result[result.length - 1] : undefined;
+      if (last) options?.onResult?.(last as any);
     };
 
     const response = await fetch(`${this._config.baseURL}/api/generate`, {
@@ -141,7 +144,8 @@ export class OllamaLang extends LanguageProvider {
       const extracted = this.extractThinking(result.answer);
       if (extracted.thinking) {
         result.thinking = extracted.thinking;
-        result.answer = extracted.answer;
+        const msg = result.ensureAssistantTextMessage();
+        msg.content = extracted.answer;
       }
     }
 
@@ -174,11 +178,13 @@ export class OllamaLang extends LanguageProvider {
         const extracted = this.extractThinking(visibleContent);
         if (extracted.thinking) {
           result.thinking = extracted.thinking;
-          result.answer = extracted.answer;
+          const msg = result.ensureAssistantTextMessage();
+          msg.content = extracted.answer;
         }
         
         result.finished = true;
-        options?.onResult?.(result);
+        const last = result.length > 0 ? result[result.length - 1] : undefined;
+        if (last) options?.onResult?.(last as any);
         return;
       }
 
@@ -200,7 +206,8 @@ export class OllamaLang extends LanguageProvider {
         }
       }
 
-      options?.onResult?.(result);
+      const last = result.length > 0 ? result[result.length - 1] : undefined;
+      if (last) options?.onResult?.(last as any);
     };
 
     // Extract base64 images for models that support vision via images array.
@@ -248,7 +255,8 @@ export class OllamaLang extends LanguageProvider {
       const extracted = this.extractThinking(result.answer);
       if (extracted.thinking) {
         result.thinking = extracted.thinking;
-        result.answer = extracted.answer;
+        const msg = result.ensureAssistantTextMessage();
+        msg.content = extracted.answer;
       }
     }
 
@@ -289,7 +297,8 @@ export class OllamaLang extends LanguageProvider {
     if (extracted.thinking) {
       // We have one or more complete thinking sections
       result.thinking = extracted.thinking;
-      result.answer = extracted.answer;
+      const msg = result.ensureAssistantTextMessage();
+      msg.content = extracted.answer;
       return;
     }
     
@@ -306,7 +315,8 @@ export class OllamaLang extends LanguageProvider {
         const potentialThinkingContent = fullContent.substring(lastOpenTagIndex + 7).trim();
         
         result.thinking = potentialThinkingContent;
-        result.answer = beforeThinkingContent;
+        const msg = result.ensureAssistantTextMessage();
+        msg.content = beforeThinkingContent;
         return;
       }
       
@@ -320,11 +330,13 @@ export class OllamaLang extends LanguageProvider {
         const afterThinking = fullContent.substring(fullContent.indexOf("</think>") + 8).trim();
         
         result.thinking = thinkingContent;
-        result.answer = (beforeThinking + " " + afterThinking).trim();
+        const msg = result.ensureAssistantTextMessage();
+        msg.content = (beforeThinking + " " + afterThinking).trim();
       }
     } else {
       // No thinking tags yet, just update the answer
-      result.answer = fullContent;
+      const msg = result.ensureAssistantTextMessage();
+      msg.content = fullContent;
     }
   }
 }

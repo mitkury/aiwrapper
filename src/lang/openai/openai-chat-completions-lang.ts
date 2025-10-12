@@ -208,7 +208,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     if (isStreaming) {
       const toolArgBuffers = new Map<string, { name: string; buffer: string }>();
       const onData = (data: any) => {
-        this.handleStreamData(data, result, result, onResult, toolArgBuffers);
+        this.handleStreamData(data, result, onResult, toolArgBuffers);
       };
 
       const response = await fetch(`${this._config.baseURL}/chat/completions`, commonRequest as any).catch((err) => {
@@ -217,32 +217,13 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
 
       await processResponseStream(response, onData);
 
-      // Convert accumulated tool arguments from buffers into tool call messages
-      if (toolArgBuffers.size > 0) {
-        const toolCallMessages: any[] = [];
-        for (const [id, acc] of toolArgBuffers) {
-          let parsedArgs = {};
-          try {
-            parsedArgs = acc.buffer ? JSON.parse(acc.buffer) : {};
-          } catch {
-          }
-          toolCallMessages.push({
-            callId: id,
-            name: acc.name,
-            arguments: parsedArgs
-          });
-        }
-        
-        // Add tool calls as assistant messages
-        if (toolCallMessages.length > 0) {
-          result.addAssistantToolCalls(toolCallMessages);
-        }
-      }
-
       result.finished = true;
 
       // Automatically execute tools if the assistant requested them
-      await result.executeRequestedTools();
+      {
+        const toolResults = await result.executeRequestedTools();
+        if (options?.onResult && toolResults) options.onResult(toolResults);
+      }
 
       return result;
     }
@@ -298,14 +279,17 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     }
 
     if (accumulated) {
-      result.answer = accumulated;
-      result.addAssistantMessage(result.answer);
+      const msg = result.ensureAssistantTextMessage();
+      msg.content = accumulated;
     }
 
     result.finished = true;
 
     // Automatically execute tools if the assistant requested them
-    await result.executeRequestedTools();
+    {
+      const toolResults = await result.executeRequestedTools();
+      if (options?.onResult && toolResults) options.onResult(toolResults);
+    }
 
     return result;
   }
@@ -408,24 +392,41 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
   protected handleStreamData(
     data: any,
     result: LangMessages,
-    messages: LangMessages,
-    onResult?: (result: LangMessages) => void,
+    onResult?: (result: LangMessage) => void,
     toolArgBuffers?: Map<string, { name: string; buffer: string }>
   ): void {
+    const ensureAssistantMessage = (): LangMessage => {
+      const last = result.length > 0 ? result[result.length - 1] : undefined;
+      if (last && last.role === "assistant" && typeof last.content === "string") {
+        return last;
+      }
+      result.addAssistantMessage("");
+      return result[result.length - 1];
+    };
+
+    const ensureToolMessage = (): LangMessage => {
+      const last = result.length > 0 ? result[result.length - 1] : undefined;
+      if (last && last.role === "tool" && Array.isArray(last.content)) {
+        return last;
+      }
+      result.addAssistantToolCalls([]);
+      return result[result.length - 1];
+    };
     if (data.finished) {
       if (toolArgBuffers && toolArgBuffers.size > 0 && result.toolsRequested) {
         for (const [id, acc] of toolArgBuffers) {
-          const entry = result.toolsRequested.find((t: any) => t.id === id);
-          if (!entry) continue;
-          try {
-            (entry as any).arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
-          } catch {
+          const entry = (result.toolsRequested as any).find((t: any) => t.id === id || t.callId === id);
+          if (entry) {
+            try {
+              (entry as any).arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
+            } catch {}
           }
         }
       }
       (result as any)._hasPendingToolArgs = false;
       result.finished = true;
-      onResult?.(result);
+      const last = result.length > 0 ? result[result.length - 1] : undefined;
+      if (last) onResult?.(last);
       return;
     }
 
@@ -434,11 +435,15 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
 
       if (delta.content) {
         if (typeof delta.content === 'string') {
-          result.answer += delta.content;
+          const msg = result.appendToAssistantText(delta.content);
+          onResult?.(msg);
         } else if (Array.isArray(delta.content)) {
+          let appended = false;
           for (const part of delta.content) {
             if (part?.type === 'text' && typeof part.text === 'string') {
-              result.answer += part.text;
+              const msg = result.appendToAssistantText(part.text);
+              onResult?.(msg);
+              appended = true;
             }
             if (part?.type === 'image_url' && part.image_url?.url) {
               result.images = result.images || [];
@@ -451,24 +456,39 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
               result.images.push({ base64, mimeType, provider: this.name, model: this._config.model });
             }
           }
+          if (!appended) {
+            const msg = ensureAssistantMessage();
+            onResult?.(msg);
+          }
         }
       }
 
       if (delta.tool_calls) {
         (result as any)._hasPendingToolArgs = true;
+        const toolMsg = ensureToolMessage();
+        const toolContent = (toolMsg.content as any[]);
 
         for (const toolCall of delta.tool_calls) {
           const id: string = toolCall.id || String(toolCall.index ?? "");
           const name: string | undefined = toolCall.function?.name;
           const argChunk: string | undefined = toolCall.function?.arguments;
 
-          let existing = (result.toolsRequested as any).find((t: any) => t.id === id);
+          let existing = (result.toolsRequested as any).find((t: any) => t.id === id || t.callId === id);
           if (!existing && id) {
             existing = { id, name: name || '', arguments: {} } as any;
             (result.toolsRequested as any).push(existing);
           }
           if (existing && name) {
             (existing as any).name = name;
+          }
+
+          // Reflect tool requests in the transcript message immediately
+          let msgEntry = toolContent.find((c: any) => c.callId === id || c.id === id);
+          if (!msgEntry) {
+            msgEntry = { callId: id, name: name || '', arguments: {} };
+            toolContent.push(msgEntry);
+          } else if (name) {
+            msgEntry.name = name;
           }
 
           if (!toolArgBuffers) continue;
@@ -480,26 +500,19 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
             acc.buffer += argChunk;
             try {
               const parsed = JSON.parse(acc.buffer);
-              existing && ((existing as any).arguments = parsed);
+              if (existing) (existing as any).arguments = parsed;
+              msgEntry.arguments = parsed;
             } catch {
             }
           }
         }
+        onResult?.(toolMsg);
       }
 
-      if (result.length > 0 &&
-        result[result.length - 1].role === "assistant") {
-        result[result.length - 1].content = result.answer;
-      } else if (result.answer) {
-        // Only add assistant message if there's actual content
-        // Tool calls will be added separately after streaming completes
-        result.push({
-          role: "assistant",
-          content: result.answer,
-        });
+      if (result.answer) {
+        const msg = ensureAssistantMessage();
+        onResult?.(msg);
       }
-
-      onResult?.(result);
     }
   }
 

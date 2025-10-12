@@ -191,19 +191,21 @@ export class OpenAIResponsesLang extends LanguageProvider {
       result.finished = true;
 
       // Automatically execute tools if the assistant requested them
-      await result.executeRequestedTools();
+      const toolResults = await result.executeRequestedTools();
+      if (toolResults) options?.onResult?.(toolResults);
 
       return result;
     }
 
     const data = await response.json();
-
     const openaiResponseId = data?.id as string;
     const output = data?.output as unknown;
 
     if (typeof (data as any)?.output_text === 'string' && (data as any).output_text.length > 0) {
-      result.answer = (data as any).output_text;
-      result.addAssistantMessage(result.answer, { openaiResponseId });
+      const msg = result.ensureAssistantTextMessage();
+      msg.content = (data as any).output_text;
+      msg.meta = { openaiResponseId };
+      options?.onResult?.(msg);
     } else if (Array.isArray(output)) {
       // Preserve raw output items for accurate pass-back (e.g., function_call)
       (result as any)._responsesOutputItems = output;
@@ -212,10 +214,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
       }
 
       // Build result.answer from accumulated assistant messages if any
-      const last = result.length > 0 ? result[result.length - 1] : undefined;
-      if (!result.answer && last && last.role === 'assistant' && typeof last.content === 'string') {
-        result.answer = last.content;
-      }
+      // Ensure answer getter will reflect the last assistant message automatically
     }
 
     result.finished = true;
@@ -243,8 +242,9 @@ export class OpenAIResponsesLang extends LanguageProvider {
             }
           }
           if (text) {
-            result.answer += text;
-            result.addAssistantMessage(result.answer, { openaiResponseId });
+            const msg = result.ensureAssistantTextMessage();
+            msg.content = (typeof msg.content === 'string' ? msg.content : '') + text;
+            msg.meta = { openaiResponseId };
           }
         } else {
           result.addUserMessage(item.content);
@@ -503,21 +503,37 @@ export class OpenAIResponsesLang extends LanguageProvider {
   private handleStreamingEvent(
     data: ResponsesStreamEvent | FinishedEvent,
     result: LangMessages,
-    onResult?: (result: LangMessages) => void,
+    onResult?: (result: LangMessage) => void,
     streamState?: { sawAnyTextDelta: boolean; openaiResponseId?: string },
     itemBuffers?: StreamItemBuffers,
   ): void {
+
+    const ensureAssistantMessage = (): LangMessage => {
+      const last = result.length > 0 ? result[result.length - 1] : undefined;
+      if (last && last.role === 'assistant' && typeof last.content === 'string') {
+        return last;
+      }
+      result.addAssistantMessage('', { openaiResponseId: streamState?.openaiResponseId });
+      return result[result.length - 1];
+    };
+
+    const ensureToolMessage = (): LangMessage => {
+      const last = result.length > 0 ? result[result.length - 1] : undefined;
+      if (last && last.role === 'tool' && Array.isArray(last.content)) {
+        return last;
+      }
+      result.addAssistantToolCalls([], { openaiResponseId: streamState?.openaiResponseId });
+      return result[result.length - 1];
+    };
+
     // Completion or interruption
     if ('finished' in data && data.finished) {
       if (result.answer) {
-        if (result.length > 0 && result[result.length - 1].role === 'assistant') {
-          (result as any)[result.length - 1].content = result.answer;
-        } else {
-          result.addAssistantMessage(result.answer, { openaiResponseId: streamState?.openaiResponseId });
-        }
+        const msg = ensureAssistantMessage();
+        (msg as any).content = result.answer;
+        onResult?.(msg);
       }
       result.finished = true;
-      onResult?.(result);
       return;
     }
 
@@ -539,14 +555,11 @@ export class OpenAIResponsesLang extends LanguageProvider {
         }
 
         if (result.answer) {
-          if (result.length > 0 && result[result.length - 1].role === 'assistant') {
-            (result as any)[result.length - 1].content = result.answer;
-          } else {
-            result.addAssistantMessage(result.answer, { openaiResponseId: streamState?.openaiResponseId });
-          }
+          const msg = ensureAssistantMessage();
+          (msg as any).content = result.answer;
+          onResult?.(msg);
         }
         result.finished = true;
-        onResult?.(result);
         return;
       }
       case 'response.output_item.done': {
@@ -563,22 +576,24 @@ export class OpenAIResponsesLang extends LanguageProvider {
               .map(([, v]) => v)
               .join('');
             if (merged) {
-              result.answer += merged;
+              const msg = result.appendToAssistantText(merged);
+              onResult?.(msg);
             }
           }
           if (!streamState?.sawAnyTextDelta) {
             for (const c of item.content) {
               if (c.type === 'output_text') {
-                result.answer += c.text;
+                const msg = result.appendToAssistantText(c.text);
+                onResult?.(msg);
               }
             }
           }
-          onResult?.(result);
           return;
         }
         // Handle other item types (like function_call) using the same logic as non-streaming
         this.handleOutputItem(item, result, streamState?.openaiResponseId);
-        onResult?.(result);
+        const last = result.length > 0 ? result[result.length - 1] : undefined;
+        if (last) onResult?.(last);
         return;
       }
       case 'response.content_part.done': {
@@ -591,9 +606,9 @@ export class OpenAIResponsesLang extends LanguageProvider {
             itemBuffers.set(data.item_id, rec);
           }
           if (!streamState?.sawAnyTextDelta) {
-            result.answer += part.text;
+            const msg = result.appendToAssistantText(part.text);
+            onResult?.(msg);
           }
-          onResult?.(result);
           return;
         }
         break;
@@ -607,8 +622,10 @@ export class OpenAIResponsesLang extends LanguageProvider {
           rec.parts.set(data.content_index, prev + data.delta);
           itemBuffers.set(data.item_id, rec);
         }
-        result.answer += data.delta;
-        onResult?.(result);
+        {
+          const msg = result.appendToAssistantText(data.delta);
+          onResult?.(msg);
+        }
         return;
       }
       case 'response.output_text.done': {
@@ -617,19 +634,23 @@ export class OpenAIResponsesLang extends LanguageProvider {
           // Prefer appending unless we never saw deltas
           if (streamState?.sawAnyTextDelta) {
             // ensure answer ends with final text
-            if (!result.answer.endsWith(text)) result.answer += text;
+            if (!result.answer.endsWith(text)) {
+              const msg = result.appendToAssistantText(text);
+              onResult?.(msg);
+            }
           } else {
-            result.answer += text;
+            const msg = result.appendToAssistantText(text);
+            onResult?.(msg);
           }
         }
-        onResult?.(result);
         return;
       }
       case 'response.image_generation_call.partial_image': {
         const base64 = data.partial_image_b64;
         result.images = result.images || [];
         result.images.push({ base64, mimeType: 'image/png', provider: this.name, model: this._model });
-        onResult?.(result);
+        const last = result.length > 0 ? result[result.length - 1] : undefined;
+        if (last) onResult?.(last);
         return;
       }
       default:

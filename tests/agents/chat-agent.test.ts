@@ -126,12 +126,15 @@ async function runTest(lang: LanguageProvider) {
     for (const event of streamingEvents) {
       expect(event.type).toBe('streaming');
       expect(event.data).toBeDefined();
-      expect(event.data.answer).toBeDefined();
-      expect(typeof event.data.answer).toBe('string');
+      expect(typeof event.data.idx).toBe('number');
+      expect(event.data.msg).toBeDefined();
+      expect(event.data.msg.content).toBeDefined();
     }
 
     // The streaming events should build up progressively
-    const answers = streamingEvents.map(e => e.data.answer);
+    const answers = streamingEvents
+      .filter(e => typeof e.data.msg.content === 'string')
+      .map(e => e.data.msg.content as string);
     console.log(`Streaming progression: ${answers.length} updates`);
     
     // Final streaming answer should match or be close to the final result

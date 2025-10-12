@@ -125,29 +125,16 @@ export class CohereLang extends LanguageProvider {
     const onData = (data: any) => {
       if (data.type === "message-end") {
         result.finished = true;
-        onResult?.(result);
+        const last = result.length > 0 ? result[result.length - 1] : undefined;
+        if (last) onResult?.(last as any);
         return;
       }
 
       // Handle Cohere's streaming format
       if (data.type === "content-delta" && data.delta?.message?.content?.text) {
         const text = data.delta.message.content.text;
-        result.answer += text;
-
-        // Update the existing assistant message or add a new one
-        if (result.messages.length > 0 && 
-            result.messages[result.messages.length - 1].role === "assistant") {
-          // Update the existing assistant message
-          result.messages[result.messages.length - 1].content = result.answer;
-        } else {
-          // Add a new assistant message
-          result.messages.push({
-            role: "assistant",
-            content: result.answer,
-          });
-        }
-
-        onResult?.(result);
+        const msg = result.appendToAssistantText(text);
+        onResult?.(msg);
       }
     };
 

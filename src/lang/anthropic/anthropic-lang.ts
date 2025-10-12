@@ -132,7 +132,10 @@ export class AnthropicLang extends LanguageProvider {
         this.handleStreamEvent(data, result, options?.onResult, streamState)
       );
 
-      await result.executeRequestedTools();
+      {
+        const toolResults = await result.executeRequestedTools();
+        if (options?.onResult && toolResults) options.onResult(toolResults);
+      }
       return result;
     }
 
@@ -190,14 +193,33 @@ export class AnthropicLang extends LanguageProvider {
   private handleStreamEvent(
     data: any,
     result: LangMessages,
-    onResult?: (result: LangMessages) => void,
+    onResult?: (result: LangMessage) => void,
     streamState?: StreamState
   ): void {
     if (!streamState) return;
 
+    const ensureAssistantMessage = (): LangMessage => {
+      const last = result.length > 0 ? result[result.length - 1] : undefined;
+      if (last && last.role === "assistant" && typeof last.content === "string") {
+        return last;
+      }
+      result.addAssistantMessage("");
+      return result[result.length - 1];
+    };
+
+    const ensureToolMessage = (): LangMessage => {
+      const last = result.length > 0 ? result[result.length - 1] : undefined;
+      if (last && last.role === "tool" && Array.isArray(last.content)) {
+        return last;
+      }
+      result.addAssistantToolCalls([]);
+      return result[result.length - 1];
+    };
+
     if (data.type === "message_stop") {
       this.finalizeStreamingResponse(result, streamState);
-      onResult?.(result);
+      const last = result.length > 0 ? result[result.length - 1] : undefined;
+      if (last) onResult?.(last);
       return;
     }
 
@@ -218,7 +240,8 @@ export class AnthropicLang extends LanguageProvider {
         streamState.isReceivingThinking = true;
         streamState.thinkingContent += data.delta.thinking;
         result.thinking = streamState.thinkingContent;
-        onResult?.(result);
+        const last = result.length > 0 ? result[result.length - 1] : undefined;
+        if (last) onResult?.(last);
         return;
       }
 
@@ -233,10 +256,12 @@ export class AnthropicLang extends LanguageProvider {
         if (streamState.isReceivingThinking) {
           streamState.thinkingContent += deltaText;
           result.thinking = streamState.thinkingContent;
+          const last = result.length > 0 ? result[result.length - 1] : undefined;
+          if (last) onResult?.(last);
         } else {
-          result.answer += deltaText;
+          const msg = result.appendToAssistantText(deltaText);
+          onResult?.(msg);
         }
-        onResult?.(result);
       }
       return;
     }
@@ -245,7 +270,8 @@ export class AnthropicLang extends LanguageProvider {
       if (streamState.isReceivingThinking) {
         streamState.isReceivingThinking = false;
         result.thinking = streamState.thinkingContent;
-        onResult?.(result);
+        const last = result.length > 0 ? result[result.length - 1] : undefined;
+        if (last) onResult?.(last);
       }
       return;
     }
@@ -304,7 +330,7 @@ export class AnthropicLang extends LanguageProvider {
     
     for (const block of data.content) {
       if (block?.type === 'text' && typeof block.text === 'string') {
-        result.answer += block.text;
+        result.appendToAssistantText(block.text);
       } else if (block?.type === 'tool_use') {
         toolCalls.push({
           id: block.id,
