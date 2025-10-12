@@ -233,17 +233,18 @@ export class OpenAIResponsesLang extends LanguageProvider {
     switch (item.type) {
       case 'message':
         if (item.role === 'assistant') {
-          let text = '';
+          let hasAny = false;
           if (Array.isArray(item.content)) {
             for (const c of item.content) {
               if (c?.type === 'output_text' && typeof c.text === 'string') {
-                text += c.text;
+                const msg = result.appendToAssistantText(c.text);
+                msg.meta = { openaiResponseId };
+                hasAny = true;
               }
             }
           }
-          if (text) {
+          if (!hasAny) {
             const msg = result.ensureAssistantTextMessage();
-            msg.content = (typeof msg.content === 'string' ? msg.content : '') + text;
             msg.meta = { openaiResponseId };
           }
         } else {
@@ -276,6 +277,13 @@ export class OpenAIResponsesLang extends LanguageProvider {
 
         break;
       case 'output_image':
+        if (item.image_url) {
+          result.addAssistantImage({ kind: 'url', url: item.image_url });
+        } else if (item.b64_json || item.data) {
+          const base64 = item.b64_json || item.data;
+          const mimeType = item.mime_type || item.mimeType || 'image/png';
+          result.addAssistantImage({ kind: 'base64', base64, mimeType });
+        }
         break;
       // @TODO: this is what we send. Let's remove all "output" from this switch?
       case 'computer_call_output':
@@ -647,8 +655,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
       }
       case 'response.image_generation_call.partial_image': {
         const base64 = data.partial_image_b64;
-        result.images = result.images || [];
-        result.images.push({ base64, mimeType: 'image/png', provider: this.name, model: this._model });
+        result.addAssistantImage({ kind: 'base64', base64, mimeType: 'image/png' });
         const last = result.length > 0 ? result[result.length - 1] : undefined;
         if (last) onResult?.(last);
         return;

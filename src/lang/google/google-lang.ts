@@ -117,12 +117,10 @@ export class GoogleLang extends LanguageProvider {
         if (p.inlineData && (p.inlineData.data || p.inlineData.b64_json)) {
           const base64 = p.inlineData.data || p.inlineData.b64_json;
           const mimeType = p.inlineData.mimeType || 'image/png';
-          result.images = result.images || [];
-          result.images.push({ base64, mimeType, provider: this.name, model: this._model });
+          result.addAssistantImage({ kind: 'base64', base64, mimeType });
         }
         if (p.fileData && p.fileData.fileUri) {
-          result.images = result.images || [];
-          result.images.push({ url: p.fileData.fileUri, provider: this.name, model: this._model });
+          result.addAssistantImage({ kind: 'url', url: p.fileData.fileUri });
         }
         if (p.functionCall) {
           const { name, args } = p.functionCall;

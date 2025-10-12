@@ -239,9 +239,8 @@ export class AnthropicLang extends LanguageProvider {
       if (data.delta?.type === "thinking_delta" && data.delta.thinking) {
         streamState.isReceivingThinking = true;
         streamState.thinkingContent += data.delta.thinking;
-        result.thinking = streamState.thinkingContent;
-        const last = result.length > 0 ? result[result.length - 1] : undefined;
-        if (last) onResult?.(last);
+        const msg = result.appendToAssistantThinking(data.delta.thinking);
+        if (msg) onResult?.(msg);
         return;
       }
 
@@ -255,9 +254,8 @@ export class AnthropicLang extends LanguageProvider {
       if (!toolUseId && deltaText) {
         if (streamState.isReceivingThinking) {
           streamState.thinkingContent += deltaText;
-          result.thinking = streamState.thinkingContent;
-          const last = result.length > 0 ? result[result.length - 1] : undefined;
-          if (last) onResult?.(last);
+          const msg = result.appendToAssistantThinking(deltaText);
+          if (msg) onResult?.(msg);
         } else {
           const msg = result.appendToAssistantText(deltaText);
           onResult?.(msg);
@@ -269,9 +267,8 @@ export class AnthropicLang extends LanguageProvider {
     if (data.type === "content_block_stop") {
       if (streamState.isReceivingThinking) {
         streamState.isReceivingThinking = false;
-        result.thinking = streamState.thinkingContent;
-        const last = result.length > 0 ? result[result.length - 1] : undefined;
-        if (last) onResult?.(last);
+        const msg = result.appendToAssistantThinking('');
+        if (msg) onResult?.(msg);
       }
       return;
     }
@@ -319,7 +316,6 @@ export class AnthropicLang extends LanguageProvider {
       }
     }
 
-    result.thinking = streamState.thinkingContent;
     result.finished = true;
   }
 
@@ -331,6 +327,8 @@ export class AnthropicLang extends LanguageProvider {
     for (const block of data.content) {
       if (block?.type === 'text' && typeof block.text === 'string') {
         result.appendToAssistantText(block.text);
+      } else if (block?.type === 'thinking' && typeof block.thinking === 'string') {
+        result.appendToAssistantThinking(block.thinking);
       } else if (block?.type === 'tool_use') {
         toolCalls.push({
           id: block.id,
@@ -400,11 +398,14 @@ export class AnthropicLang extends LanguageProvider {
       if (p.type === 'text') {
         return { type: 'text', text: p.text };
       }
-      if (p.image) {
+      if (p.type === 'image') {
         const src = this.imageInputToAnthropicSource(p.image);
         return { type: 'image', source: src } as any;
       }
-      // Handle other content types or fallback to text
+      if (p.type === 'thinking') {
+        return { type: 'thinking', thinking: p.text } as any;
+      }
+      // Fallback for unknown parts
       return { type: 'text', text: JSON.stringify(p) };
     });
   }

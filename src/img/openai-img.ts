@@ -49,12 +49,11 @@ export class OpenAIImg {
     const dataItem = json?.data?.[0];
     if (!dataItem) throw new Error('No image data');
 
-    result.images = result.images || [];
     if (dataItem.b64_json) {
-      result.images.push({ base64: dataItem.b64_json, mimeType: 'image/png', provider: 'openai', model: this._model, metadata: { created: json?.created } });
+      result.addAssistantImage({ kind: 'base64', base64: dataItem.b64_json, mimeType: 'image/png' });
       result.addAssistantMessage('image://base64');
     } else if (dataItem.url) {
-      result.images.push({ url: dataItem.url, provider: 'openai', model: this._model, metadata: { created: json?.created } });
+      result.addAssistantImage({ kind: 'url', url: dataItem.url });
       result.addAssistantMessage(dataItem.url);
     }
     result.finished = true;
@@ -82,12 +81,11 @@ export class OpenAIImg {
     const dataItem = json?.data?.[0];
     if (!dataItem) throw new Error('No image data');
 
-    result.images = result.images || [];
     if (dataItem.b64_json) {
-      result.images.push({ base64: dataItem.b64_json, mimeType: 'image/png', provider: 'openai', model: this._model, metadata: { created: json?.created } });
+      result.addAssistantImage({ kind: 'base64', base64: dataItem.b64_json, mimeType: 'image/png' });
       result.addAssistantMessage('image://base64');
     } else if (dataItem.url) {
-      result.images.push({ url: dataItem.url, provider: 'openai', model: this._model, metadata: { created: json?.created } });
+      result.addAssistantImage({ kind: 'url', url: dataItem.url });
       result.addAssistantMessage(dataItem.url);
     }
     result.finished = true;
@@ -115,12 +113,11 @@ export class OpenAIImg {
     const dataItem = json?.data?.[0];
     if (!dataItem) throw new Error('No image data');
 
-    result.images = result.images || [];
     if (dataItem.b64_json) {
-      result.images.push({ base64: dataItem.b64_json, mimeType: 'image/png', provider: 'openai', model: this._model, metadata: { created: json?.created } });
+      result.addAssistantImage({ kind: 'base64', base64: dataItem.b64_json, mimeType: 'image/png' });
       result.addAssistantMessage('image://base64');
     } else if (dataItem.url) {
-      result.images.push({ url: dataItem.url, provider: 'openai', model: this._model, metadata: { created: json?.created } });
+      result.addAssistantImage({ kind: 'url', url: dataItem.url });
       result.addAssistantMessage(dataItem.url);
     }
     result.finished = true;

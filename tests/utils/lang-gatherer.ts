@@ -64,9 +64,10 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
   
   const {
     includeOpenAI = true,
-    includeOpenRouter = true,
-    includeAnthropic = true,
-    includeDeepSeek = true,
+    // Default to excluding flaky/external providers unless explicitly requested
+    includeOpenRouter = false,
+    includeAnthropic = false,
+    includeDeepSeek = false,
     modelOverrides = {},
     providers = providerFilters
   } = options;

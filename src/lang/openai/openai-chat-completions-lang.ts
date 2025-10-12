@@ -267,13 +267,12 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
         } else if (part?.type === 'text' && typeof part.text === 'string') {
           accumulated += part.text;
         } else if (part?.type === 'image_url' && part.image_url?.url) {
-          result.images = result.images || [];
-          result.images.push({ url: part.image_url.url, provider: this.name, model: this._config.model });
+          const url = part.image_url.url;
+          result.addAssistantImage({ kind: 'url', url });
         } else if ((part?.type === 'output_image' || part?.type === 'inline_data') && (part.b64_json || part.data)) {
           const base64 = part.b64_json || part.data;
           const mimeType = part.mime_type || part.mimeType || 'image/png';
-          result.images = result.images || [];
-          result.images.push({ base64, mimeType, provider: this.name, model: this._config.model });
+          result.addAssistantImage({ kind: 'base64', base64, mimeType });
         }
       }
     }
@@ -433,6 +432,11 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     if (data.choices !== undefined) {
       const delta = data.choices[0].delta;
 
+      if (delta.reasoning_content) {
+        const msg = result.appendToAssistantThinking(delta.reasoning_content);
+        if (msg) onResult?.(msg);
+      }
+
       if (delta.content) {
         if (typeof delta.content === 'string') {
           const msg = result.appendToAssistantText(delta.content);
@@ -446,14 +450,13 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
               appended = true;
             }
             if (part?.type === 'image_url' && part.image_url?.url) {
-              result.images = result.images || [];
-              result.images.push({ url: part.image_url.url, provider: this.name, model: this._config.model });
+              const url = part.image_url.url;
+              result.addAssistantImage({ kind: 'url', url });
             }
             if ((part?.type === 'output_image' || part?.type === 'inline_data') && (part.b64_json || part.data)) {
               const base64 = part.b64_json || part.data;
               const mimeType = part.mime_type || part.mimeType || 'image/png';
-              result.images = result.images || [];
-              result.images.push({ base64, mimeType, provider: this.name, model: this._config.model });
+              result.addAssistantImage({ kind: 'base64', base64, mimeType });
             }
           }
           if (!appended) {

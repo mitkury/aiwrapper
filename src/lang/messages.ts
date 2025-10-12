@@ -28,20 +28,12 @@ export type LangImageInput =
   | { kind: "bytes"; bytes: ArrayBuffer | Uint8Array; mimeType?: string }
   | { kind: "blob"; blob: Blob; mimeType?: string };
 
-export type LangImageOutput = {
-  url?: string;
-  base64?: string;
-  mimeType?: string;
-  width?: number;
-  height?: number;
-  provider?: string;
-  model?: string;
-  metadata?: Record<string, unknown>;
-};
+// Note: Image outputs are represented within LangContentPart as { type: "image", image: LangImageInput }
 
 export type LangContentPart =
   | { type: "text"; text: string }
-  | { type: "image"; image: LangImageInput; alt?: string };
+  | { type: "image"; image: LangImageInput; alt?: string }
+  | { type: "thinking"; text: string };
 
 
 export type LangToolWithHandler = {
@@ -71,9 +63,7 @@ export class LangMessages extends Array<LangMessage> {
   // Merged result fields
   object: any | null = null;
   finished: boolean = false;
-  thinking?: string;
   validationErrors: string[] = [];
-  images?: LangImageOutput[];
   instructions?: string;
 
   constructor();
@@ -128,12 +118,56 @@ export class LangMessages extends Array<LangMessage> {
   }
 
   /**
+   * Ensure there is an assistant message with array content at the end and return it
+   */
+  ensureAssistantPartsMessage(): LangMessage {
+    const last = this.length > 0 ? this[this.length - 1] : undefined;
+    if (last && last.role === "assistant") {
+      if (Array.isArray(last.content)) return last;
+      const parts: LangContentPart[] = [];
+      if (typeof last.content === "string" && last.content.length > 0) {
+        parts.push({ type: "text", text: last.content });
+      }
+      (last as any).content = parts;
+      return last;
+    }
+    const created: LangMessage = { role: "assistant", content: [] as LangContentPart[] };
+    this.push(created);
+    return created;
+  }
+
+  /**
    * Append text to the last assistant message (creating if needed)
    */
   appendToAssistantText(text: string): LangMessage {
     const msg = this.ensureAssistantTextMessage();
     (msg as any).content = String((msg as any).content || "") + text;
     return msg;
+  }
+
+  /**
+   * Append or create a thinking content part in the last assistant message
+   */
+  appendToAssistantThinking(text: string): LangMessage {
+    const msg = this.ensureAssistantPartsMessage();
+    const parts = msg.content as LangContentPart[];
+    const lastPart = parts.length > 0 ? parts[parts.length - 1] : undefined;
+    if (lastPart && lastPart.type === "thinking") {
+      lastPart.text += text;
+    } else {
+      parts.push({ type: "thinking", text });
+    }
+    return msg;
+  }
+
+  addAssistantContentPart(part: LangContentPart): this {
+    const msg = this.ensureAssistantPartsMessage();
+    (msg.content as LangContentPart[]).push(part);
+    return this;
+  }
+
+  addAssistantImage(image: LangImageInput, alt?: string): this {
+    return this.addAssistantContentPart({ type: "image", image, alt });
   }
 
   get toolsRequested(): ToolRequest[] {

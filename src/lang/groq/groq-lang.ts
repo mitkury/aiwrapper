@@ -97,11 +97,11 @@ export class GroqLang extends OpenAIChatCompletionsLang {
 
         let finalText = message?.content || "";
         if (message.reasoning) {
-          messageCollection.thinking = message.reasoning;
+          messageCollection.appendToAssistantThinking(message.reasoning);
         } else {
           const thinkingContent = this.extractThinking(finalText);
           if (thinkingContent.thinking) {
-            messageCollection.thinking = thinkingContent.thinking;
+            messageCollection.appendToAssistantThinking(thinkingContent.thinking);
             finalText = thinkingContent.answer;
           }
         }
@@ -122,7 +122,7 @@ export class GroqLang extends OpenAIChatCompletionsLang {
       if (data.finished) {
         const extracted = this.extractThinking(visibleContent);
         if (extracted.thinking) {
-          messageCollection.thinking = extracted.thinking;
+          messageCollection.appendToAssistantThinking(extracted.thinking);
           const msg = messageCollection.ensureAssistantTextMessage();
           msg.content = extracted.answer;
         }
@@ -137,7 +137,7 @@ export class GroqLang extends OpenAIChatCompletionsLang {
         
         if (delta.reasoning) {
           thinkingContent += delta.reasoning;
-          messageCollection.thinking = thinkingContent;
+          messageCollection.appendToAssistantThinking(delta.reasoning);
         }
         
         if (delta.content) {
@@ -153,7 +153,7 @@ export class GroqLang extends OpenAIChatCompletionsLang {
           }
         }
         
-        const textToShow = messageCollection.thinking ? messageCollection.answer : visibleContent;
+        const textToShow = visibleContent;
         if (messageCollection.length > 0 && messageCollection[messageCollection.length - 1].role === "assistant") {
           messageCollection[messageCollection.length - 1].content = textToShow;
         } else {
@@ -203,7 +203,7 @@ export class GroqLang extends OpenAIChatCompletionsLang {
     const extracted = this.extractThinking(fullContent);
     
     if (extracted.thinking) {
-      result.thinking = extracted.thinking;
+      result.appendToAssistantThinking(extracted.thinking);
       const msg = result.ensureAssistantTextMessage();
       msg.content = extracted.answer;
       return;
@@ -217,7 +217,7 @@ export class GroqLang extends OpenAIChatCompletionsLang {
         const beforeThinkingContent = fullContent.substring(0, lastOpenTagIndex).trim();
         const potentialThinkingContent = fullContent.substring(lastOpenTagIndex + 7).trim();
         
-        result.thinking = potentialThinkingContent;
+        result.appendToAssistantThinking(potentialThinkingContent);
         const msg = result.ensureAssistantTextMessage();
         msg.content = beforeThinkingContent;
         return;
@@ -230,7 +230,7 @@ export class GroqLang extends OpenAIChatCompletionsLang {
         const beforeThinking = fullContent.substring(0, fullContent.indexOf("<think>")).trim();
         const afterThinking = fullContent.substring(fullContent.indexOf("</think>") + 8).trim();
         
-        result.thinking = thinkingContent;
+        result.appendToAssistantThinking(thinkingContent);
         const msg = result.ensureAssistantTextMessage();
         msg.content = (beforeThinking + " " + afterThinking).trim();
       }
