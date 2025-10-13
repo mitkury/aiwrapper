@@ -4,14 +4,13 @@ import {
   LangContentPart,
   LangImageInput,
 } from "../language-provider.ts";
-import { LangMessages, LangMessage, LangToolWithHandler, LangTool } from "../messages.ts";
+import { LangMessages, LangMessage, LangTool } from "../messages.ts";
 import {
   httpRequestWithRetry as fetch,
 } from "../../http-request.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
 import { models, Model } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
-import { ToolWithHandler } from "../index.ts";
 
 export type ReasoningEffort = "low" | "medium" | "high";
 
@@ -220,10 +219,8 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
       result.finished = true;
 
       // Automatically execute tools if the assistant requested them
-      {
-        const toolResults = await result.executeRequestedTools();
-        if (options?.onResult && toolResults) options.onResult(toolResults);
-      }
+      const toolResults = await result.executeRequestedTools();
+      if (options?.onResult && toolResults) options.onResult(toolResults);
 
       return result;
     }
@@ -267,13 +264,12 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
         } else if (part?.type === 'text' && typeof part.text === 'string') {
           accumulated += part.text;
         } else if (part?.type === 'image_url' && part.image_url?.url) {
-          result.images = result.images || [];
-          result.images.push({ url: part.image_url.url, provider: this.name, model: this._config.model });
+          const url = part.image_url.url;
+          result.addAssistantImage({ kind: 'url', url });
         } else if ((part?.type === 'output_image' || part?.type === 'inline_data') && (part.b64_json || part.data)) {
           const base64 = part.b64_json || part.data;
           const mimeType = part.mime_type || part.mimeType || 'image/png';
-          result.images = result.images || [];
-          result.images.push({ base64, mimeType, provider: this.name, model: this._config.model });
+          result.addAssistantImage({ kind: 'base64', base64, mimeType });
         }
       }
     }
@@ -286,10 +282,8 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     result.finished = true;
 
     // Automatically execute tools if the assistant requested them
-    {
-      const toolResults = await result.executeRequestedTools();
-      if (options?.onResult && toolResults) options.onResult(toolResults);
-    }
+    const toolResults = await result.executeRequestedTools();
+    if (options?.onResult && toolResults) options.onResult(toolResults);
 
     return result;
   }
@@ -333,6 +327,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
             out.push({
               role: "tool",
               tool_call_id: tr.toolId,
+              name: tr.name,
               content: typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result)
             });
           }
@@ -419,7 +414,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
           if (entry) {
             try {
               (entry as any).arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
-            } catch {}
+            } catch { }
           }
         }
       }
@@ -432,6 +427,11 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
 
     if (data.choices !== undefined) {
       const delta = data.choices[0].delta;
+
+      if (delta.reasoning_content) {
+        const msg = result.appendToAssistantThinking(delta.reasoning_content);
+        if (msg) onResult?.(msg);
+      }
 
       if (delta.content) {
         if (typeof delta.content === 'string') {
@@ -446,14 +446,13 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
               appended = true;
             }
             if (part?.type === 'image_url' && part.image_url?.url) {
-              result.images = result.images || [];
-              result.images.push({ url: part.image_url.url, provider: this.name, model: this._config.model });
+              const url = part.image_url.url;
+              result.addAssistantImage({ kind: 'url', url });
             }
             if ((part?.type === 'output_image' || part?.type === 'inline_data') && (part.b64_json || part.data)) {
               const base64 = part.b64_json || part.data;
               const mimeType = part.mime_type || part.mimeType || 'image/png';
-              result.images = result.images || [];
-              result.images.push({ base64, mimeType, provider: this.name, model: this._config.model });
+              result.addAssistantImage({ kind: 'base64', base64, mimeType });
             }
           }
           if (!appended) {

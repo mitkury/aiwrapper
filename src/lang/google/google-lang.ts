@@ -117,12 +117,10 @@ export class GoogleLang extends LanguageProvider {
         if (p.inlineData && (p.inlineData.data || p.inlineData.b64_json)) {
           const base64 = p.inlineData.data || p.inlineData.b64_json;
           const mimeType = p.inlineData.mimeType || 'image/png';
-          result.images = result.images || [];
-          result.images.push({ base64, mimeType, provider: this.name, model: this._model });
+          result.addAssistantImage({ kind: 'base64', base64, mimeType });
         }
         if (p.fileData && p.fileData.fileUri) {
-          result.images = result.images || [];
-          result.images.push({ url: p.fileData.fileUri, provider: this.name, model: this._model });
+          result.addAssistantImage({ kind: 'url', url: p.fileData.fileUri });
         }
         if (p.functionCall) {
           const { name, args } = p.functionCall;
@@ -167,19 +165,20 @@ export class GoogleLang extends LanguageProvider {
     await processResponseStream(response, onData);
 
     // Automatically execute tools if the assistant requested them
-    await result.executeRequestedTools();
+    const toolsResults = await result.executeRequestedTools();
+    if (options?.onResult && toolsResults) options.onResult(toolsResults);
 
     return result;
   }
 
   protected transformMessagesForProvider(messages: LangMessages): any[] {
     return messages.map((msg: any) => {
-      if (msg.role === 'tool' && Array.isArray(msg.content)) {
+      if (msg.role === 'tool-results' && Array.isArray(msg.content)) {
         return {
           role: 'user',
           parts: msg.content.map((tr: any) => ({
             functionResponse: {
-              name: tr.toolId,
+              name: tr.name,
               response: typeof tr.result === 'object' && tr.result !== null ? tr.result : { result: tr.result }
             }
           }))

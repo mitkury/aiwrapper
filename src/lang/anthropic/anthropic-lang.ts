@@ -23,6 +23,7 @@ type StreamState = {
   thinkingContent: string;
   toolCalls: Array<{ id: string; name: string; arguments: any }>;
   pendingToolInputs: Map<string, { name: string; buffer: string }>;
+  indexToToolId: Map<number, string>;
 };
 
 export type AnthropicLangOptions = {
@@ -85,7 +86,7 @@ export class AnthropicLang extends LanguageProvider {
       ? messages
       : new LangMessages(messages);
 
-    const { system, providerMessages, requestMaxTokens, tools } = 
+    const { system, providerMessages, requestMaxTokens, tools } =
       this.prepareRequest(messageCollection);
 
     const result = messageCollection;
@@ -126,16 +127,18 @@ export class AnthropicLang extends LanguageProvider {
         thinkingContent: "",
         toolCalls: [],
         pendingToolInputs: new Map(),
+        indexToToolId: new Map(),
       };
 
-      await processResponseStream(response, (data: any) => 
+      await processResponseStream(response, (data: any) =>
         this.handleStreamEvent(data, result, options?.onResult, streamState)
       );
 
-      {
-        const toolResults = await result.executeRequestedTools();
-        if (options?.onResult && toolResults) options.onResult(toolResults);
-      }
+
+      // Automatically execute tools if the assistant requested them
+      const toolResults = await result.executeRequestedTools();
+      if (options?.onResult && toolResults) options.onResult(toolResults);
+
       return result;
     }
 
@@ -143,7 +146,7 @@ export class AnthropicLang extends LanguageProvider {
     const data: any = await response.json();
     this.processNonStreamingResponse(data, result);
     result.finished = true;
-    
+
     await result.executeRequestedTools();
     return result;
   }
@@ -227,6 +230,8 @@ export class AnthropicLang extends LanguageProvider {
       if (data.content_block?.type === "tool_use") {
         const id = data.content_block.id;
         const name = data.content_block.name || '';
+        const index = data.index;
+        streamState.indexToToolId.set(index, id);
         streamState.pendingToolInputs.set(id, { name, buffer: '' });
         streamState.toolCalls.push({ id, name, arguments: {} });
       } else if (data.content_block?.type === "thinking") {
@@ -239,13 +244,14 @@ export class AnthropicLang extends LanguageProvider {
       if (data.delta?.type === "thinking_delta" && data.delta.thinking) {
         streamState.isReceivingThinking = true;
         streamState.thinkingContent += data.delta.thinking;
-        result.thinking = streamState.thinkingContent;
-        const last = result.length > 0 ? result[result.length - 1] : undefined;
-        if (last) onResult?.(last);
+        const msg = result.appendToAssistantThinking(data.delta.thinking);
+        if (msg) onResult?.(msg);
         return;
       }
 
-      const toolUseId = data.content_block_id;
+      // Get tool ID from index (Anthropic uses index in content_block_delta)
+      const index = data.index;
+      const toolUseId = index !== undefined ? streamState.indexToToolId.get(index) : undefined;
       if (toolUseId && streamState.pendingToolInputs.has(toolUseId)) {
         this.handleToolDelta(data.delta, toolUseId, streamState);
         return;
@@ -255,9 +261,8 @@ export class AnthropicLang extends LanguageProvider {
       if (!toolUseId && deltaText) {
         if (streamState.isReceivingThinking) {
           streamState.thinkingContent += deltaText;
-          result.thinking = streamState.thinkingContent;
-          const last = result.length > 0 ? result[result.length - 1] : undefined;
-          if (last) onResult?.(last);
+          const msg = result.appendToAssistantThinking(deltaText);
+          if (msg) onResult?.(msg);
         } else {
           const msg = result.appendToAssistantText(deltaText);
           onResult?.(msg);
@@ -269,9 +274,8 @@ export class AnthropicLang extends LanguageProvider {
     if (data.type === "content_block_stop") {
       if (streamState.isReceivingThinking) {
         streamState.isReceivingThinking = false;
-        result.thinking = streamState.thinkingContent;
-        const last = result.length > 0 ? result[result.length - 1] : undefined;
-        if (last) onResult?.(last);
+        const msg = result.appendToAssistantThinking('');
+        if (msg) onResult?.(msg);
       }
       return;
     }
@@ -280,14 +284,14 @@ export class AnthropicLang extends LanguageProvider {
   private handleToolDelta(delta: any, toolUseId: string, streamState: StreamState): void {
     const acc = streamState.pendingToolInputs.get(toolUseId)!;
     const argChunk = delta.partial_json || delta.input_json_delta || delta.text;
-    
+
     if (typeof argChunk === 'string') {
       acc.buffer += argChunk;
       try {
         const parsed = JSON.parse(acc.buffer);
         const entry = streamState.toolCalls.find((t) => t.id === toolUseId);
         if (entry) entry.arguments = parsed;
-      } catch {}
+      } catch { }
     }
   }
 
@@ -298,7 +302,7 @@ export class AnthropicLang extends LanguageProvider {
       if (entry) {
         try {
           entry.arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
-        } catch {}
+        } catch { }
       }
     }
 
@@ -307,19 +311,19 @@ export class AnthropicLang extends LanguageProvider {
       if (result.answer) {
         result.push({ role: "assistant", content: result.answer });
       }
-      result.addAssistantToolCalls(streamState.toolCalls.map(tc => ({
+      const formattedToolCalls = streamState.toolCalls.map(tc => ({
         callId: tc.id,
         id: tc.id,
         name: tc.name,
         arguments: tc.arguments
-      })));
+      }));
+      result.addAssistantToolCalls(formattedToolCalls);
     } else if (result.answer) {
       if (result.length === 0 || result[result.length - 1].role !== "assistant") {
         result.push({ role: "assistant", content: result.answer });
       }
     }
 
-    result.thinking = streamState.thinkingContent;
     result.finished = true;
   }
 
@@ -327,16 +331,19 @@ export class AnthropicLang extends LanguageProvider {
     if (!Array.isArray(data?.content)) return;
 
     const toolCalls: any[] = [];
-    
+
     for (const block of data.content) {
       if (block?.type === 'text' && typeof block.text === 'string') {
         result.appendToAssistantText(block.text);
+      } else if (block?.type === 'thinking' && typeof block.thinking === 'string') {
+        result.appendToAssistantThinking(block.thinking);
       } else if (block?.type === 'tool_use') {
-        toolCalls.push({
+        const toolCall = {
           id: block.id,
           name: block.name,
           arguments: block.input || {}
-        });
+        };
+        toolCalls.push(toolCall);
       }
     }
 
@@ -344,12 +351,13 @@ export class AnthropicLang extends LanguageProvider {
       if (result.answer) {
         result.push({ role: "assistant", content: result.answer });
       }
-      result.addAssistantToolCalls(toolCalls.map(tc => ({
+      const formattedToolCalls = toolCalls.map(tc => ({
         callId: tc.id,
         id: tc.id,
         name: tc.name,
         arguments: tc.arguments
-      })));
+      }));
+      result.addAssistantToolCalls(formattedToolCalls);
     } else if (result.answer) {
       result.push({ role: "assistant", content: result.answer });
     }
@@ -400,11 +408,14 @@ export class AnthropicLang extends LanguageProvider {
       if (p.type === 'text') {
         return { type: 'text', text: p.text };
       }
-      if (p.image) {
+      if (p.type === 'image') {
         const src = this.imageInputToAnthropicSource(p.image);
         return { type: 'image', source: src } as any;
       }
-      // Handle other content types or fallback to text
+      if (p.type === 'thinking') {
+        return { type: 'thinking', thinking: p.text } as any;
+      }
+      // Fallback for unknown parts
       return { type: 'text', text: JSON.stringify(p) };
     });
   }

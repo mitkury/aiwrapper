@@ -88,7 +88,7 @@ export class OllamaLang extends LanguageProvider {
         // Final check for thinking content when streaming is complete
         const extracted = this.extractThinking(visibleContent);
         if (extracted.thinking) {
-          result.thinking = extracted.thinking;
+          result.appendToAssistantThinking(extracted.thinking);
           const msg = result.ensureAssistantTextMessage();
           msg.content = extracted.answer;
         }
@@ -143,7 +143,7 @@ export class OllamaLang extends LanguageProvider {
     if (!onResult) {
       const extracted = this.extractThinking(result.answer);
       if (extracted.thinking) {
-        result.thinking = extracted.thinking;
+        result.appendToAssistantThinking(extracted.thinking);
         const msg = result.ensureAssistantTextMessage();
         msg.content = extracted.answer;
       }
@@ -177,7 +177,7 @@ export class OllamaLang extends LanguageProvider {
         // Final check for thinking content when streaming is complete
         const extracted = this.extractThinking(visibleContent);
         if (extracted.thinking) {
-          result.thinking = extracted.thinking;
+          result.appendToAssistantThinking(extracted.thinking);
           const msg = result.ensureAssistantTextMessage();
           msg.content = extracted.answer;
         }
@@ -254,7 +254,7 @@ export class OllamaLang extends LanguageProvider {
     if (!onResult) {
       const extracted = this.extractThinking(result.answer);
       if (extracted.thinking) {
-        result.thinking = extracted.thinking;
+        result.appendToAssistantThinking(extracted.thinking);
         const msg = result.ensureAssistantTextMessage();
         msg.content = extracted.answer;
       }
@@ -287,7 +287,7 @@ export class OllamaLang extends LanguageProvider {
   private processChunkForThinking(
     currentChunk: string, 
     fullContent: string, 
-    result: LangResult,
+    result: LangMessages,
     openTagIndex: number,
     pendingThinking: string
   ): void {
@@ -296,7 +296,7 @@ export class OllamaLang extends LanguageProvider {
     
     if (extracted.thinking) {
       // We have one or more complete thinking sections
-      result.thinking = extracted.thinking;
+      result.appendToAssistantThinking(extracted.thinking);
       const msg = result.ensureAssistantTextMessage();
       msg.content = extracted.answer;
       return;
@@ -314,7 +314,7 @@ export class OllamaLang extends LanguageProvider {
         const beforeThinkingContent = fullContent.substring(0, lastOpenTagIndex).trim();
         const potentialThinkingContent = fullContent.substring(lastOpenTagIndex + 7).trim();
         
-        result.thinking = potentialThinkingContent;
+        result.appendToAssistantThinking(potentialThinkingContent);
         const msg = result.ensureAssistantTextMessage();
         msg.content = beforeThinkingContent;
         return;
@@ -329,7 +329,7 @@ export class OllamaLang extends LanguageProvider {
         const beforeThinking = fullContent.substring(0, fullContent.indexOf("<think>")).trim();
         const afterThinking = fullContent.substring(fullContent.indexOf("</think>") + 8).trim();
         
-        result.thinking = thinkingContent;
+        result.appendToAssistantThinking(thinkingContent);
         const msg = result.ensureAssistantTextMessage();
         msg.content = (beforeThinking + " " + afterThinking).trim();
       }
