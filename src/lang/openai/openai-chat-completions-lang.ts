@@ -324,14 +324,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     onResult?: (result: LangMessage) => void,
     toolArgBuffers?: Map<string, { name: string; buffer: string }>
   ): void {
-    const ensureAssistantMessage = (): LangMessage => {
-      const last = result.length > 0 ? result[result.length - 1] : undefined;
-      if (last && last.role === "assistant" && typeof last.content === "string") {
-        return last;
-      }
-      result.addAssistantMessage("");
-      return result[result.length - 1];
-    };
+
 
     const ensureToolMessage = (): LangMessage => {
       const last = result.length > 0 ? result[result.length - 1] : undefined;
@@ -341,14 +334,24 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
       result.addAssistantToolCalls([]);
       return result[result.length - 1];
     };
+    
     if (data.finished) {
-      if (toolArgBuffers && toolArgBuffers.size > 0 && result.toolsRequested) {
-        for (const [id, acc] of toolArgBuffers) {
-          const entry = (result.toolsRequested as any).find((t: any) => t.id === id || t.callId === id);
-          if (entry) {
-            try {
-              (entry as any).arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
-            } catch { }
+      // Finalize any buffered tool arguments onto the last tool message
+      if (toolArgBuffers && toolArgBuffers.size > 0) {
+        let lastToolMsg: LangMessage | undefined;
+        for (let i = result.length - 1; i >= 0; i--) {
+          if (result[i].role === 'tool') { lastToolMsg = result[i]; break; }
+        }
+        if (lastToolMsg && Array.isArray(lastToolMsg.content)) {
+          for (const [id, acc] of toolArgBuffers) {
+            const entry = (lastToolMsg.content as any[]).find((t: any) => t.callId === id || t.id === id);
+            if (entry) {
+              try {
+                entry.arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
+              } catch {
+                entry.arguments = {};
+              }
+            }
           }
         }
       }
@@ -389,10 +392,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
               result.addAssistantImage({ kind: 'base64', base64, mimeType });
             }
           }
-          if (!appended) {
-            const msg = ensureAssistantMessage();
-            onResult?.(msg);
-          }
+          // Do not create an empty assistant message when nothing was appended
         }
       }
 
@@ -406,15 +406,6 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
           const name: string | undefined = toolCall.function?.name;
           const argChunk: string | undefined = toolCall.function?.arguments;
 
-          let existing = (result.toolsRequested as any).find((t: any) => t.id === id || t.callId === id);
-          if (!existing && id) {
-            existing = { callId: id, name: name || '', arguments: {} } as any;
-            (result.toolsRequested as any).push(existing);
-          }
-          if (existing && name) {
-            (existing as any).name = name;
-          }
-
           // Reflect tool requests in the transcript message immediately
           let msgEntry = toolContent.find((c: any) => c.callId === id || c.id === id);
           if (!msgEntry) {
@@ -426,25 +417,19 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
 
           if (!toolArgBuffers) continue;
           if (!toolArgBuffers.has(id)) {
-            toolArgBuffers.set(id, { name: name || (existing as any)?.name || '', buffer: '' });
+            toolArgBuffers.set(id, { name: name || msgEntry.name || '', buffer: '' });
           }
           if (argChunk) {
             const acc = toolArgBuffers.get(id)!;
             acc.buffer += argChunk;
             try {
               const parsed = JSON.parse(acc.buffer);
-              if (existing) (existing as any).arguments = parsed;
               msgEntry.arguments = parsed;
             } catch {
             }
           }
         }
         onResult?.(toolMsg);
-      }
-
-      if (result.answer) {
-        const msg = ensureAssistantMessage();
-        onResult?.(msg);
       }
     }
   }

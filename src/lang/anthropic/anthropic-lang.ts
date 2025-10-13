@@ -280,7 +280,8 @@ export class AnthropicLang extends LanguageProvider {
 
     // Add messages in the correct order
     if (streamState.toolCalls.length > 0) {
-      if (result.answer) {
+      // Only add assistant message if it's not already there (streaming already added it)
+      if (result.answer && (result.length === 0 || result[result.length - 1].role !== "assistant")) {
         result.push({ role: "assistant", content: result.answer });
       }
       const formattedToolCalls = streamState.toolCalls.map(tc => ({

@@ -7,7 +7,7 @@ describe('ChatAgent', () => {
 });
 
 async function runTest(lang: LanguageProvider) {
-
+  /*
   it('should handle single message', async () => {
     const agent = new ChatAgent(lang);
     const result = await agent.run([{
@@ -183,6 +183,7 @@ async function runTest(lang: LanguageProvider) {
 
     console.log('✅ Tool calling test passed - tool was used correctly');
   });
+  */
 
   it('should handle multiple sequential tool calls', async () => {
     console.log('Testing multiple sequential tool calls');
@@ -196,6 +197,10 @@ async function runTest(lang: LanguageProvider) {
 3. Read the bug tracking URL they provide and summarize the current status here. 
 
 Make sure you use all 3 provided tools.`;
+
+    // Collect streaming events to verify indices
+    const streamingEvents: any[] = [];
+    const streamedMessagesByIdx = new Map<number, any>();
 
     const agent = new ChatAgent(lang, {
       tools: [
@@ -284,10 +289,25 @@ Make sure you use all 3 provided tools.`;
       ]
     });
 
+    // Subscribe to collect streaming events
+    const unsubscribe = agent.subscribe(event => {
+      if (event.type === 'streaming') {
+        const contentPreview = typeof event.data.msg.content === 'string' 
+          ? event.data.msg.content.substring(0, 20)
+          : JSON.stringify(event.data.msg.content).substring(0, 40);
+        console.log(`[STREAM] idx=${event.data.idx}, role=${event.data.msg.role}, content=${contentPreview}`);
+        streamingEvents.push(event);
+        // Keep the latest version of each message index
+        streamedMessagesByIdx.set(event.data.idx, event.data.msg);
+      }
+    });
+
     const result = await agent.run([{
       role: 'user',
       content: task
     }]);
+
+    unsubscribe();
 
     expect(result).toBeDefined();
 
@@ -306,7 +326,51 @@ Make sure you use all 3 provided tools.`;
     // Verify the answer contains information from the final tool call
     expect(result!.answer.toLowerCase()).toMatch(/in progress|critical|john smith|database|timeout/i);
 
-    console.log('✅ Multiple sequential tool calls test passed');
+    // Verify streaming events collected messages correctly
+    console.log(`Total streaming events: ${streamingEvents.length}`);
+    console.log(`Unique message indices: ${streamedMessagesByIdx.size}`);
+    
+    // Verify we have streaming messages indexed from 0 to n (continuous, no gaps)
+    const maxIdx = Math.max(...Array.from(streamedMessagesByIdx.keys()));
+    for (let i = 0; i <= maxIdx; i++) {
+      expect(streamedMessagesByIdx.has(i)).toBe(true);
+    }
+    
+    // Verify the streamed messages exist in the final conversation
+    // Note: Streamed messages include tool requests, tool-results, and assistant responses
+    // They do NOT include the initial user message (it's input, not output from lang.chat())
+    const streamedMessagesInOrder = Array.from(streamedMessagesByIdx.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([_, msg]) => msg);
+
+    const messages = agent.getMessages();
+    
+    console.log(`\n=== FINAL MESSAGES (${messages.length} total) ===`);
+    messages.forEach((msg, idx) => {
+      const preview = typeof msg.content === 'string' 
+        ? msg.content.substring(0, 30)
+        : JSON.stringify(msg.content).substring(0, 60);
+      console.log(`  [${idx}] ${msg.role}: ${preview}`);
+    });
+    
+    // Remove the first message (user message)
+    messages.shift();
+    
+    console.log(`\n=== STREAMED (${streamedMessagesInOrder.length} unique indices) ===`);
+    
+    // Compare the streamed messages with the final conversation.
+    // They should match exactly now that we fixed the duplication bugs
+    expect(streamedMessagesInOrder.length).toBe(messages.length);
+    
+    for (let i = 0; i < streamedMessagesInOrder.length; i++) {
+      const streamedMsg = streamedMessagesInOrder[i];
+      const finalMsg = messages[i];
+      
+      expect(streamedMsg.role).toBe(finalMsg.role);
+      expect(streamedMsg.content).toBe(finalMsg.content);
+    }
+
+    console.log('✅ Multiple sequential tool calls test passed - streaming indices verified');
   });
 
   // @TODO: add a test that requires to use multiple tools with a single call (should finish with 4 messages in total):

@@ -191,7 +191,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
 
     // Automatically execute tools if the assistant requested them
     const toolResults = await result.executeRequestedTools();
-    if (toolResults) options?.onResult?.(toolResults);
+    if (options?.onResult && toolResults) options.onResult(toolResults);
 
     return result;
   }
@@ -213,10 +213,6 @@ export class OpenAIResponsesLang extends LanguageProvider {
                 hasAny = true;
               }
             }
-          }
-          if (!hasAny) {
-            const msg = result.ensureAssistantTextMessage();
-            msg.meta = { openaiResponseId };
           }
         } else {
           result.addUserMessage(item.content);
@@ -260,6 +256,26 @@ export class OpenAIResponsesLang extends LanguageProvider {
       case 'computer_call_output':
         break;
       case 'function_call_output':
+        {
+          const callId = item.call_id || item.id;
+          const name = item.name || 'function';
+          let output = item.output;
+          // Try to parse JSON/stringified outputs back to native types
+          if (typeof output === 'string') {
+            try {
+              output = JSON.parse(output);
+            } catch {
+              // keep as string if not JSON
+            }
+          }
+          result.addToolUseMessage([
+            {
+              toolId: callId,
+              name,
+              result: output
+            }
+          ], { openaiResponseId });
+        }
         break;
       case 'image_generation_call':
         break;
@@ -533,11 +549,6 @@ export class OpenAIResponsesLang extends LanguageProvider {
           streamState.openaiResponseId = data.response.id;
         }
 
-        if (result.answer) {
-          const msg = ensureAssistantMessage();
-          (msg as any).content = result.answer;
-          onResult?.(msg);
-        }
         result.finished = true;
         return;
       }
@@ -572,7 +583,8 @@ export class OpenAIResponsesLang extends LanguageProvider {
         // Handle other item types (like function_call) using the same logic as non-streaming
         this.handleOutputItem(item, result, streamState?.openaiResponseId);
         const last = result.length > 0 ? result[result.length - 1] : undefined;
-        if (last) onResult?.(last);
+        // Don't emit user messages (they're just echoes of input)
+        if (last && last.role !== 'user') onResult?.(last);
         return;
       }
       case 'response.content_part.done': {

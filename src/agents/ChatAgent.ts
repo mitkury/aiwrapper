@@ -42,22 +42,21 @@ export class ChatAgent extends Agent<LangMessages | LangMessage[], LangMessages,
     // Agentic loop. Will go in multiple cicles if it is using tools.
     let streamIdx = 0;
     while (true) {
-      const baseIdx = streamIdx;
-      let lastRoleInRun: LangMessage["role"] | null = null;
-      let localOffset = -1;
-
+      let lastRoleInRun: string | null = null;
       const response = await this.lang.chat(this.messages, {
         onResult: (msg) => {
-          if (msg.role !== lastRoleInRun) {
+          // This is how we detect if we're dealing with a new message.
+          if (msg.role != lastRoleInRun) {
+            if (lastRoleInRun !== null) {
+              streamIdx++;
+            }
             lastRoleInRun = msg.role;
-            localOffset += 1;
           }
-          this.emit({ type: "streaming", data: { msg, idx: baseIdx + localOffset } });
+          this.emit({ type: "streaming", data: { msg, idx: streamIdx } });
         }
       });
 
       this.messages = response;
-      streamIdx = baseIdx + (localOffset >= 0 ? localOffset + 1 : 0);
 
       // We continue the loop if the last message is a tool usage results.
       const lastMessage = this.messages[this.messages.length - 1];
@@ -65,6 +64,9 @@ export class ChatAgent extends Agent<LangMessages | LangMessage[], LangMessages,
       if (!lastMessageHasToolResults) {
         break;
       }
+      
+      // Increment index for the next iteration since we'll be starting with new messages
+      streamIdx++;
     }
 
     this.emit({ type: "finished", output: this.messages });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { LangMessages, LangOptions, LanguageProvider, ToolRequest, ToolResult } from '../../dist/index.js';
+import { LangMessage, LangMessages, LangOptions, LanguageProvider, ToolRequest, ToolResult } from '../../dist/index.js';
 import { createLangTestRunner, printAvailableProviders } from '../utils/lang-gatherer.js';
 
 // Show available providers for debugging
@@ -69,6 +69,55 @@ async function runTest(lang: LanguageProvider) {
       expect(streamingAnswer).toBe(finalRes.answer);
     }
   }
+
+  it('should be able to chat with tools (multiple runs and streaming)', async () => {
+
+    let streamedMessage: LangMessage | null = null;
+
+    const res1 = await lang.chat([
+      { role: 'user', content: 'Hey' }
+    ], {
+      onResult: (msg) => {
+        streamedMessage = msg;
+      }
+    });
+
+    expect(res1.length).toBe(2);
+    expect(streamedMessage).toBeDefined();
+
+    expect(res1[res1.length - 1].role).toBe(streamedMessage!.role);
+    expect(res1[res1.length - 1].content).toBe(streamedMessage!.content);
+
+    res1.addUserMessage('Give me a random number using a tool');
+    res1.availableTools = [
+      {
+        name: 'get_random_number',
+        description: 'Return a random number',
+        parameters: { type: 'object', properties: {} },
+        handler: () => 3131
+      }
+    ];
+
+    let streamedMessageWithToolRequest: LangMessage | null = null;
+    let streamedMessageWithToolResults: LangMessage | null = null;
+
+    const res2 = await lang.chat(res1, {
+      onResult: (msg) => {
+        if (msg.role === 'tool') {
+          streamedMessageWithToolRequest = msg;
+        }
+        if (msg.role === 'tool-results') {
+          streamedMessageWithToolResults = msg;
+        }
+      }
+    });
+
+    expect(streamedMessageWithToolRequest).toBeDefined();
+    expect(streamedMessageWithToolResults).toBeDefined();
+    
+    expect(res2[res2.length - 1].role).toBe(streamedMessageWithToolResults!.role);
+    expect(res2[res2.length - 1].content).toBe(streamedMessageWithToolResults!.content);
+  });
 
   it('should respond with a string', async () => {
     const res = await lang.ask('Hey, respond with "Hey" as well');

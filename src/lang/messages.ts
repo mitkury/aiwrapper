@@ -171,21 +171,6 @@ export class LangMessages extends Array<LangMessage> {
     return this.addAssistantContentPart({ type: "image", image, alt });
   }
 
-  get toolsRequested(): ToolRequest[] {
-    // Get the last message with role "tool"
-
-    if (this.length === 0) {
-      return [];
-    }
-
-    const lastMessage = this[this.length - 1];
-    if (lastMessage.role !== "tool") {
-      return [];
-    }
-
-    return lastMessage.content as ToolRequest[];
-  }
-
   addUserMessage(content: string): this {
     this.push({ role: "user", content });
     return this;
@@ -227,30 +212,35 @@ export class LangMessages extends Array<LangMessage> {
   }
 
   async executeRequestedTools(meta?: Record<string, any>): Promise<LangMessage | null> {
-    if (this.toolsRequested.length === 0) {
+    // Only execute if the very last message is a tool request
+    const last = this.length > 0 ? this[this.length - 1] : undefined;
+    if (!last || last.role !== "tool" || !Array.isArray(last.content) || last.content.length === 0) {
       return null;
     }
 
     if (!this.availableTools) {
-      console.warn("Requested tool names:", this.toolsRequested.map(t => t.name));
+      try {
+        const names = (last.content as ToolRequest[]).map(t => t.name);
+        console.warn("Requested tool names:", names);
+      } catch { }
       return null;
     }
 
-    // Filter only custom function tools (those with handlers)
-    const customTools = (this.availableTools || []).filter(
+    const toolsWithHandlers = (this.availableTools || []).filter(
       (t): t is LangToolWithHandler => 'handler' in t
     );
 
-    // Execute requested tools
+    // Execute requested tools from the last message only
     const toolResults: ToolResult[] = [];
-    const toolsByName = new Map<string, LangToolWithHandler>(
-      customTools.map((t) => [t.name, t])
-    );
-    for (const call of this.toolsRequested) {
-      const toolName = call.name as string | undefined;
-      if (!toolName || !toolsByName.has(toolName)) continue;
-      const outcome = await Promise.resolve(toolsByName.get(toolName)!.handler(call.arguments || {}));
-      const id = call.callId;
+    for (const requestedTool of (last.content as ToolRequest[])) {
+      const toolName = requestedTool.name as string | undefined;
+      if (!toolName) continue;
+
+      const tool = toolsWithHandlers.find(t => t.name === toolName);
+      if (!tool) continue;
+
+      const outcome = await Promise.resolve(tool.handler(requestedTool.arguments || {}));
+      const id = requestedTool.callId;
       toolResults.push({ toolId: id, name: toolName, result: outcome });
     }
 
