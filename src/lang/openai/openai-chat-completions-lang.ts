@@ -408,7 +408,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
 
           let existing = (result.toolsRequested as any).find((t: any) => t.id === id || t.callId === id);
           if (!existing && id) {
-            existing = { id, name: name || '', arguments: {} } as any;
+            existing = { callId: id, name: name || '', arguments: {} } as any;
             (result.toolsRequested as any).push(existing);
           }
           if (existing && name) {
