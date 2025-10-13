@@ -173,12 +173,12 @@ export class GoogleLang extends LanguageProvider {
 
   protected transformMessagesForProvider(messages: LangMessages): any[] {
     return messages.map((msg: any) => {
-      if (msg.role === 'tool' && Array.isArray(msg.content)) {
+      if (msg.role === 'tool-results' && Array.isArray(msg.content)) {
         return {
           role: 'user',
           parts: msg.content.map((tr: any) => ({
             functionResponse: {
-              name: tr.toolId,
+              name: tr.name,
               response: typeof tr.result === 'object' && tr.result !== null ? tr.result : { result: tr.result }
             }
           }))

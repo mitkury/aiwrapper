@@ -13,6 +13,7 @@ export interface ToolRequest {
  */
 export interface ToolResult {
   toolId: string;
+  name: string;
   result: any;
 }
 
@@ -250,7 +251,7 @@ export class LangMessages extends Array<LangMessage> {
       if (!toolName || !toolsByName.has(toolName)) continue;
       const outcome = await Promise.resolve(toolsByName.get(toolName)!.handler(call.arguments || {}));
       const id = call.callId;
-      toolResults.push({ toolId: id, result: outcome });
+      toolResults.push({ toolId: id, name: toolName, result: outcome });
     }
 
     // Append execution results

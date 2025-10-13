@@ -327,6 +327,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
             out.push({
               role: "tool",
               tool_call_id: tr.toolId,
+              name: tr.name,
               content: typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result)
             });
           }
