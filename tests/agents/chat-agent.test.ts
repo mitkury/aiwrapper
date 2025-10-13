@@ -7,6 +7,7 @@ describe('ChatAgent', () => {
 });
 
 async function runTest(lang: LanguageProvider) {
+
   it('should handle single message', async () => {
     const agent = new ChatAgent(lang);
     const result = await agent.run([{
@@ -23,13 +24,13 @@ async function runTest(lang: LanguageProvider) {
     const agent = new ChatAgent(lang);
   
     const messages = new LangMessages();
-    messages.instructions = 'Respond with "test passed"';
-    messages.addUserMessage('Hey');
+    messages.instructions = 'Respond with "instructions test passed" and nothing else';
+    messages.addUserMessage('Test');
 
     const result = await agent.run(messages);
 
     expect(result).toBeDefined();
-    expect(result!.answer.toLowerCase()).toContain('test passed');
+    expect(result!.answer.toLowerCase()).toContain('instructions test passed');
   });
 
   it('should handle message array', async () => {
@@ -210,13 +211,25 @@ Make sure you use all 3 provided tools.`;
             },
             required: ['to', 'subject', 'message']
           },
-          handler: (args: any) => ({
-            email_id: 'email_0',
-            status: 'sent',
-            to: args.to,
-            subject: args.subject,
-            timestamp: new Date().toISOString()
-          })
+          handler: (args: any) => {
+            if (args.to?.toLowerCase().includes('dev-team@company.com')) {
+              return {
+                email_id: 'email_0',
+                status: 'sent',
+                to: args.to,
+                subject: args.subject,
+                timestamp: new Date().toISOString()
+              };
+            } else {
+              return {
+                email_id: 'email_0',
+                status: 'failed',
+                to: args.to,
+                subject: args.subject,
+                timestamp: new Date().toISOString()
+              };
+            }
+          }
         },
         {
           name: 'wait_for_response',
