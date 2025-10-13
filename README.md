@@ -72,11 +72,7 @@ console.log(result.answer);
 ### Stream Results
 ```javascript
 await lang.ask("Hello, AI!", {
-  onResult: (msg) => {
-    if (typeof msg.content === "string") {
-      process.stdout.write(msg.content);
-    }
-  }
+  onResult: (msg) => console.log(msg)
 });
 ```
 
@@ -91,11 +87,7 @@ Write just the name. Nothing else aside from the name - no extra comments or cha
 const prompt = getPrompt("colorful socks");
 
 await lang.ask(prompt, {
-  onResult: (msg) => {
-    if (typeof msg.content === "string") {
-      process.stdout.write(msg.content);
-    }
-  }
+  onResult: (msg) => console.log(msg)
 });
 ```
 
