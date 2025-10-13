@@ -49,7 +49,7 @@ const result = await agent.run({
 });
 
 console.log(result.answer); // "4"
-console.log(result.messages); // Full conversation history
+console.log(result); // Full conversation history (LangMessages)
 ```
 
 ### Conversation Flow
@@ -68,7 +68,7 @@ const result2 = await agent.run({
 console.log(result2.answer); // "Alice"
 
 // Access conversation history
-const history = agent.getConversation();
+const history = agent.getMessages();
 ```
 
 ### Event Subscription
