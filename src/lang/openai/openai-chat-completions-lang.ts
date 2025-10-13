@@ -4,14 +4,13 @@ import {
   LangContentPart,
   LangImageInput,
 } from "../language-provider.ts";
-import { LangMessages, LangMessage, LangToolWithHandler, LangTool } from "../messages.ts";
+import { LangMessages, LangMessage, LangTool } from "../messages.ts";
 import {
   httpRequestWithRetry as fetch,
 } from "../../http-request.ts";
 import { processResponseStream } from "../../process-response-stream.ts";
 import { models, Model } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
-import { ToolWithHandler } from "../index.ts";
 
 export type ReasoningEffort = "low" | "medium" | "high";
 
@@ -220,10 +219,8 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
       result.finished = true;
 
       // Automatically execute tools if the assistant requested them
-      {
-        const toolResults = await result.executeRequestedTools();
-        if (options?.onResult && toolResults) options.onResult(toolResults);
-      }
+      const toolResults = await result.executeRequestedTools();
+      if (options?.onResult && toolResults) options.onResult(toolResults);
 
       return result;
     }
@@ -285,10 +282,8 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     result.finished = true;
 
     // Automatically execute tools if the assistant requested them
-    {
-      const toolResults = await result.executeRequestedTools();
-      if (options?.onResult && toolResults) options.onResult(toolResults);
-    }
+    const toolResults = await result.executeRequestedTools();
+    if (options?.onResult && toolResults) options.onResult(toolResults);
 
     return result;
   }
@@ -418,7 +413,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
           if (entry) {
             try {
               (entry as any).arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
-            } catch {}
+            } catch { }
           }
         }
       }

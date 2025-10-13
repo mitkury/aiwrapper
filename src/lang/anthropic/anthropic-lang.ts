@@ -85,7 +85,7 @@ export class AnthropicLang extends LanguageProvider {
       ? messages
       : new LangMessages(messages);
 
-    const { system, providerMessages, requestMaxTokens, tools } = 
+    const { system, providerMessages, requestMaxTokens, tools } =
       this.prepareRequest(messageCollection);
 
     const result = messageCollection;
@@ -128,14 +128,15 @@ export class AnthropicLang extends LanguageProvider {
         pendingToolInputs: new Map(),
       };
 
-      await processResponseStream(response, (data: any) => 
+      await processResponseStream(response, (data: any) =>
         this.handleStreamEvent(data, result, options?.onResult, streamState)
       );
 
-      {
-        const toolResults = await result.executeRequestedTools();
-        if (options?.onResult && toolResults) options.onResult(toolResults);
-      }
+
+      // Automatically execute tools if the assistant requested them
+      const toolResults = await result.executeRequestedTools();
+      if (options?.onResult && toolResults) options.onResult(toolResults);
+
       return result;
     }
 
@@ -143,7 +144,7 @@ export class AnthropicLang extends LanguageProvider {
     const data: any = await response.json();
     this.processNonStreamingResponse(data, result);
     result.finished = true;
-    
+
     await result.executeRequestedTools();
     return result;
   }
@@ -277,14 +278,14 @@ export class AnthropicLang extends LanguageProvider {
   private handleToolDelta(delta: any, toolUseId: string, streamState: StreamState): void {
     const acc = streamState.pendingToolInputs.get(toolUseId)!;
     const argChunk = delta.partial_json || delta.input_json_delta || delta.text;
-    
+
     if (typeof argChunk === 'string') {
       acc.buffer += argChunk;
       try {
         const parsed = JSON.parse(acc.buffer);
         const entry = streamState.toolCalls.find((t) => t.id === toolUseId);
         if (entry) entry.arguments = parsed;
-      } catch {}
+      } catch { }
     }
   }
 
@@ -295,7 +296,7 @@ export class AnthropicLang extends LanguageProvider {
       if (entry) {
         try {
           entry.arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
-        } catch {}
+        } catch { }
       }
     }
 
@@ -323,7 +324,7 @@ export class AnthropicLang extends LanguageProvider {
     if (!Array.isArray(data?.content)) return;
 
     const toolCalls: any[] = [];
-    
+
     for (const block of data.content) {
       if (block?.type === 'text' && typeof block.text === 'string') {
         result.appendToAssistantText(block.text);

@@ -212,9 +212,6 @@ export class OpenAIResponsesLang extends LanguageProvider {
       for (const item of output) {
         this.handleOutputItem(item, result, openaiResponseId);
       }
-
-      // Build result.answer from accumulated assistant messages if any
-      // Ensure answer getter will reflect the last assistant message automatically
     }
 
     result.finished = true;
