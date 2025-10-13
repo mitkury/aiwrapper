@@ -80,7 +80,6 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
   /** Build OpenAI-like request body including tools and json schema toggles */
   private buildRequestBody(
     messageCollection: LangMessages,
-    isStreaming: boolean,
     requestMaxTokens: number,
     options?: LangOptions,
   ): Record<string, unknown> {
@@ -88,7 +87,8 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     const base: Record<string, unknown> = {
       model: this._config.model,
       messages: providerMessages,
-      ...(isStreaming ? { stream: true } : {}),
+      // Always stream internally to unify the code path
+      stream: true,
       max_tokens: requestMaxTokens,
       ...this._config.bodyProperties,
       ...(messageCollection.availableTools ? { tools: this.formatTools(messageCollection.availableTools) } : {}),
@@ -98,12 +98,13 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
   }
 
   /** Build common request init for fetch */
-  private buildCommonRequest(isStreaming: boolean, body: Record<string, unknown>) {
+  private buildCommonRequest(body: Record<string, unknown>) {
     return {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(isStreaming ? { "Accept": "text/event-stream" } : {}),
+        // Always request SSE for streaming
+        "Accept": "text/event-stream",
         ...(this._config.apiKey ? { "Authorization": `Bearer ${this._config.apiKey}` } : {}),
         ...this._config.headers,
       },
@@ -193,91 +194,24 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
       ? messages
       : new LangMessages(messages);
 
-    const onResult = options?.onResult;
-    const isStreaming = typeof onResult === 'function';
-
     const requestMaxTokens = this.computeRequestMaxTokens(result);
     if (this.supportsReasoning() && this._config.maxCompletionTokens === undefined) {
       this._config.maxCompletionTokens = Math.max(requestMaxTokens, 25000);
     }
 
-    const body = this.buildRequestBody(result, isStreaming, requestMaxTokens, options);
-    const commonRequest = this.buildCommonRequest(isStreaming, body);
+    const body = this.buildRequestBody(result, requestMaxTokens, options);
+    const commonRequest = this.buildCommonRequest(body);
 
-    if (isStreaming) {
-      const toolArgBuffers = new Map<string, { name: string; buffer: string }>();
-      const onData = (data: any) => {
-        this.handleStreamData(data, result, onResult, toolArgBuffers);
-      };
-
-      const response = await fetch(`${this._config.baseURL}/chat/completions`, commonRequest as any).catch((err) => {
-        throw new Error(err);
-      });
-
-      await processResponseStream(response, onData);
-
-      result.finished = true;
-
-      // Automatically execute tools if the assistant requested them
-      const toolResults = await result.executeRequestedTools();
-      if (options?.onResult && toolResults) options.onResult(toolResults);
-
-      return result;
-    }
+    const toolArgBuffers = new Map<string, { name: string; buffer: string }>();
+    const onData = (data: any) => {
+      this.handleStreamData(data, result, options?.onResult, toolArgBuffers);
+    };
 
     const response = await fetch(`${this._config.baseURL}/chat/completions`, commonRequest as any).catch((err) => {
       throw new Error(err);
     });
 
-    const data: any = await response.json();
-    const choice = data?.choices?.[0];
-    const msg = choice?.message;
-
-    const toolCalls = msg?.tool_calls;
-    if (Array.isArray(toolCalls) && toolCalls.length > 0) {
-      const toolCallMessages: any[] = [];
-      for (const tc of toolCalls) {
-        const id: string = tc?.id || '';
-        const name: string = tc?.function?.name || '';
-        const rawArgs: string = tc?.function?.arguments || '';
-        let parsedArgs: Record<string, unknown> = {};
-        if (typeof rawArgs === 'string' && rawArgs.trim().length > 0) {
-          try {
-            parsedArgs = JSON.parse(rawArgs);
-          } catch {
-          }
-        }
-        toolCallMessages.push({ callId: id, name, arguments: parsedArgs });
-      }
-
-      // Add tool calls as assistant messages
-      result.addAssistantToolCalls(toolCallMessages);
-    }
-    let accumulated = '';
-
-    if (typeof msg?.content === 'string') {
-      accumulated = msg.content;
-    } else if (Array.isArray(msg?.content)) {
-      for (const part of msg.content) {
-        if (typeof part === 'string') {
-          accumulated += part;
-        } else if (part?.type === 'text' && typeof part.text === 'string') {
-          accumulated += part.text;
-        } else if (part?.type === 'image_url' && part.image_url?.url) {
-          const url = part.image_url.url;
-          result.addAssistantImage({ kind: 'url', url });
-        } else if ((part?.type === 'output_image' || part?.type === 'inline_data') && (part.b64_json || part.data)) {
-          const base64 = part.b64_json || part.data;
-          const mimeType = part.mime_type || part.mimeType || 'image/png';
-          result.addAssistantImage({ kind: 'base64', base64, mimeType });
-        }
-      }
-    }
-
-    if (accumulated) {
-      const msg = result.ensureAssistantTextMessage();
-      msg.content = accumulated;
-    }
+    await processResponseStream(response, onData);
 
     result.finished = true;
 
@@ -474,7 +408,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
 
           let existing = (result.toolsRequested as any).find((t: any) => t.id === id || t.callId === id);
           if (!existing && id) {
-            existing = { id, name: name || '', arguments: {} } as any;
+            existing = { callId: id, name: name || '', arguments: {} } as any;
             (result.toolsRequested as any).push(existing);
           }
           if (existing && name) {

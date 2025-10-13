@@ -70,14 +70,6 @@ async function runTest(lang: LanguageProvider) {
     }
   }
 
-  it('should be able to use tools (non-streaming)', async () => {
-    await testUsingTools(false);
-  });
-
-  it('should be able to use tools (streaming)', async () => {
-    await testUsingTools(true);
-  });
-
   it('should respond with a string', async () => {
     const res = await lang.ask('Hey, respond with "Hey" as well');
     expect(typeof res.answer).toBe('string');
@@ -127,5 +119,13 @@ async function runTest(lang: LanguageProvider) {
     messages.instructions = 'The first word of your respond MUST be "GOT IT"';
     const res = await lang.chat(messages);
     expect(res.answer.toLocaleLowerCase()).toContain('got it');
+  });
+
+  it('should be able to use tools (non-streaming)', async () => {
+    await testUsingTools(false);
+  });
+
+  it('should be able to use tools (streaming)', async () => {
+    await testUsingTools(true);
   });
 }

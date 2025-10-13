@@ -90,14 +90,14 @@ export class AnthropicLang extends LanguageProvider {
       this.prepareRequest(messageCollection);
 
     const result = messageCollection;
-    const isStreaming = typeof options?.onResult === 'function';
 
     const requestBody: any = {
       model: this._config.model,
       messages: providerMessages,
       max_tokens: requestMaxTokens,
       system,
-      ...(isStreaming ? { stream: true } : {}),
+      // Always stream internally to unify the code path
+      stream: true,
       ...(tools ? { tools } : {}),
     };
 
@@ -121,33 +121,22 @@ export class AnthropicLang extends LanguageProvider {
       },
     } as any).catch((err) => { throw new Error(err); });
 
-    if (isStreaming) {
-      const streamState: StreamState = {
-        isReceivingThinking: false,
-        thinkingContent: "",
-        toolCalls: [],
-        pendingToolInputs: new Map(),
-        indexToToolId: new Map(),
-      };
+    const streamState: StreamState = {
+      isReceivingThinking: false,
+      thinkingContent: "",
+      toolCalls: [],
+      pendingToolInputs: new Map(),
+      indexToToolId: new Map(),
+    };
 
-      await processResponseStream(response, (data: any) =>
-        this.handleStreamEvent(data, result, options?.onResult, streamState)
-      );
+    await processResponseStream(response, (data: any) =>
+      this.handleStreamEvent(data, result, options?.onResult, streamState)
+    );
 
+    // Automatically execute tools if the assistant requested them
+    const toolResults = await result.executeRequestedTools();
+    if (options?.onResult && toolResults) options.onResult(toolResults);
 
-      // Automatically execute tools if the assistant requested them
-      const toolResults = await result.executeRequestedTools();
-      if (options?.onResult && toolResults) options.onResult(toolResults);
-
-      return result;
-    }
-
-    // Non-streaming response
-    const data: any = await response.json();
-    this.processNonStreamingResponse(data, result);
-    result.finished = true;
-
-    await result.executeRequestedTools();
     return result;
   }
 
@@ -201,23 +190,6 @@ export class AnthropicLang extends LanguageProvider {
   ): void {
     if (!streamState) return;
 
-    const ensureAssistantMessage = (): LangMessage => {
-      const last = result.length > 0 ? result[result.length - 1] : undefined;
-      if (last && last.role === "assistant" && typeof last.content === "string") {
-        return last;
-      }
-      result.addAssistantMessage("");
-      return result[result.length - 1];
-    };
-
-    const ensureToolMessage = (): LangMessage => {
-      const last = result.length > 0 ? result[result.length - 1] : undefined;
-      if (last && last.role === "tool" && Array.isArray(last.content)) {
-        return last;
-      }
-      result.addAssistantToolCalls([]);
-      return result[result.length - 1];
-    };
 
     if (data.type === "message_stop") {
       this.finalizeStreamingResponse(result, streamState);
@@ -327,41 +299,7 @@ export class AnthropicLang extends LanguageProvider {
     result.finished = true;
   }
 
-  private processNonStreamingResponse(data: any, result: LangMessages): void {
-    if (!Array.isArray(data?.content)) return;
-
-    const toolCalls: any[] = [];
-
-    for (const block of data.content) {
-      if (block?.type === 'text' && typeof block.text === 'string') {
-        result.appendToAssistantText(block.text);
-      } else if (block?.type === 'thinking' && typeof block.thinking === 'string') {
-        result.appendToAssistantThinking(block.thinking);
-      } else if (block?.type === 'tool_use') {
-        const toolCall = {
-          id: block.id,
-          name: block.name,
-          arguments: block.input || {}
-        };
-        toolCalls.push(toolCall);
-      }
-    }
-
-    if (toolCalls.length > 0) {
-      if (result.answer) {
-        result.push({ role: "assistant", content: result.answer });
-      }
-      const formattedToolCalls = toolCalls.map(tc => ({
-        callId: tc.id,
-        id: tc.id,
-        name: tc.name,
-        arguments: tc.arguments
-      }));
-      result.addAssistantToolCalls(formattedToolCalls);
-    } else if (result.answer) {
-      result.push({ role: "assistant", content: result.answer });
-    }
-  }
+  // Non-streaming response handling removed: Anthropic now always streams internally
 
   protected transformMessagesForProvider(messages: LangMessage[]): any[] {
     const out: any[] = [];

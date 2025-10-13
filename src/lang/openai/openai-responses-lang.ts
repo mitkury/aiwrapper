@@ -74,8 +74,8 @@ export class OpenAIResponsesLang extends LanguageProvider {
     const inputConfig = this.prepareInputForResponses(messageCollection);
     const providedTools: LangTool[] = messageCollection.availableTools || [];
 
-    // Enable streaming if onResult callback is provided
-    const stream = typeof options?.onResult === 'function';
+    // Always stream internally to unify the code path
+    const stream = true;
 
     // @IDEA: how about we allow to add custom things to the body, so devs may pass: "tool_choice: required". And same for the headers.
 
@@ -172,52 +172,26 @@ export class OpenAIResponsesLang extends LanguageProvider {
       response = await fetch(apiUrl, fallbackCommon);
     }
 
-    if (stream) {
-      // Keep minimal mutable stream state between events
-      const streamState = { sawAnyTextDelta: false, openaiResponseId: undefined as string | undefined };
-      const itemBuffers: StreamItemBuffers = new Map();
+    // Keep minimal mutable stream state between events
+    const streamState = { sawAnyTextDelta: false, openaiResponseId: undefined as string | undefined };
+    const itemBuffers: StreamItemBuffers = new Map();
 
-      // Route raw SSE events through a dedicated handler
-      const onData = (data: ResponsesStreamEvent | FinishedEvent) => this.handleStreamingEvent(
-        data,
-        result,
-        options?.onResult,
-        streamState,
-        itemBuffers,
-      );
+    // Route raw SSE events through a dedicated handler
+    const onData = (data: ResponsesStreamEvent | FinishedEvent) => this.handleStreamingEvent(
+      data,
+      result,
+      options?.onResult,
+      streamState,
+      itemBuffers,
+    );
 
-      await processResponseStream(response, onData);
-
-      result.finished = true;
-
-      // Automatically execute tools if the assistant requested them
-      const toolResults = await result.executeRequestedTools();
-      if (toolResults) options?.onResult?.(toolResults);
-
-      return result;
-    }
-
-    const data = await response.json();
-    const openaiResponseId = data?.id as string;
-    const output = data?.output as unknown;
-
-    if (typeof (data as any)?.output_text === 'string' && (data as any).output_text.length > 0) {
-      const msg = result.ensureAssistantTextMessage();
-      msg.content = (data as any).output_text;
-      msg.meta = { openaiResponseId };
-      options?.onResult?.(msg);
-    } else if (Array.isArray(output)) {
-      // Preserve raw output items for accurate pass-back (e.g., function_call)
-      (result as any)._responsesOutputItems = output;
-      for (const item of output) {
-        this.handleOutputItem(item, result, openaiResponseId);
-      }
-    }
+    await processResponseStream(response, onData);
 
     result.finished = true;
 
     // Automatically execute tools if the assistant requested them
-    await result.executeRequestedTools();
+    const toolResults = await result.executeRequestedTools();
+    if (toolResults) options?.onResult?.(toolResults);
 
     return result;
   }
