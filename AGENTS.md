@@ -75,9 +75,11 @@ console.log(result.answer);
 
 ### Stream Results
 ```javascript
-await lang.ask("Hello, AI!", { 
-  onResult: (streamingResult) => {
-    console.log(streamingResult.answer);
+await lang.ask("Hello, AI!", {
+  onResult: (msg) => {
+    if (typeof msg.content === "string") {
+      process.stdout.write(msg.content);
+    }
   }
 });
 ```
@@ -92,9 +94,11 @@ Write just the name. Nothing else aside from the name - no extra comments or cha
 
 const prompt = getPrompt("colorful socks");
 
-await lang.ask(prompt, { 
-  onResult: (streamingResult) => {
-    console.log(streamingResult.answer);
+await lang.ask(prompt, {
+  onResult: (msg) => {
+    if (typeof msg.content === "string") {
+      process.stdout.write(msg.content);
+    }
   }
 });
 ```
@@ -107,18 +111,18 @@ console.log(result.answer);
 
 // Add a user message and continue the conversation
 result.addUserMessage("Tell me more about yourself");
-const newResult = await lang.chat(result.messages);
+const newResult = await lang.chat(result);
 console.log(newResult.answer);
 
 // Continue the conversation further
 newResult.addUserMessage("What can you help me with?");
-const finalResult = await lang.chat(newResult.messages);
+const finalResult = await lang.chat(newResult);
 console.log(finalResult.answer);
 
 // You can also create message collections directly
-import { LangChatMessageCollection } from "aiwrapper";
+import { LangMessages } from "aiwrapper";
 
-const messages = new LangChatMessageCollection();
+const messages = new LangMessages();
 messages.addSystemMessage("You are a helpful assistant.");
 messages.addUserMessage("Tell me about TypeScript.");
 
