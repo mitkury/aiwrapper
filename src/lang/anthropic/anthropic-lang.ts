@@ -190,23 +190,6 @@ export class AnthropicLang extends LanguageProvider {
   ): void {
     if (!streamState) return;
 
-    const ensureAssistantMessage = (): LangMessage => {
-      const last = result.length > 0 ? result[result.length - 1] : undefined;
-      if (last && last.role === "assistant" && typeof last.content === "string") {
-        return last;
-      }
-      result.addAssistantMessage("");
-      return result[result.length - 1];
-    };
-
-    const ensureToolMessage = (): LangMessage => {
-      const last = result.length > 0 ? result[result.length - 1] : undefined;
-      if (last && last.role === "tool" && Array.isArray(last.content)) {
-        return last;
-      }
-      result.addAssistantToolCalls([]);
-      return result[result.length - 1];
-    };
 
     if (data.type === "message_stop") {
       this.finalizeStreamingResponse(result, streamState);
