@@ -39,23 +39,8 @@ export interface LangOptions {
   schema?: Schema;
   
   // Streaming callback
-  // @TODO: let's change what we output here
   onResult?: (result: LangMessage) => void;
 
-  /*
-  onResult?: (result: LangResultUpdate) => void;
-
-  type LangResultUpdate = {
-    updatedMessage: LangMessage;
-    index: number;
-    messages: LangMessage[];
-  };
-
-  */
-  
-  // Preferred image output format if the provider can generate images
-  imageOutput?: "auto" | "url" | "base64";
-  
   // Other options (temperature, etc.)
   [key: string]: any;
 }
