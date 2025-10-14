@@ -10,66 +10,6 @@ describe('Basic Lang', () => {
 });
 
 async function runTest(lang: LanguageProvider) {
-  async function testUsingTools(stream: boolean) {
-    const messages = new LangMessages([
-      {
-        role: 'user',
-        content: 'Give me a random number'
-      }
-    ], {
-      tools: [
-        {
-          name: 'get_random_number',
-          description: 'Return a random number',
-          parameters: { type: 'object', properties: {} },
-          handler: () => 3131
-        }
-      ]
-    });
-
-    const res = await lang.chat(messages);
-
-    // After execution, check the last two messages should be tool request and tool results
-    expect(res.length).toBeGreaterThanOrEqual(3); // user message + tool message + tool-results message
-
-    const lastMessage = res[res.length - 1];
-    const secondLastMessage = res[res.length - 2];
-
-    // Last message should be tool-results
-    expect(lastMessage.role).toBe('tool-results');
-    expect(Array.isArray(lastMessage.content)).toBe(true);
-    const toolResult = lastMessage.content[0] as ToolResult;
-    expect(toolResult.toolId).toBeDefined();
-    expect(toolResult.result).toBe(3131);
-
-    // Second to last message should be tool request
-    expect(secondLastMessage.role).toBe('tool');
-    expect(Array.isArray(secondLastMessage.content)).toBe(true);
-    const toolCall = secondLastMessage.content[0] as ToolRequest;
-    expect(toolCall.callId).toBeDefined();
-    expect(toolCall.name).toBe('get_random_number');
-    expect(toolCall.arguments).toBeDefined();
-
-    let streamingAnswer: string = '';
-    const options: LangOptions = stream ? {
-      onResult: (msg: any) => {
-        if (msg && typeof msg.content === 'string') {
-          streamingAnswer = msg.content;
-        }
-      }
-    } : {};
-
-    // Send the conversation back to the model to get the final response
-    const finalRes = await lang.chat(res, options);
-
-    // Expect the final answer to contain the tool result
-    expect(finalRes.answer).toContain('3131');
-
-    if (stream) {
-      expect(streamingAnswer).toBe(finalRes.answer);
-    }
-  }
-
   it('should respond with a string', async () => {
     const res = await lang.ask('Hey, respond with "Hey" as well');
     expect(res.length).toBeGreaterThan(1);
@@ -79,7 +19,6 @@ async function runTest(lang: LanguageProvider) {
     assert(lastMessage.content.length > 0);
     assert(res.answer.length > 0);
   });
-
 
   it('should know the capital of France', async () => {
     const res = await lang.ask('What is the capital of France?');
@@ -129,12 +68,53 @@ async function runTest(lang: LanguageProvider) {
     expect(res.answer.toLocaleLowerCase()).toContain('got it');
   });
 
-  it('should be able to use tools (non-streaming)', async () => {
-    await testUsingTools(false);
-  });
+  it('should be able to use a tool', async () => {
+    const messages = new LangMessages([
+      {
+        role: 'user',
+        content: 'Give me a random number'
+      }
+    ], {
+      tools: [
+        {
+          name: 'get_random_number',
+          description: 'Return a random number',
+          parameters: { type: 'object', properties: {} },
+          handler: () => 3131
+        }
+      ]
+    });
 
-  it('should be able to use tools (streaming)', async () => {
-    await testUsingTools(true);
+    const res = await lang.chat(messages);
+
+    // After execution, check the last two messages should be tool request and tool results
+    expect(res.length).toBeGreaterThanOrEqual(3); // user message + tool message + tool-results message
+
+    const lastMessage = res[res.length - 1];
+    const secondLastMessage = res[res.length - 2];
+
+    // Last message should be tool-results
+    expect(lastMessage.role).toBe('tool-results');
+    expect(Array.isArray(lastMessage.content)).toBe(true);
+    const toolResult = lastMessage.content[0] as ToolResult;
+    expect(toolResult.toolId).toBeDefined();
+    expect(toolResult.result).toBe(3131);
+
+    // Second to last message should be tool request
+    expect(secondLastMessage.role).toBe('tool');
+    expect(Array.isArray(secondLastMessage.content)).toBe(true);
+    const toolCall = secondLastMessage.content[0] as ToolRequest;
+    expect(toolCall.callId).toBeDefined();
+    expect(toolCall.name).toBe('get_random_number');
+    expect(toolCall.arguments).toBeDefined();
+
+    // Send the conversation back to the model to get the final response
+    const finalRes = await lang.chat(res);
+
+    // Expect the final answer to contain the tool result
+    expect(finalRes.answer).toContain('3131');
+
+    // @TODO: get a response from ai with the tool result
   });
 
   it('should be able to chat and use tools', async () => {
@@ -181,7 +161,7 @@ async function runTest(lang: LanguageProvider) {
 
     expect(streamedMessageWithToolRequest).toBeDefined();
     expect(streamedMessageWithToolResults).toBeDefined();
-    
+
     expect(res2[res2.length - 1].role).toBe(streamedMessageWithToolResults!.role);
     expect(res2[res2.length - 1].content).toBe(streamedMessageWithToolResults!.content);
   });

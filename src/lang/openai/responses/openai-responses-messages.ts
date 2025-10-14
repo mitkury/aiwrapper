@@ -36,7 +36,7 @@ export function prepareBodyPartForOpenAIResponsesAPI(messages: LangMessages): Bo
       // There are new messages after the last message with a response ID
       // Use previous_response_id + only the new messages as input
       const newMessages = messages.slice(lastMessageWithResponseIdIndex + 1);
-      const newInput = this.transformMessagesToResponsesInput(new LangMessages(newMessages));
+      const newInput = transformMessagesToResponsesInput(new LangMessages(newMessages));
 
       bodyPart.previous_response_id = lastMessageWithResponseId.meta.openaiResponseId;
       bodyPart.input = newInput;
@@ -109,7 +109,7 @@ export function transformMessageToResponsesItem(message: LangMessage): any {
           text: (part as any).text
         });
       } else if ((part as any).type === 'image') {
-        entry.content.push(this.mapImageInput((part as any).image));
+        entry.content.push(mapImageInput((part as any).image));
       }
     }
   } else {

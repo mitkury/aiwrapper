@@ -7,7 +7,7 @@ describe('ChatAgent', () => {
 });
 
 async function runTest(lang: LanguageProvider) {
-  /*
+
   it('should handle single message', async () => {
     const agent = new ChatAgent(lang);
     const result = await agent.run([{
@@ -167,7 +167,6 @@ async function runTest(lang: LanguageProvider) {
 
     expect(result!.answer).toContain('3131');
   });
-  */
 
   it('should handle multiple sequential tool calls', async () => {
     // Here we have a task that specifically asks to use all 3 provided tools. We expect the agent

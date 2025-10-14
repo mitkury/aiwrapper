@@ -196,7 +196,7 @@ async function runTest(lang: LanguageProvider) {
 
     const options: LangOptions = {
       onResult: (msgs) => {
-        streamingAnswer = msgs.answer;
+        streamingAnswer = msgs.content as string;
       }
     };
 
