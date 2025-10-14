@@ -19,7 +19,7 @@ type StreamItemBuffers = Map<string, { parts: Map<number, string> }>; // key: it
 /**
  * OpenAI-specific built-in tools
  */
-export type OpenAIBuiltInTool = 
+export type OpenAIBuiltInTool =
   | { type: "web_search" }
   | { type: "file_search"; vector_store_ids: string[] }
   | { type: "mcp"; server_label: string; server_description: string; server_url: string; require_approval: "never" | "always" | "if_needed" }
@@ -173,8 +173,12 @@ export class OpenAIResponsesLang extends LanguageProvider {
     }
 
     // Keep minimal mutable stream state between events
-    const streamState = { sawAnyTextDelta: false, openaiResponseId: undefined as string | undefined };
-    const itemBuffers: StreamItemBuffers = new Map();
+    const streamState = {
+      sawAnyTextDelta: false,
+      openaiResponseId: undefined as string | undefined,
+      itemBuffers: new Map() as StreamItemBuffers,
+      functionArgBuffers: new Map<string, string>(),
+    };
 
     // Route raw SSE events through a dedicated handler
     const onData = (data: ResponsesStreamEvent | FinishedEvent) => this.handleStreamingEvent(
@@ -182,7 +186,6 @@ export class OpenAIResponsesLang extends LanguageProvider {
       result,
       options?.onResult,
       streamState,
-      itemBuffers,
     );
 
     await processResponseStream(response, onData);
@@ -232,7 +235,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
             parsedArgs = {};
           }
         }
-        
+
         // Also append as assistant tool_calls message for transcript
         result.addAssistantToolCalls([
           {
@@ -499,35 +502,11 @@ export class OpenAIResponsesLang extends LanguageProvider {
     data: ResponsesStreamEvent | FinishedEvent,
     result: LangMessages,
     onResult?: (result: LangMessage) => void,
-    streamState?: { sawAnyTextDelta: boolean; openaiResponseId?: string },
-    itemBuffers?: StreamItemBuffers,
+    streamState?: { sawAnyTextDelta: boolean; openaiResponseId?: string; itemBuffers: StreamItemBuffers; functionArgBuffers: Map<string, string> },
   ): void {
-
-    const ensureAssistantMessage = (): LangMessage => {
-      const last = result.length > 0 ? result[result.length - 1] : undefined;
-      if (last && last.role === 'assistant' && typeof last.content === 'string') {
-        return last;
-      }
-      result.addAssistantMessage('', { openaiResponseId: streamState?.openaiResponseId });
-      return result[result.length - 1];
-    };
-
-    const ensureToolMessage = (): LangMessage => {
-      const last = result.length > 0 ? result[result.length - 1] : undefined;
-      if (last && last.role === 'tool' && Array.isArray(last.content)) {
-        return last;
-      }
-      result.addAssistantToolCalls([], { openaiResponseId: streamState?.openaiResponseId });
-      return result[result.length - 1];
-    };
 
     // Completion or interruption
     if ('finished' in data && data.finished) {
-      if (result.answer) {
-        const msg = ensureAssistantMessage();
-        (msg as any).content = result.answer;
-        onResult?.(msg);
-      }
       result.finished = true;
       return;
     }
@@ -559,7 +538,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
         if (Array.isArray(raw)) raw.push(item); else (result as any)._responsesOutputItems = [item];
         if (item.type === 'message' && Array.isArray(item.content)) {
           // If we buffered parts (no deltas), consolidate
-          const buf = itemBuffers?.get(item.id);
+          const buf = streamState?.itemBuffers?.get(item.id);
           if (buf && buf.parts.size > 0 && !streamState?.sawAnyTextDelta) {
             const merged = [...buf.parts.entries()]
               .sort((a, b) => a[0] - b[0])
@@ -567,6 +546,9 @@ export class OpenAIResponsesLang extends LanguageProvider {
               .join('');
             if (merged) {
               const msg = result.appendToAssistantText(merged);
+              if (streamState?.openaiResponseId) {
+                msg.meta = { ...(msg.meta || {}), openaiResponseId: streamState.openaiResponseId };
+              }
               onResult?.(msg);
             }
           }
@@ -574,11 +556,24 @@ export class OpenAIResponsesLang extends LanguageProvider {
             for (const c of item.content) {
               if (c.type === 'output_text') {
                 const msg = result.appendToAssistantText(c.text);
+                if (streamState?.openaiResponseId) {
+                  msg.meta = { ...(msg.meta || {}), openaiResponseId: streamState.openaiResponseId };
+                }
                 onResult?.(msg);
               }
             }
           }
           return;
+        }
+        // If this was a function_call, prefer finalized arguments, but fall back to buffered ones
+        if ((item as any).type === 'function_call') {
+          const id = (item as any).id as string;
+          const buffered = streamState?.functionArgBuffers?.get(id);
+          if (buffered && typeof (item as any).arguments !== 'string') {
+            (item as any).arguments = buffered;
+          }
+          // Clear buffer to avoid leaks
+          if (streamState?.functionArgBuffers) streamState.functionArgBuffers.delete(id);
         }
         // Handle other item types (like function_call) using the same logic as non-streaming
         this.handleOutputItem(item, result, streamState?.openaiResponseId);
@@ -591,13 +586,16 @@ export class OpenAIResponsesLang extends LanguageProvider {
         const part = data.part;
         if (part.type === 'output_text') {
           // Finalize buffered part text
-          if (itemBuffers && data.item_id) {
-            const rec = itemBuffers.get(data.item_id) || { parts: new Map<number, string>() };
+          if (streamState?.itemBuffers && data.item_id) {
+            const rec = streamState.itemBuffers.get(data.item_id) || { parts: new Map<number, string>() };
             rec.parts.set(data.content_index, part.text);
-            itemBuffers.set(data.item_id, rec);
+            streamState.itemBuffers.set(data.item_id, rec);
           }
           if (!streamState?.sawAnyTextDelta) {
             const msg = result.appendToAssistantText(part.text);
+            if (streamState?.openaiResponseId) {
+              msg.meta = { ...(msg.meta || {}), openaiResponseId: streamState.openaiResponseId };
+            }
             onResult?.(msg);
           }
           return;
@@ -607,14 +605,17 @@ export class OpenAIResponsesLang extends LanguageProvider {
       case 'response.output_text.delta': {
         if (streamState) streamState.sawAnyTextDelta = true;
         // Append to per-item buffer for this part
-        if (itemBuffers && data.item_id) {
-          const rec = itemBuffers.get(data.item_id) || { parts: new Map<number, string>() };
+        if (streamState?.itemBuffers && data.item_id) {
+          const rec = streamState.itemBuffers.get(data.item_id) || { parts: new Map<number, string>() };
           const prev = rec.parts.get(data.content_index) || '';
           rec.parts.set(data.content_index, prev + data.delta);
-          itemBuffers.set(data.item_id, rec);
+          streamState.itemBuffers.set(data.item_id, rec);
         }
         {
           const msg = result.appendToAssistantText(data.delta);
+          if (streamState?.openaiResponseId) {
+            msg.meta = { ...(msg.meta || {}), openaiResponseId: streamState.openaiResponseId };
+          }
           onResult?.(msg);
         }
         return;
@@ -627,12 +628,31 @@ export class OpenAIResponsesLang extends LanguageProvider {
             // ensure answer ends with final text
             if (!result.answer.endsWith(text)) {
               const msg = result.appendToAssistantText(text);
+              if (streamState?.openaiResponseId) {
+                msg.meta = { ...(msg.meta || {}), openaiResponseId: streamState.openaiResponseId };
+              }
               onResult?.(msg);
             }
           } else {
             const msg = result.appendToAssistantText(text);
+            if (streamState?.openaiResponseId) {
+              msg.meta = { ...(msg.meta || {}), openaiResponseId: streamState.openaiResponseId };
+            }
             onResult?.(msg);
           }
+        }
+        return;
+      }
+      case 'response.function_call_arguments.delta': {
+        if (streamState) {
+          const prev = streamState.functionArgBuffers.get(data.item_id) || '';
+          streamState.functionArgBuffers.set(data.item_id, prev + data.delta);
+        }
+        return;
+      }
+      case 'response.function_call_arguments.done': {
+        if (streamState) {
+          streamState.functionArgBuffers.set(data.item_id, data.arguments || '');
         }
         return;
       }

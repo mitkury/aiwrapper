@@ -103,6 +103,19 @@ export type PartialImageEvent = BaseEvent<'response.image_generation_call.partia
   partial_image_b64: string;
 };
 
+// Function call arguments streaming events
+export type FunctionCallArgumentsDeltaEvent = BaseEvent<'response.function_call_arguments.delta'> & {
+  item_id: string;
+  output_index: number;
+  delta: string;
+};
+
+export type FunctionCallArgumentsDoneEvent = BaseEvent<'response.function_call_arguments.done'> & {
+  item_id: string;
+  output_index: number;
+  arguments: string;
+};
+
 export type ResponsesStreamEvent =
   | ResponseCreatedEvent
   | ResponseInProgressEvent
@@ -114,6 +127,8 @@ export type ResponsesStreamEvent =
   | ContentPartDoneEvent
   | OutputTextDeltaEvent
   | OutputTextDoneEvent
-  | PartialImageEvent;
+  | PartialImageEvent
+  | FunctionCallArgumentsDeltaEvent
+  | FunctionCallArgumentsDoneEvent;
 
 
