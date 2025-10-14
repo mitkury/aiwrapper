@@ -70,7 +70,11 @@ export class OpenAIResponsesLangTwo extends LanguageProvider {
     await processResponseStream(response, (data) => streamHander.handleEvent(data));
 
     msgCollection.finished = true;
+
+    // Automatically execute tools if the assistant requested them
     const toolResults = await msgCollection.executeRequestedTools();
-    if (options?.onResult && toolResults) options.onResult(toolResults);
+    if (options?.onResult && toolResults) {
+      options.onResult(toolResults);
+    }
   }
 }

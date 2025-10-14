@@ -102,6 +102,9 @@ export class OpenAIResponseStreamHandler {
             arguments: argsParsed
           }
         ], { openaiResponseId: this.id });
+
+        const msg = this.messages[this.messages.length - 1];
+        this.onResult?.(msg);
         break;
       default:
         break;
