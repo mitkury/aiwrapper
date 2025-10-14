@@ -19,7 +19,8 @@ type StreamItemState = {
   role?: string;
   name?: string;
   call_id?: string;
-  parts: Map<number, { buf: string; sawDelta: boolean; finalized?: boolean }>;
+  parts: Map<number, { buf: string; sawDelta: boolean; finalized?: boolean }>; // for output_text
+  reasoningParts?: Map<number, { buf: string }>; // for reasoning_text
   argsBuf?: string; // for function_call arguments streaming
 };
 
@@ -40,6 +41,12 @@ export type OpenAIResponsesOptions = {
   systemPrompt?: string;
 };
 
+/**
+ * OpenAI Responses API language provider: 
+ * https://platform.openai.com/docs/api-reference/responses
+ * If evern want to edit how we handle streaming, reference OpenAI's sdk code:
+ * https://github.com/openai/openai-node/blob/master/src/lib/responses/ResponseStream.ts
+ */
 export class OpenAIResponsesLang extends LanguageProvider {
   private _apiKey: string;
   private _model: string;
@@ -183,6 +190,8 @@ export class OpenAIResponsesLang extends LanguageProvider {
     const streamState = {
       openaiResponseId: undefined as string | undefined,
       items: new Map() as Map<string, StreamItemState>,
+      snapshot: { output: [] as any[] },
+      itemIndex: new Map<string, number>(),
     };
 
     // Route raw SSE events through a dedicated handler
@@ -507,7 +516,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
     data: ResponsesStreamEvent | FinishedEvent,
     result: LangMessages,
     onResult?: (result: LangMessage) => void,
-    streamState?: { openaiResponseId?: string; items: Map<string, StreamItemState> },
+    streamState?: { openaiResponseId?: string; items: Map<string, StreamItemState>; snapshot: { output: any[] }; itemIndex: Map<string, number> },
   ): void {
 
     // Completion or interruption
@@ -523,6 +532,14 @@ export class OpenAIResponsesLang extends LanguageProvider {
         const respId = data.response?.id;
         if (streamState && respId) {
           streamState.openaiResponseId = respId;
+          // initialize snapshot from provider
+          const out = (data.response as any)?.output;
+          streamState.snapshot = { output: Array.isArray(out) ? [...out] : [] };
+          // pre-index
+          for (let i = 0; i < streamState.snapshot.output.length; i++) {
+            const it = streamState.snapshot.output[i];
+            if (it?.id) streamState.itemIndex.set(it.id, i);
+          }
         }
         // Create a single assistant message if not present or with different response id
         const last = result.length > 0 ? result[result.length - 1] : undefined;
@@ -582,6 +599,11 @@ export class OpenAIResponsesLang extends LanguageProvider {
           }
           // Clear finished item state to avoid leaks
           if (st) streamState?.items.delete(item.id);
+          // update snapshot at finalization
+          const oi = streamState?.itemIndex.get(item.id);
+          if (oi !== undefined && oi !== null && streamState) {
+            streamState.snapshot.output[oi] = item;
+          }
           return;
         }
         // If this was a function_call, prefer finalized/buffered arguments
@@ -593,6 +615,10 @@ export class OpenAIResponsesLang extends LanguageProvider {
             (item as any).arguments = buffered;
           }
           if (st) streamState?.items.delete(id);
+          const oi = streamState?.itemIndex.get(id);
+          if (oi !== undefined && oi !== null && streamState) {
+            streamState.snapshot.output[oi] = item;
+          }
         }
         // Handle other item types (like function_call) using the same logic as non-streaming
         this.handleOutputItem(item, result, streamState?.openaiResponseId);
@@ -613,6 +639,36 @@ export class OpenAIResponsesLang extends LanguageProvider {
           parts: new Map(),
         };
         streamState?.items.set(id, state);
+        // also push to snapshot and index it
+        if (streamState) {
+          const idx = streamState.snapshot.output.push(item) - 1;
+          streamState.itemIndex.set(id, idx);
+        }
+        return;
+      }
+      case 'response.content_part.added': {
+        const oi = data.output_index;
+        const ci = data.content_index;
+        const part: any = (data as any).part;
+        // update snapshot for message parts
+        if (streamState && streamState.snapshot.output[oi]?.type === 'message') {
+          const output = streamState.snapshot.output[oi];
+          if (!Array.isArray(output.content)) output.content = [];
+          output.content[ci] = part;
+        }
+        // init per-part state
+        const itemId = [...(streamState?.itemIndex?.entries() || [])].find(([_, idx]) => idx === oi)?.[0];
+        if (itemId) {
+          const st = streamState?.items.get(itemId);
+          if (st) {
+            if (part?.type === 'reasoning_text') {
+              if (!st.reasoningParts) st.reasoningParts = new Map();
+              if (!st.reasoningParts.has(ci)) st.reasoningParts.set(ci, { buf: '' });
+            } else {
+              if (!st.parts.has(ci)) st.parts.set(ci, { buf: '', sawDelta: false });
+            }
+          }
+        }
         return;
       }
       case 'response.content_part.done': {
@@ -621,6 +677,14 @@ export class OpenAIResponsesLang extends LanguageProvider {
           // If no deltas were seen for this part, emit its text once
           const st = streamState?.items.get(data.item_id);
           const partState = st?.parts.get(data.content_index) || { buf: '', sawDelta: false };
+          // update snapshot text
+          const oi = streamState?.itemIndex.get(data.item_id);
+          if (oi !== undefined && oi !== null && streamState && streamState.snapshot.output[oi]?.type === 'message') {
+            const output = streamState.snapshot.output[oi];
+            if (output?.content?.[data.content_index]?.type === 'output_text') {
+              output.content[data.content_index].text = (part as any).text;
+            }
+          }
           if (!partState.sawDelta && typeof (part as any).text === 'string' && (part as any).text.length > 0) {
             const msg = result.appendToAssistantText((part as any).text);
             if (streamState?.openaiResponseId) {
@@ -641,11 +705,49 @@ export class OpenAIResponsesLang extends LanguageProvider {
         partState.buf = partState.buf + data.delta;
         partState.sawDelta = true;
         st?.parts.set(data.content_index, partState);
+        // update snapshot text
+        const oi = streamState?.itemIndex.get(data.item_id);
+        if (oi !== undefined && oi !== null && streamState && streamState.snapshot.output[oi]?.type === 'message') {
+          const output = streamState.snapshot.output[oi];
+          if (output?.content?.[data.content_index]?.type === 'output_text') {
+            output.content[data.content_index].text = (output.content[data.content_index].text || '') + data.delta;
+          }
+        }
         const msg = result.appendToAssistantText(data.delta);
         if (streamState?.openaiResponseId) {
           msg.meta = { ...(msg.meta || {}), openaiResponseId: streamState.openaiResponseId };
         }
         onResult?.(msg);
+        return;
+      }
+      case 'response.reasoning_text.delta': {
+        // Track reasoning deltas and emit as thinking content
+        const st = streamState?.items.get(data.item_id);
+        if (st) {
+          if (!st.reasoningParts) st.reasoningParts = new Map();
+          const p = st.reasoningParts.get(data.content_index) || { buf: '' };
+          p.buf += (data as any).delta;
+          st.reasoningParts.set(data.content_index, p);
+        }
+        const oi = streamState?.itemIndex.get(data.item_id);
+        if (oi !== undefined && oi !== null && streamState) {
+          const output = streamState.snapshot.output[oi];
+          if (output?.type === 'reasoning') {
+            if (!Array.isArray(output.content)) output.content = [];
+            const existing = output.content[data.content_index];
+            if (existing && existing.type === 'reasoning_text') {
+              existing.text = (existing.text || '') + (data as any).delta;
+            } else {
+              output.content[data.content_index] = { type: 'reasoning_text', text: (data as any).delta };
+            }
+          }
+        }
+        // Emit thinking part
+        const thinkingMsg = result.appendToAssistantThinking((data as any).delta);
+        if (streamState?.openaiResponseId) {
+          thinkingMsg.meta = { ...(thinkingMsg.meta || {}), openaiResponseId: streamState.openaiResponseId };
+        }
+        onResult?.(thinkingMsg);
         return;
       }
       case 'response.output_text.done': {
@@ -654,6 +756,14 @@ export class OpenAIResponsesLang extends LanguageProvider {
           // If no deltas were seen for this part, emit the text once
           const st = streamState?.items.get(data.item_id);
           const partState = st?.parts.get(data.content_index) || { buf: '', sawDelta: false };
+          // update snapshot text
+          const oi = streamState?.itemIndex.get(data.item_id);
+          if (oi !== undefined && oi !== null && streamState && streamState.snapshot.output[oi]?.type === 'message') {
+            const output = streamState.snapshot.output[oi];
+            if (output?.content?.[data.content_index]?.type === 'output_text') {
+              output.content[data.content_index].text = text;
+            }
+          }
           if (!partState.sawDelta) {
             const msg = result.appendToAssistantText(text);
             if (streamState?.openaiResponseId) {
@@ -667,11 +777,23 @@ export class OpenAIResponsesLang extends LanguageProvider {
       case 'response.function_call_arguments.delta': {
         const st = streamState?.items.get(data.item_id);
         if (st) st.argsBuf = (st.argsBuf || '') + data.delta;
+        // update snapshot args
+        const oi = streamState?.itemIndex.get(data.item_id);
+        if (oi !== undefined && oi !== null && streamState && streamState.snapshot.output[oi]?.type === 'function_call') {
+          const output = streamState.snapshot.output[oi];
+          output.arguments = (output.arguments || '') + data.delta;
+        }
         return;
       }
       case 'response.function_call_arguments.done': {
         const st = streamState?.items.get(data.item_id);
         if (st) st.argsBuf = data.arguments || '';
+        // update snapshot args
+        const oi = streamState?.itemIndex.get(data.item_id);
+        if (oi !== undefined && oi !== null && streamState && streamState.snapshot.output[oi]?.type === 'function_call') {
+          const output = streamState.snapshot.output[oi];
+          output.arguments = data.arguments || '';
+        }
         return;
       }
       case 'response.image_generation_call.partial_image': {

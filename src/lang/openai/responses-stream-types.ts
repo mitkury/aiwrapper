@@ -12,7 +12,13 @@ export type RefusalPart = {
   text?: string;
 };
 
-export type MessageContentPart = OutputTextPart | RefusalPart;
+export type ReasoningTextPart = {
+  type: 'reasoning_text';
+  text: string;
+  annotations?: unknown[];
+};
+
+export type MessageContentPart = OutputTextPart | RefusalPart | ReasoningTextPart;
 
 export type ReasoningItem = {
   id: string;
@@ -116,6 +122,13 @@ export type FunctionCallArgumentsDoneEvent = BaseEvent<'response.function_call_a
   arguments: string;
 };
 
+export type ReasoningTextDeltaEvent = BaseEvent<'response.reasoning_text.delta'> & {
+  item_id: string;
+  output_index: number;
+  content_index: number;
+  delta: string;
+};
+
 export type ResponsesStreamEvent =
   | ResponseCreatedEvent
   | ResponseInProgressEvent
@@ -129,6 +142,7 @@ export type ResponsesStreamEvent =
   | OutputTextDoneEvent
   | PartialImageEvent
   | FunctionCallArgumentsDeltaEvent
-  | FunctionCallArgumentsDoneEvent;
+  | FunctionCallArgumentsDoneEvent
+  | ReasoningTextDeltaEvent;
 
 
