@@ -1,4 +1,4 @@
-import { OpenAIResponsesLangTwo } from "./responses/openai-responses-lang.ts";
+import { OpenAIResponsesLang } from "./responses/openai-responses-lang.ts";
 
 export type OpenAILangOptions = {
   apiKey: string;
@@ -19,7 +19,7 @@ export type OpenAIChatMessage = {
   content: string;
 };
 
-export class OpenAILang extends OpenAIResponsesLangTwo {
+export class OpenAILang extends OpenAIResponsesLang {
   constructor(options: OpenAILangOptions) {
     const modelName = options.model || "gpt-5-mini";
     super({ apiKey: options.apiKey, model: modelName, systemPrompt: options.systemPrompt });

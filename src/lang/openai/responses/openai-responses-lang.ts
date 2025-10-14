@@ -22,7 +22,7 @@ export type OpenAIResponsesOptions = {
   systemPrompt?: string;
 };
 
-export class OpenAIResponsesLangTwo extends LanguageProvider {
+export class OpenAIResponsesLang extends LanguageProvider {
 
   private model: string;
   private apiKey: string;
