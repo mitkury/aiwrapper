@@ -4,13 +4,13 @@ import {
   LanguageProvider,
   LangContentPart,
   LangImageInput
-} from "../language-provider.ts";
-import { LangMessages, LangTool, LangToolWithHandler } from "../messages.ts";
+} from "../../language-provider.ts";
+import { LangMessages, LangTool, LangToolWithHandler } from "../../messages.ts";
 import {
   httpRequestWithRetry as fetch,
-} from "../../http-request.ts";
-import { processResponseStream } from "../../process-response-stream.ts";
-import type { ResponsesStreamEvent } from "./responses-stream-types.ts";
+} from "../../../http-request.ts";
+import { processResponseStream } from "../../../process-response-stream.ts";
+import type { ResponsesStreamEvent } from "../responses-stream-types.ts";
 type FinishedEvent = { finished: true };
 
 // Per-item streaming state
@@ -47,7 +47,7 @@ export type OpenAIResponsesOptions = {
  * If evern want to edit how we handle streaming, reference OpenAI's sdk code:
  * https://github.com/openai/openai-node/blob/master/src/lib/responses/ResponseStream.ts
  */
-export class OpenAIResponsesLang extends LanguageProvider {
+export class OpenAIResponsesLang_OLD_DELETE extends LanguageProvider {
   private _apiKey: string;
   private _model: string;
   private _systemPrompt: string;

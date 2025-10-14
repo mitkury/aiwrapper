@@ -1,17 +1,26 @@
 import { LangOptions, LanguageProvider } from "../../language-provider.ts";
 import { LangMessage, LangMessages } from "../../messages.ts";
-import { OpenAIResponsesOptions } from "../openai-responses-lang.ts";
 import { prepareBodyPartForOpenAIResponsesAPI } from "./openai-responses-messages.ts";
 import { processResponseStream } from "../../../process-response-stream.ts";
 import { OpenAIResponseStreamHandler } from "./openai-responses-stream-handler.ts";
 
-export type OpenAIResponseItem = {
-  id: string;
-  type: string;
-  // We link our messages to items so we can mutate them as items are updated
-  targetMessage?: LangMessage;
-  [key: string]: any;
-}
+
+/**
+ * OpenAI-specific built-in tools
+ */
+export type OpenAIBuiltInTool =
+  | { name: "web_search" }
+  | { name: "file_search"; vector_store_ids: string[] }
+  | { name: "mcp"; server_label: string; server_description: string; server_url: string; require_approval: "never" | "always" | "if_needed" }
+  | { name: "image_generation" }
+  | { name: "code_interpreter" }
+  | { name: "computer_use" };
+
+export type OpenAIResponsesOptions = {
+  apiKey: string;
+  model?: string;
+  systemPrompt?: string;
+};
 
 export class OpenAIResponsesLangTwo extends LanguageProvider {
 
