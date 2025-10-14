@@ -80,7 +80,7 @@ async function runTest(lang: LanguageProvider) {
     assert(res.answer.length > 0);
   });
 
-  /*
+
   it('should know the capital of France', async () => {
     const res = await lang.ask('What is the capital of France?');
     expect(res.answer.toLocaleLowerCase()).toContain('paris');
@@ -101,6 +101,7 @@ async function runTest(lang: LanguageProvider) {
     expect(res.answer).toBe(lastAnswer);
   });
 
+
   it('should be able to chat', async () => {
     const res = await lang.chat([
       { role: 'user', content: 'Hey, respond with "Hey" as well' },
@@ -110,6 +111,7 @@ async function runTest(lang: LanguageProvider) {
     expect(typeof res.answer).toBe('string');
     expect(res.answer.toLocaleLowerCase()).toContain('paris');
   });
+
 
   it('should return a JSON object', async () => {
     const res = await lang.askForObject('Return a JSON object with a "name" property', {
@@ -183,5 +185,4 @@ async function runTest(lang: LanguageProvider) {
     expect(res2[res2.length - 1].role).toBe(streamedMessageWithToolResults!.role);
     expect(res2[res2.length - 1].content).toBe(streamedMessageWithToolResults!.content);
   });
-  */
 }

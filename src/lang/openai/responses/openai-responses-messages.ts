@@ -1,4 +1,4 @@
-import { LangMessages, LangMessage, LangContentPart, LangImageInput, LangTool } from "../messages";
+import { LangMessages, LangMessage, LangContentPart, LangImageInput, LangTool } from "../../messages";
 
 export type BodyPartForOpenAIResponses = {
   input?: any[];
