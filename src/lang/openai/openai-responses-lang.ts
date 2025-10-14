@@ -388,7 +388,6 @@ export class OpenAIResponsesLang extends LanguageProvider {
    */
   private transformMessagesToResponsesInput(messages: LangMessages): any {
     const input: any[] = [];
-    const previousOutputItems = this.getPreviousOutputItems(messages);
 
     for (const message of messages) {
       switch (message.role) {
@@ -403,7 +402,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
           break;
 
         case 'tool-results':
-          input.push(...this.transformToolResultsToResponsesItems(message, previousOutputItems));
+          input.push(...this.transformToolResultsToResponsesItems(message));
           break;
       }
     }
@@ -411,12 +410,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
     return input;
   }
 
-  /**
-   * Extract previous raw output items that need to be preserved for context
-   */
-  private getPreviousOutputItems(messages: LangMessages): any[] {
-    return (messages as any)._responsesOutputItems || [];
-  }
+
 
   /**
    * Transform a regular message (system/user/assistant) to Responses API format
@@ -478,15 +472,8 @@ export class OpenAIResponsesLang extends LanguageProvider {
    * Transform tool result messages to function_call_output items
    * Also includes any previous raw output items that need to be preserved
    */
-  private transformToolResultsToResponsesItems(message: LangMessage, previousOutputItems: any[]): any[] {
+  private transformToolResultsToResponsesItems(message: LangMessage): any[] {
     const items: any[] = [];
-
-    // Include previous raw function_call and reasoning items for context
-    for (const item of previousOutputItems) {
-      if (item && (item.type === 'function_call' || item.type === 'reasoning')) {
-        items.push(item);
-      }
-    }
 
     // Add function_call_output items for each tool result
     if (Array.isArray(message.content)) {
@@ -528,7 +515,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
     // Typed events via discriminated union
     if ('type' in data) switch (data.type) {
       case 'response.created': {
-        // Capture response ID and create assistant message eagerly
+        // Capture response ID
         const respId = data.response?.id;
         if (streamState && respId) {
           streamState.openaiResponseId = respId;
@@ -540,12 +527,6 @@ export class OpenAIResponsesLang extends LanguageProvider {
             const it = streamState.snapshot.output[i];
             if (it?.id) streamState.itemIndex.set(it.id, i);
           }
-        }
-        // Create a single assistant message if not present or with different response id
-        const last = result.length > 0 ? result[result.length - 1] : undefined;
-        const lastIsAssistantForThisResp = !!(last && last.role === 'assistant' && (last.meta?.openaiResponseId === streamState?.openaiResponseId));
-        if (!lastIsAssistantForThisResp) {
-          result.addAssistantMessage('', streamState?.openaiResponseId ? { openaiResponseId: streamState.openaiResponseId } : undefined);
         }
         break;
       }
@@ -568,9 +549,6 @@ export class OpenAIResponsesLang extends LanguageProvider {
       }
       case 'response.output_item.done': {
         const item = data.item;
-        // Accumulate raw output items for pass-back on next turn
-        const raw = (result as any)._responsesOutputItems as any[] | undefined;
-        if (Array.isArray(raw)) raw.push(item); else (result as any)._responsesOutputItems = [item];
         if (item.type === 'message' && Array.isArray(item.content)) {
           // Fallback: emit any parts that had no deltas (based on per-item state)
           const st = streamState?.items.get(item.id);
