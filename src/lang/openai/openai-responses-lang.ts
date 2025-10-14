@@ -13,8 +13,15 @@ import { processResponseStream } from "../../process-response-stream.ts";
 import type { ResponsesStreamEvent } from "./responses-stream-types.ts";
 type FinishedEvent = { finished: true };
 
-// Minimal per-item buffers for concurrent stream updates
-type StreamItemBuffers = Map<string, { parts: Map<number, string> }>; // key: item_id
+// Per-item streaming state
+type StreamItemState = {
+  type: string;
+  role?: string;
+  name?: string;
+  call_id?: string;
+  parts: Map<number, { buf: string; sawDelta: boolean; finalized?: boolean }>;
+  argsBuf?: string; // for function_call arguments streaming
+};
 
 /**
  * OpenAI-specific built-in tools
@@ -174,10 +181,8 @@ export class OpenAIResponsesLang extends LanguageProvider {
 
     // Keep minimal mutable stream state between events
     const streamState = {
-      sawAnyTextDelta: false,
       openaiResponseId: undefined as string | undefined,
-      itemBuffers: new Map() as StreamItemBuffers,
-      functionArgBuffers: new Map<string, string>(),
+      items: new Map() as Map<string, StreamItemState>,
     };
 
     // Route raw SSE events through a dedicated handler
@@ -502,7 +507,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
     data: ResponsesStreamEvent | FinishedEvent,
     result: LangMessages,
     onResult?: (result: LangMessage) => void,
-    streamState?: { sawAnyTextDelta: boolean; openaiResponseId?: string; itemBuffers: StreamItemBuffers; functionArgBuffers: Map<string, string> },
+    streamState?: { openaiResponseId?: string; items: Map<string, StreamItemState> },
   ): void {
 
     // Completion or interruption
@@ -513,10 +518,23 @@ export class OpenAIResponsesLang extends LanguageProvider {
 
     // Typed events via discriminated union
     if ('type' in data) switch (data.type) {
-      case 'response.created':
+      case 'response.created': {
+        // Capture response ID and create assistant message eagerly
+        const respId = data.response?.id;
+        if (streamState && respId) {
+          streamState.openaiResponseId = respId;
+        }
+        // Create a single assistant message if not present or with different response id
+        const last = result.length > 0 ? result[result.length - 1] : undefined;
+        const lastIsAssistantForThisResp = !!(last && last.role === 'assistant' && (last.meta?.openaiResponseId === streamState?.openaiResponseId));
+        if (!lastIsAssistantForThisResp) {
+          result.addAssistantMessage('', streamState?.openaiResponseId ? { openaiResponseId: streamState.openaiResponseId } : undefined);
+        }
+        break;
+      }
       case 'response.in_progress': {
-        // Capture the response ID as soon as it's available
-        if (streamState && data.response?.id) {
+        // Capture the response ID as soon as it's available (no-op if already set)
+        if (streamState && data.response?.id && !streamState.openaiResponseId) {
           streamState.openaiResponseId = data.response.id;
         }
         break;
@@ -537,22 +555,21 @@ export class OpenAIResponsesLang extends LanguageProvider {
         const raw = (result as any)._responsesOutputItems as any[] | undefined;
         if (Array.isArray(raw)) raw.push(item); else (result as any)._responsesOutputItems = [item];
         if (item.type === 'message' && Array.isArray(item.content)) {
-          // If we buffered parts (no deltas), consolidate
-          const buf = streamState?.itemBuffers?.get(item.id);
-          if (buf && buf.parts.size > 0 && !streamState?.sawAnyTextDelta) {
-            const merged = [...buf.parts.entries()]
-              .sort((a, b) => a[0] - b[0])
-              .map(([, v]) => v)
-              .join('');
-            if (merged) {
-              const msg = result.appendToAssistantText(merged);
-              if (streamState?.openaiResponseId) {
-                msg.meta = { ...(msg.meta || {}), openaiResponseId: streamState.openaiResponseId };
+          // Fallback: emit any parts that had no deltas (based on per-item state)
+          const st = streamState?.items.get(item.id);
+          if (st) {
+            // For each content index, if no deltas seen and buffer has text, emit once
+            for (const [idx, partState] of st.parts.entries()) {
+              if (!partState.sawDelta && partState.buf) {
+                const msg = result.appendToAssistantText(partState.buf);
+                if (streamState?.openaiResponseId) {
+                  msg.meta = { ...(msg.meta || {}), openaiResponseId: streamState.openaiResponseId };
+                }
+                onResult?.(msg);
               }
-              onResult?.(msg);
             }
-          }
-          if (!streamState?.sawAnyTextDelta) {
+          } else {
+            // If no state, emit outputs in item.content once
             for (const c of item.content) {
               if (c.type === 'output_text') {
                 const msg = result.appendToAssistantText(c.text);
@@ -563,17 +580,19 @@ export class OpenAIResponsesLang extends LanguageProvider {
               }
             }
           }
+          // Clear finished item state to avoid leaks
+          if (st) streamState?.items.delete(item.id);
           return;
         }
-        // If this was a function_call, prefer finalized arguments, but fall back to buffered ones
+        // If this was a function_call, prefer finalized/buffered arguments
         if ((item as any).type === 'function_call') {
           const id = (item as any).id as string;
-          const buffered = streamState?.functionArgBuffers?.get(id);
+          const st = streamState?.items.get(id);
+          const buffered = st?.argsBuf;
           if (buffered && typeof (item as any).arguments !== 'string') {
             (item as any).arguments = buffered;
           }
-          // Clear buffer to avoid leaks
-          if (streamState?.functionArgBuffers) streamState.functionArgBuffers.delete(id);
+          if (st) streamState?.items.delete(id);
         }
         // Handle other item types (like function_call) using the same logic as non-streaming
         this.handleOutputItem(item, result, streamState?.openaiResponseId);
@@ -582,58 +601,60 @@ export class OpenAIResponsesLang extends LanguageProvider {
         if (last && last.role !== 'user') onResult?.(last);
         return;
       }
+      case 'response.output_item.added': {
+        const item = data.item as any;
+        const id = item?.id as string | undefined;
+        if (!id) break;
+        const state: StreamItemState = {
+          type: item.type,
+          role: item.role,
+          name: item.name,
+          call_id: item.call_id,
+          parts: new Map(),
+        };
+        streamState?.items.set(id, state);
+        return;
+      }
       case 'response.content_part.done': {
         const part = data.part;
         if (part.type === 'output_text') {
-          // Finalize buffered part text
-          if (streamState?.itemBuffers && data.item_id) {
-            const rec = streamState.itemBuffers.get(data.item_id) || { parts: new Map<number, string>() };
-            rec.parts.set(data.content_index, part.text);
-            streamState.itemBuffers.set(data.item_id, rec);
-          }
-          if (!streamState?.sawAnyTextDelta) {
-            const msg = result.appendToAssistantText(part.text);
+          // If no deltas were seen for this part, emit its text once
+          const st = streamState?.items.get(data.item_id);
+          const partState = st?.parts.get(data.content_index) || { buf: '', sawDelta: false };
+          if (!partState.sawDelta && typeof (part as any).text === 'string' && (part as any).text.length > 0) {
+            const msg = result.appendToAssistantText((part as any).text);
             if (streamState?.openaiResponseId) {
               msg.meta = { ...(msg.meta || {}), openaiResponseId: streamState.openaiResponseId };
             }
             onResult?.(msg);
+            partState.finalized = true;
+            st?.parts.set(data.content_index, partState);
           }
           return;
         }
         break;
       }
       case 'response.output_text.delta': {
-        if (streamState) streamState.sawAnyTextDelta = true;
-        // Append to per-item buffer for this part
-        if (streamState?.itemBuffers && data.item_id) {
-          const rec = streamState.itemBuffers.get(data.item_id) || { parts: new Map<number, string>() };
-          const prev = rec.parts.get(data.content_index) || '';
-          rec.parts.set(data.content_index, prev + data.delta);
-          streamState.itemBuffers.set(data.item_id, rec);
+        // Track per-part deltas and emit immediately
+        const st = streamState?.items.get(data.item_id);
+        const partState = st?.parts.get(data.content_index) || { buf: '', sawDelta: false };
+        partState.buf = partState.buf + data.delta;
+        partState.sawDelta = true;
+        st?.parts.set(data.content_index, partState);
+        const msg = result.appendToAssistantText(data.delta);
+        if (streamState?.openaiResponseId) {
+          msg.meta = { ...(msg.meta || {}), openaiResponseId: streamState.openaiResponseId };
         }
-        {
-          const msg = result.appendToAssistantText(data.delta);
-          if (streamState?.openaiResponseId) {
-            msg.meta = { ...(msg.meta || {}), openaiResponseId: streamState.openaiResponseId };
-          }
-          onResult?.(msg);
-        }
+        onResult?.(msg);
         return;
       }
       case 'response.output_text.done': {
         const text = data.text ?? data.output_text;
         if (typeof text === 'string' && text.length > 0) {
-          // Prefer appending unless we never saw deltas
-          if (streamState?.sawAnyTextDelta) {
-            // ensure answer ends with final text
-            if (!result.answer.endsWith(text)) {
-              const msg = result.appendToAssistantText(text);
-              if (streamState?.openaiResponseId) {
-                msg.meta = { ...(msg.meta || {}), openaiResponseId: streamState.openaiResponseId };
-              }
-              onResult?.(msg);
-            }
-          } else {
+          // If no deltas were seen for this part, emit the text once
+          const st = streamState?.items.get(data.item_id);
+          const partState = st?.parts.get(data.content_index) || { buf: '', sawDelta: false };
+          if (!partState.sawDelta) {
             const msg = result.appendToAssistantText(text);
             if (streamState?.openaiResponseId) {
               msg.meta = { ...(msg.meta || {}), openaiResponseId: streamState.openaiResponseId };
@@ -644,16 +665,13 @@ export class OpenAIResponsesLang extends LanguageProvider {
         return;
       }
       case 'response.function_call_arguments.delta': {
-        if (streamState) {
-          const prev = streamState.functionArgBuffers.get(data.item_id) || '';
-          streamState.functionArgBuffers.set(data.item_id, prev + data.delta);
-        }
+        const st = streamState?.items.get(data.item_id);
+        if (st) st.argsBuf = (st.argsBuf || '') + data.delta;
         return;
       }
       case 'response.function_call_arguments.done': {
-        if (streamState) {
-          streamState.functionArgBuffers.set(data.item_id, data.arguments || '');
-        }
+        const st = streamState?.items.get(data.item_id);
+        if (st) st.argsBuf = data.arguments || '';
         return;
       }
       case 'response.image_generation_call.partial_image': {
