@@ -38,6 +38,7 @@ export const setProcessResponseStreamImpl = (
   _processResponseStream = impl;
 };
 
+// @TODO: rename to processSSEStream
 export const processResponseStream = (
   response: Response,
   onProgress: (data: any) => void,

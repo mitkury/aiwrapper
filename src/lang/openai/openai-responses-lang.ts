@@ -598,6 +598,8 @@ export class OpenAIResponsesLang extends LanguageProvider {
             streamState.snapshot.output[oi] = item;
           }
         }
+
+        // @TODO: went here so far only for "reasoning" and "function_call"; consider to remove and handle thos explicitly
         // Handle other item types (like function_call) using the same logic as non-streaming
         this.handleOutputItem(item, result, streamState?.openaiResponseId);
         const last = result.length > 0 ? result[result.length - 1] : undefined;
