@@ -60,8 +60,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
       model: this.model,
       ...{ stream: true },
       ...bodyPart,
-      // @TODO: have a function that calculates the maxTokens (take a look at other providers for that)
-      ...(typeof options?.maxTokens === 'number' ? { max_output_tokens: options.maxTokens } : {}),
+      ...{ truncation: "auto" }
     };
 
     const req = {
