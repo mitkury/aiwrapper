@@ -81,8 +81,4 @@ export class ChatAgent extends Agent<LangMessages | LangMessage[], LangMessages,
   setLanguageProvider(lang: LanguageProvider): void {
     this.lang = lang;
   }
-
-  setTools(tools: ToolWithHandler[]): void {
-    this.messages.availableTools = tools;
-  }
 }
