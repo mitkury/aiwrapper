@@ -239,9 +239,21 @@ export class LangMessages extends Array<LangMessage> {
       const tool = toolsWithHandlers.find(t => t.name === toolName);
       if (!tool) continue;
 
-      const outcome = await Promise.resolve(tool.handler(requestedTool.arguments || {}));
+      let result: any;
+      try {
+        result = await Promise.resolve(tool.handler(requestedTool.arguments || {}));
+      } catch (error) {
+        console.error('Error executing tool "' + toolName + '":', error);
+        result = {
+          error: true,
+          name: error.name,
+          message: error.message,
+          ...Object.fromEntries(Object.entries(error)),
+        }
+      }
+
       const id = requestedTool.callId;
-      toolResults.push({ toolId: id, name: toolName, result: outcome });
+      toolResults.push({ toolId: id, name: toolName, result });
     }
 
     // Append execution results
