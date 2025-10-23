@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { LangMessages, LangOptions, LanguageProvider } from '../../dist/index.js';
+import { LangMessages, LangOptions, LanguageProvider } from 'aiwrapper';
 import { createLangTestRunner } from '../utils/lang-gatherer.js';
 
 describe('Tools', () => {

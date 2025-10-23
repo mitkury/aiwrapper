@@ -20,6 +20,9 @@ export type { LangOptions, LangMessage, LangToolWithHandler as ToolWithHandler, 
 // Re-export image and content part types
 export type { LangImageInput, LangContentPart, LangImageOutput } from "./language-provider.ts";
 
+// Utils
+export * from "./utils/index.ts";
+
 // Img API
 export { Img } from "../img/img.ts";
 

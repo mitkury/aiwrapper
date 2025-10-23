@@ -28,13 +28,10 @@ export type LangImageInput =
   | { kind: "bytes"; bytes: ArrayBuffer | Uint8Array; mimeType?: string }
   | { kind: "blob"; blob: Blob; mimeType?: string };
 
-// Note: Image outputs are represented within LangContentPart as { type: "image", image: LangImageInput }
-
 export type LangContentPart =
   | { type: "text"; text: string }
   | { type: "image"; image: LangImageInput; alt?: string }
   | { type: "thinking"; text: string };
-
 
 export type LangToolWithHandler = {
   name: string;

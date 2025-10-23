@@ -1,5 +1,5 @@
 import { describe } from 'vitest';
-import { Lang, LanguageProvider } from '../../dist/index.js';
+import { Lang, LanguageProvider } from 'aiwrapper';
 
 export interface LangProvider {
   name: string;

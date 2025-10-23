@@ -1,5 +1,3 @@
-// We're not going to define all the things that go into responses, there a LOT of them;
-
 import { LangMessages, LangMessage } from "../../messages";
 
 type OpenAIResponseItem = {
@@ -10,6 +8,9 @@ type OpenAIResponseItem = {
   [key: string]: any;
 }
 
+/**
+ * Stream response handler for the OpenAI Responses API
+ */
 export class OpenAIResponseStreamHandler {
   id: string;
   items: OpenAIResponseItem[];
@@ -62,13 +63,14 @@ export class OpenAIResponseStreamHandler {
     }
   }
 
+  /**
+   * Examples of items that can come into this handler:
+   * "type":"response.output_item.added","sequence_number":4,"output_index":1,"item":{"id":"fc_0d1fd1ec5aba34630068edbe1df02881a28c623f7dc5d45e81","type":"function_call","status":"in_progress","arguments":"","call_id":"call_Pc4gzmrkhNIdTYrySlALhyIl","name":"get_current_weather"}
+   * "type":"response.output_item.done","sequence_number":18,"output_index":1,"item":{"id":"fc_0d1fd1ec5aba34630068edbe1df02881a28c623f7dc5d45e81","type":"function_call","status":"completed","arguments":"{\"location\":\"Boston, MA\",\"unit\":\"celsius\"}","call_id":"call_Pc4gzmrkhNIdTYrySlALhyIl","name":"get_current_weather"}
+   * "type":"response.output_item.added","sequence_number":4,"output_index":1,"item":{"id":"msg_0dfe4783196ccc2e0068edc3874d5c81a3b2beb308e6eae8f3","type":"message","status":"in_progress","content":[],"role":"assistant"}
+   * "type":"response.output_item.done","sequence_number":236,"output_index":1,"item":{"id":"msg_0dfe4783196ccc2e0068edc3874d5c81a3b2beb308e6eae8f3","type":"message","status":"completed","content":[{"type":"output_text","annotations":[],"logprobs":[],"text":"Hey!"}],"role":"assistant"}
+   */
   setItem(target: OpenAIResponseItem) {
-    //data: {"type":"response.output_item.added","sequence_number":4,"output_index":1,"item":{"id":"fc_0d1fd1ec5aba34630068edbe1df02881a28c623f7dc5d45e81","type":"function_call","status":"in_progress","arguments":"","call_id":"call_Pc4gzmrkhNIdTYrySlALhyIl","name":"get_current_weather"}}
-    //data: {"type":"response.output_item.done","sequence_number":18,"output_index":1,"item":{"id":"fc_0d1fd1ec5aba34630068edbe1df02881a28c623f7dc5d45e81","type":"function_call","status":"completed","arguments":"{\"location\":\"Boston, MA\",\"unit\":\"celsius\"}","call_id":"call_Pc4gzmrkhNIdTYrySlALhyIl","name":"get_current_weather"}}
-
-    // data: {"type":"response.output_item.added","sequence_number":4,"output_index":1,"item":{"id":"msg_0dfe4783196ccc2e0068edc3874d5c81a3b2beb308e6eae8f3","type":"message","status":"in_progress","content":[],"role":"assistant"}}
-    //data: {"type":"response.output_item.done","sequence_number":236,"output_index":1,"item":{"id":"msg_0dfe4783196ccc2e0068edc3874d5c81a3b2beb308e6eae8f3","type":"message","status":"completed","content":[{"type":"output_text","annotations":[],"logprobs":[],"text":"Hey!"}],"role":"assistant"}}
-
     const item = this.getItem(target.id);
     if (!target) {
       console.warn('Unknown item:', target);
@@ -95,8 +97,6 @@ export class OpenAIResponseStreamHandler {
         break;
 
       case 'function_call':
-        //"item":{"id":"fc_0d1fd1ec5aba34630068edbe1df02881a28c623f7dc5d45e81","type":"function_call","status":"completed","arguments":"{\"location\":\"Boston, MA\",\"unit\":\"celsius\"}","call_id":"call_Pc4gzmrkhNIdTYrySlALhyIl","name":"get_current_weather"
-
         const argsParsed = JSON.parse(target.arguments) as Record<string, any>;
         const callId = target.call_id;
         const name = target.name;

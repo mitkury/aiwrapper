@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Img } from '../../dist/index.js';
+import { Img } from 'aiwrapper';
 
 const apiKey = process.env.OPENAI_API_KEY;
 const run = !!apiKey;

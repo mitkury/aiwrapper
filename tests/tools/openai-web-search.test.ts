@@ -1,5 +1,5 @@
 import { describe, it, expect, assert } from 'vitest';
-import { Lang, LangMessages, ToolResult } from '../../dist/index.js';
+import { Lang, LangMessages, ToolResult } from 'aiwrapper';
 
 const apiKey = process.env.OPENAI_API_KEY;
 

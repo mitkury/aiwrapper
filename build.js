@@ -51,9 +51,9 @@ async function build() {
       await fs.promises.writeFile(file, content);
     }
     
-    // Generate TypeScript declaration files using tsc with allowImportingTsExtensions
+    // Generate TypeScript declaration files using tsc
     console.log('📝 Generating TypeScript declarations...');
-    execSync('npx tsc --declaration --emitDeclarationOnly --outDir dist', { stdio: 'inherit' });
+    execSync('npx tsc --project tsconfig.declarations.json', { stdio: 'inherit' });
     
     console.log('🎉 Build and post-processing completed successfully.');
   } catch (error) {

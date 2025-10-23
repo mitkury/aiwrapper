@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { LanguageProvider, ChatAgent, LangMessages } from '../../dist/index.js';
+import { LanguageProvider, ChatAgent, LangMessages } from 'aiwrapper';
 import { createLangTestRunner } from '../utils/lang-gatherer.js';
 
 describe('ChatAgent', () => {

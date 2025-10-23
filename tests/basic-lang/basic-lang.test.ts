@@ -1,5 +1,5 @@
 import { describe, it, expect, assert } from 'vitest';
-import { LangMessage, LangMessages, LangOptions, LanguageProvider, ToolRequest, ToolResult } from '../../dist/index.js';
+import { LangMessage, LangMessages, LangOptions, LanguageProvider, ToolRequest, ToolResult } from 'aiwrapper';
 import { createLangTestRunner, printAvailableProviders } from '../utils/lang-gatherer.js';
 
 // Show available providers for debugging

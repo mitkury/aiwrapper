@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { LangMessages, LanguageProvider } from '../../dist/index.js';
+import { LangMessages, LanguageProvider } from 'aiwrapper';
 import { createLangTestRunner } from '../utils/lang-gatherer.js';
 import { readImageBase64 } from '../utils/test-images.ts';
 
