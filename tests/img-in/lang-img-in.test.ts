@@ -21,7 +21,7 @@ describe('Lang - image in (providers)', () => {
 
 async function runTest(lang: LanguageProvider) {
   it('should identify a cat in the image', async () => {
-    const { base64, mimeType } = await readImageBase64(import.meta.url, 'image-in-test', 'cat.jpg');
+    const { base64, mimeType } = await readImageBase64(import.meta.url, 'image-in-test', 'test-image.jpg');
 
     const messages = new LangMessages();
     messages.addUserContent([
