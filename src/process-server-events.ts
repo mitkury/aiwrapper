@@ -1,7 +1,7 @@
 import processLinesFromStream from "./lang/process-lines-from-stream.ts";
 
 // This would work only in Deno and browsers, not in Node.
-let _processResponseStream = (response: Response, onData: (data: any) => void): Promise<void> => {
+let _processServerEvents = (response: Response, onData: (data: any) => void): Promise<void> => {
   if (response.ok === false) {
     throw new Error(
       `Response from server was not ok. Status code: ${response.status}.`,
@@ -32,16 +32,19 @@ let _processResponseStream = (response: Response, onData: (data: any) => void): 
   });
 };
 
-export const setProcessResponseStreamImpl = (
+/*
+ * Set the implementation of the processServerEvents function.
+ * This is useful for testing and for customizing the behavior of the processServerEvents function.
+ */
+export const setProcessServerEventsImpl = (
   impl: (response: Response, onProgress: (data: any) => void) => Promise<void>,
 ) => {
-  _processResponseStream = impl;
+  _processServerEvents = impl;
 };
 
-// @TODO: rename to processSSEStream
-export const processResponseStream = (
+export const processServerEvents = (
   response: Response,
   onProgress: (data: any) => void,
 ): Promise<void> => {
-  return _processResponseStream(response, onProgress);
+  return _processServerEvents(response, onProgress);
 };

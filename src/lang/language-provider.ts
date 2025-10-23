@@ -41,10 +41,8 @@ export interface LangOptions {
   // Streaming callback
   onResult?: (result: LangMessage) => void;
 
-  // @TODO: how about providerSpecificOptions that can be [key: string]: any; - so it's clear how to set those
-
-  // Other options (temperature, etc.)
-  [key: string]: any;
+  providerSpecificBody?: Record<string, any>;
+  providerSpecificHeaders?: Record<string, string>;
 }
 
 /**

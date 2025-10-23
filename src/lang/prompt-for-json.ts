@@ -1,7 +1,6 @@
-// @TODO: say here that it's a fallback for LLMs that don't support structured output
-
 /**
  * Generate a prompt for extracting structured data based on a schema
+ * This is a fallback for LLMs that don't support structured output
  * 
  * @param prompt The instruction for the LLM (e.g., "List all planets with their diameters")
  * @param schema The schema that the output should conform to
@@ -20,7 +19,7 @@ You must return a valid JSON (${schemaType}) that follows this exact schema stru
 ${schemaJson}
 \`\`\`
 
-This schema shows the required structure and property types your output must have. Your response must be valid JSON that conforms to this schema. Don't include any text outside the JSON.
+Don't include any text outside the JSON.
 
 ## Output
 \`\`\`json`;

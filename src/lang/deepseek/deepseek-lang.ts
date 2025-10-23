@@ -1,7 +1,7 @@
 import { OpenAIChatCompletionsLang, OpenAILikeConfig } from "../openai/openai-chat-completions-lang.ts";
 import { LangOptions, LangMessage } from "../language-provider.ts";
 import { LangMessages } from "../messages.ts";
-import { processResponseStream } from "../../process-response-stream.ts";
+import { processServerEvents } from "../../process-server-events.ts";
 import { httpRequestWithRetry as fetch } from "../../http-request.ts";
 import { models } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";

@@ -1,7 +1,7 @@
 import { LangOptions, LanguageProvider } from "../../language-provider.ts";
 import { LangMessage, LangMessages } from "../../messages.ts";
 import { prepareBodyPartForOpenAIResponsesAPI } from "./openai-responses-messages.ts";
-import { processResponseStream } from "../../../process-response-stream.ts";
+import { processServerEvents } from "../../../process-server-events.ts";
 import { OpenAIResponseStreamHandler } from "./openai-responses-stream-handler.ts";
 
 
@@ -60,7 +60,8 @@ export class OpenAIResponsesLang extends LanguageProvider {
       model: this.model,
       ...{ stream: true },
       ...bodyPart,
-      ...{ truncation: "auto" }
+      ...{ truncation: "auto" },
+      ...options?.providerSpecificBody,
     };
 
     const req = {
@@ -68,14 +69,15 @@ export class OpenAIResponsesLang extends LanguageProvider {
       headers: {
         "Content-Type": "application/json",
         "Accept": "text/event-stream",
-        Authorization: `Bearer ${this.apiKey}`
+        Authorization: `Bearer ${this.apiKey}`,
+        ...options?.providerSpecificHeaders,
       },
       body: JSON.stringify(body),
     };
 
     const streamHander = new OpenAIResponseStreamHandler(msgCollection, options?.onResult);
     const response = await fetch(`${this.baseURL}/responses`, req);
-    await processResponseStream(response, (data) => streamHander.handleEvent(data));
+    await processServerEvents(response, (data) => streamHander.handleEvent(data));
 
     msgCollection.finished = true;
 

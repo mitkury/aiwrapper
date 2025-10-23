@@ -18,7 +18,6 @@ const processDataAsStr = (rawData: string, onData: (data: any) => void) => {
     }
     if (line.startsWith("data: ")) {
       const dataStr = line.substring(6);
-      // @TODO: at the moment it's OpenAI specific. Make it generic.
       if (dataStr === "[DONE]") {
         onData({ finished: true });
         currentEvent = null;

@@ -1,7 +1,7 @@
 import {
   httpRequestWithRetry as fetch,
 } from "../../http-request.ts";
-import { processResponseStream } from "../../process-response-stream.ts";
+import { processServerEvents } from "../../process-server-events.ts";
 import {
   LangMessage,
   LangOptions,
@@ -129,7 +129,7 @@ export class AnthropicLang extends LanguageProvider {
       indexToToolId: new Map(),
     };
 
-    await processResponseStream(response, (data: any) =>
+    await processServerEvents(response, (data: any) =>
       this.handleStreamEvent(data, result, options?.onResult, streamState)
     );
 

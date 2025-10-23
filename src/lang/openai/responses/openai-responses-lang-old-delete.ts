@@ -9,7 +9,7 @@ import { LangMessages, LangTool, LangToolWithHandler } from "../../messages.ts";
 import {
   httpRequestWithRetry as fetch,
 } from "../../../http-request.ts";
-import { processResponseStream } from "../../../process-response-stream.ts";
+import { processServerEvents } from "../../../process-server-events.ts";
 import type { ResponsesStreamEvent } from "../responses-stream-types.ts";
 type FinishedEvent = { finished: true };
 
@@ -202,7 +202,7 @@ export class OpenAIResponsesLang_OLD_DELETE extends LanguageProvider {
       streamState,
     );
 
-    await processResponseStream(response, onData);
+    await processServerEvents(response, onData);
 
     result.finished = true;
 

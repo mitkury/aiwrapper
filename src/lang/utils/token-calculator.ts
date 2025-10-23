@@ -17,7 +17,7 @@ export function calculateModelResponseTokens(
   // Get model context
   if (model.context.type !== "token") {
     // Non-token contexts aren't handled, return user maxTokens or a reasonable default
-    return maxTokens || 2000;
+    return maxTokens || 4000;
   }
 
   const context = model.context;
@@ -52,5 +52,5 @@ export function calculateModelResponseTokens(
   }
   
   // If we don't have enough information, return user maxTokens or a reasonable default
-  return maxTokens || context.maxOutput || 2000;
+  return maxTokens || context.maxOutput || 4000;
 } 

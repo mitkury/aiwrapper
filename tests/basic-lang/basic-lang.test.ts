@@ -113,8 +113,6 @@ async function runTest(lang: LanguageProvider) {
 
     // Expect the final answer to contain the tool result
     expect(finalRes.answer).toContain('3131');
-
-    // @TODO: get a response from ai with the tool result
   });
 
   it('should be able to chat and use tools', async () => {

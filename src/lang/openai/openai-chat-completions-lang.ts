@@ -8,7 +8,7 @@ import { LangMessages, LangMessage, LangTool } from "../messages.ts";
 import {
   httpRequestWithRetry as fetch,
 } from "../../http-request.ts";
-import { processResponseStream } from "../../process-response-stream.ts";
+import { processServerEvents } from "../../process-server-events.ts";
 import { models, Model } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
 
@@ -211,7 +211,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
       throw new Error(err);
     });
 
-    await processResponseStream(response, onData);
+    await processServerEvents(response, onData);
 
     result.finished = true;
 

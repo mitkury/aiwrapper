@@ -1,7 +1,7 @@
 import {
   httpRequestWithRetry as fetch,
 } from "../../http-request.ts";
-import { processResponseStream } from "../../process-response-stream.ts";
+import { processServerEvents } from "../../process-server-events.ts";
 import {
   LangMessage,
   LangOptions,
@@ -138,7 +138,7 @@ export class CohereLang extends LanguageProvider {
       }
     };
 
-    await processResponseStream(response, onData);
+    await processServerEvents(response, onData);
 
     return result;
   }

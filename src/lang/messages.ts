@@ -7,7 +7,6 @@ export interface ToolRequest {
   arguments: Record<string, any>;
 }
 
-// @TODO: not sure I need this, let's explore message types
 /**
  * Interface for tool execution results
  */
@@ -263,8 +262,11 @@ export class LangMessages extends Array<LangMessage> {
   }
 
   toString(): string {
-    // @TODO: should we output the messages?
-    return this.answer;
+    const out: string[] = [];
+    for (const msg of this) {
+      out.push(`${msg.role}: ${JSON.stringify(msg.content)}`);
+    }
+    return out.join("\n\n");
   }
 }
 
