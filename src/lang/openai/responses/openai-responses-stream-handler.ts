@@ -48,6 +48,9 @@ export class OpenAIResponseStreamHandler {
         break;
       case 'response.content_part.done':
         break;
+      case 'image_generation.completed':
+        this.addImage(data);
+        break;
 
       // Deltas that we care about (feel free to add more if you want to show them in-progress somewhere)
       case 'response.output_text.delta':
@@ -145,6 +148,29 @@ export class OpenAIResponseStreamHandler {
       default:
         break;
     }
+  }
+
+
+  addImage(data: OpenAIResponseItem) {
+    const b64image = data.b64_json;
+    // Extract additional image generation metadata: size, output_format, background
+    const size = data.size;
+    const format = data.output_format || data.format;
+    const background = data.background;
+
+    /*
+    // You might want to store or attach this metadata to the most recent assistant message with the image
+    // For now, let's just attach this info to the latest message meta if possible
+    if (this.messages.length > 0) {
+      const lastMsg = this.messages[this.messages.length - 1];
+      if (!lastMsg.meta) lastMsg.meta = {};
+      lastMsg.meta.image = {
+        size,
+        format,
+        background
+      };
+    }
+    */
   }
 
   getItem(id: string): OpenAIResponseItem | undefined {
