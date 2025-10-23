@@ -48,6 +48,12 @@ export class OpenAIResponseStreamHandler {
         break;
       case 'response.content_part.done':
         break;
+      case 'response.image_generation_call.in_progress':
+      case 'response.image_generation_call.generating':
+      case 'response.image_generation_call.partial_image':
+        this.handlePartialImage(data);
+        break;
+      case 'response.image_generation_call.completed':
       case 'image_generation.completed':
         this.addImage(data);
         break;
@@ -151,26 +157,50 @@ export class OpenAIResponseStreamHandler {
   }
 
 
+  handlePartialImage(data: any) {
+    // For streaming image generation, we might want to show progress
+    // or buffer partial images until complete
+    const partialBase64 = data.partial_image_b64;
+    if (partialBase64) {
+      // Add partial image to assistant message
+      this.messages.addAssistantImage({ 
+        kind: 'base64', 
+        base64: partialBase64, 
+        mimeType: 'image/png' 
+      });
+      
+      const last = this.messages[this.messages.length - 1];
+      this.onResult?.(last);
+    }
+  }
+
   addImage(data: OpenAIResponseItem) {
     const b64image = data.b64_json;
     // Extract additional image generation metadata: size, output_format, background
     const size = data.size;
     const format = data.output_format || data.format;
     const background = data.background;
-
-    /*
-    // You might want to store or attach this metadata to the most recent assistant message with the image
-    // For now, let's just attach this info to the latest message meta if possible
-    if (this.messages.length > 0) {
-      const lastMsg = this.messages[this.messages.length - 1];
-      if (!lastMsg.meta) lastMsg.meta = {};
-      lastMsg.meta.image = {
+    
+    if (b64image) {
+      // Add the completed image to the assistant message
+      this.messages.addAssistantImage({ 
+        kind: 'base64', 
+        base64: b64image, 
+        mimeType: format === 'png' ? 'image/png' : 'image/jpeg' 
+      });
+      
+      // Store metadata in the message
+      const last = this.messages[this.messages.length - 1];
+      if (!last.meta) last.meta = {};
+      last.meta.imageGeneration = {
         size,
         format,
-        background
+        background,
+        provider: 'openai'
       };
+      
+      this.onResult?.(last);
     }
-    */
   }
 
   getItem(id: string): OpenAIResponseItem | undefined {

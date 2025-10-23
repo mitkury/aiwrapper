@@ -28,6 +28,15 @@ export type LangImageInput =
   | { kind: "bytes"; bytes: ArrayBuffer | Uint8Array; mimeType?: string }
   | { kind: "blob"; blob: Blob; mimeType?: string };
 
+export type LangImageOutput = {
+  url?: string;
+  base64?: string;
+  mimeType?: string;
+  width?: number;
+  height?: number;
+  metadata?: Record<string, any>;
+};
+
 export type LangContentPart =
   | { type: "text"; text: string }
   | { type: "image"; image: LangImageInput; alt?: string }
@@ -98,6 +107,26 @@ export class LangMessages extends Array<LangMessage> {
       }
     }
     return "";
+  }
+
+  get images(): LangImageOutput[] {
+    const images: LangImageOutput[] = [];
+    for (const msg of this) {
+      if (msg.role === "assistant" && Array.isArray(msg.content)) {
+        for (const part of msg.content) {
+          if ((part as any).type === "image") {
+            const imagePart = part as { type: "image"; image: LangImageInput; alt?: string };
+            images.push({
+              url: imagePart.image.kind === "url" ? imagePart.image.url : undefined,
+              base64: imagePart.image.kind === "base64" ? imagePart.image.base64 : undefined,
+              mimeType: (imagePart.image as any).mimeType,
+              metadata: msg.meta?.imageGeneration
+            });
+          }
+        }
+      }
+    }
+    return images;
   }
 
   /**
