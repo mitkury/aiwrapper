@@ -85,7 +85,7 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
   if (includeOpenAI && process.env.OPENAI_API_KEY && shouldIncludeProvider('openai')) {
     langs.push(Lang.openai({
       apiKey: process.env.OPENAI_API_KEY as string,
-      model: modelOverrides.openaiResponses || 'gpt-5-nano'
+      model: modelOverrides.openai || 'gpt-5-nano'
     }));
   }
 
