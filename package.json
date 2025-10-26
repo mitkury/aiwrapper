@@ -2,7 +2,7 @@
   "type": "module",
   "name": "aiwrapper",
   "description": "A Universal AI Wrapper for JavaScript & TypeScript",
-  "version": "2.0.0-alpha.7",
+  "version": "2.0.0-alpha.8",
   "author": "Dmitry Kury (https://dkury.com)",
   "license": "MIT",
   "repository": {
