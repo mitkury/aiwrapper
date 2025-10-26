@@ -9,14 +9,15 @@ import { GoogleLang, GoogleLangOptions } from "./google/google-lang.ts";
 import { CohereLang, CohereLangOptions } from "./cohere/cohere-lang.ts";
 import { OpenRouterLang, OpenRouterLangOptions } from "./openrouter/openrouter-lang.ts";
 import { MistralLang, MistralLangOptions } from "./mistral/mistral-lang.ts";
-import { OpenAILikeLang } from "./openai-like/openai-like-lang.ts";
+import { OpenAIChatCompletionsLang } from "./openai/openai-chat-completions-lang.ts";
+import { MockOpenAILikeLang, MockOpenAILikeOptions } from "./mock/mock-openai-like-lang.ts";
 
 /**
  * Lang is a factory class for using language models from different providers. 
  */
 export abstract class Lang {
   /** Get all language models */
-  static get models() {
+  static get models(): ModelCollection {
     return models.can("chat");
   }
 
@@ -83,12 +84,17 @@ export abstract class Lang {
     maxTokens?: number;
     headers?: Record<string, string>;
     bodyProperties?: Record<string, unknown>;
-  }): OpenAILikeLang {
-    return OpenAILikeLang.custom(options);
+  }): OpenAIChatCompletionsLang {
+    return OpenAIChatCompletionsLang.custom(options);
+  }
+
+  /** Create a Mock OpenAI-like provider (no network) */
+  static mockOpenAI(options: MockOpenAILikeOptions = {}): MockOpenAILikeLang {
+    return new MockOpenAILikeLang(options);
   }
 
   // Dynamic provider access
-  static [Symbol.iterator]() {
+  static [Symbol.iterator](): Iterator<any> {
     const providers = models.providers.reduce((acc: Record<string, Function>, provider: any) => {
       // Handle provider as object with id property (new aimodels behavior)
       const providerId = typeof provider === 'object' && provider !== null ? provider.id : provider;

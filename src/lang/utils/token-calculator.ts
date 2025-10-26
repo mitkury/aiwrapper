@@ -1,4 +1,5 @@
 import { Model } from "aimodels";
+import { LangMessage } from "../messages";
 
 // Rough estimate: 1 token ≈ 4 chars for English text
 function estimateTokens(text: string): number {
@@ -10,13 +11,13 @@ function estimateTokens(text: string): number {
  */
 export function calculateModelResponseTokens(
   model: Model,
-  messages: Array<{ role: string; content: string }>,
+  messages: Array<{ role: string; content: string } | LangMessage>,
   maxTokens?: number
 ): number {
   // Get model context
   if (model.context.type !== "token") {
     // Non-token contexts aren't handled, return user maxTokens or a reasonable default
-    return maxTokens || 2000;
+    return maxTokens || 4000;
   }
 
   const context = model.context;
@@ -34,6 +35,7 @@ export function calculateModelResponseTokens(
   if (context.total && context.maxOutput) {
     // Estimate tokens used by messages
     const inputTokens = messages.reduce((sum, message) => {
+      if (!message.content || typeof message.content !== "string") return sum;
       return sum + estimateTokens(message.content) + 4; // +4 tokens for message overhead
     }, 0);
     
@@ -50,5 +52,5 @@ export function calculateModelResponseTokens(
   }
   
   // If we don't have enough information, return user maxTokens or a reasonable default
-  return maxTokens || context.maxOutput || 2000;
+  return maxTokens || context.maxOutput || 4000;
 } 

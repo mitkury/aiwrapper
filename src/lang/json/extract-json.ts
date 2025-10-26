@@ -8,7 +8,7 @@ import { Jsonic } from "jsonic";
 function tryToGetJSONFromText(str: string): string | null {
   let startIndex = -1;
   let endIndex = -1;
-  let expectedClosingBracket;
+  let expectedClosingBracket: string | undefined;
   for (let i = 0; i < str.length; i++) {
     if (str[i] === '{') {
       expectedClosingBracket = '}';

@@ -1,10 +1,11 @@
-import { OpenAILikeLang } from "../openai-like/openai-like-lang.ts";
+import { OpenAIChatCompletionsLang } from "../openai/openai-chat-completions-lang.ts";
 import { models } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
 import { 
-  LangChatMessages, 
-  LangResultWithMessages 
+  LangOptions, 
+  LangMessage
 } from "../language-provider.ts";
+import { LangMessages, LangToolWithHandler } from "../messages.ts";
 
 export type GroqLangOptions = {
   apiKey: string;
@@ -14,7 +15,7 @@ export type GroqLangOptions = {
   bodyProperties?: Record<string, any>;
 };
 
-export class GroqLang extends OpenAILikeLang {
+export class GroqLang extends OpenAIChatCompletionsLang {
   constructor(options: GroqLangOptions) {
     const modelName = options.model || "llama3-70b-8192";
     super({
@@ -28,14 +29,13 @@ export class GroqLang extends OpenAILikeLang {
   }
 
   override async chat(
-    messages: LangChatMessages,
-    onResult?: (result: LangResultWithMessages) => void,
-  ): Promise<LangResultWithMessages> {
-    // Initialize the result
-    const result = new LangResultWithMessages(messages);
-    const transformedMessages = this.transformMessages(messages);
-    
-    // Get the model info and check if it can reason
+    messages: LangMessage[] | LangMessages,
+    options?: LangOptions,
+  ): Promise<LangMessages> {
+    const messageCollection = messages instanceof LangMessages
+      ? messages
+      : new LangMessages(messages);
+
     const modelInfo = models.id(this._config.model);
     const isReasoningModel = modelInfo?.canReason() || false;
     
@@ -43,22 +43,26 @@ export class GroqLang extends OpenAILikeLang {
       ...this._config.bodyProperties
     };
     
-    // Only add reasoning_format for reasoning models
     if (isReasoningModel && !bodyProperties.reasoning_format) {
       bodyProperties.reasoning_format = "parsed";
     }
     
-    // For non-streaming calls
+    const onResult = options?.onResult;
+    
     if (!onResult) {
-      // Make a direct API call
-      const body = {
+      const effectiveTools: LangToolWithHandler[] | undefined = messageCollection.availableTools
+        ? (messageCollection.availableTools as LangToolWithHandler[])
+        : undefined;
+
+      const body: any = {
         ...this.transformBody({
           model: this._config.model,
-          messages: transformedMessages,
+          messages: messageCollection,
           stream: false,
           max_tokens: this._config.maxTokens || 4000,
         }),
-        ...bodyProperties
+        ...bodyProperties,
+        ...(effectiveTools ? { tools: this.formatTools(effectiveTools), tool_choice: 'required' } : {}),
       };
       
       const response = await fetch(`${this._config.baseURL}/chat/completions`, {
@@ -71,104 +75,99 @@ export class GroqLang extends OpenAILikeLang {
         body: JSON.stringify(body),
       });
       
-      const data = await response.json();
+      const data: any = await response.json();
       
       if (data.choices && data.choices.length > 0) {
         const message = data.choices[0].message;
-        
-        // Handle parsed format reasoning and content
-        if (message.reasoning) {
-          result.thinking = message.reasoning;
-          result.answer = message.content || "";
-        } else {
-          // Handle raw format if that was requested
-          result.answer = message.content || "";
-          
-          // Extract thinking from raw format
-          // Do this even if model isn't identified as a reasoning model 
-          // to handle cases where our model data is outdated
-          const thinkingContent = this.extractThinking(result.answer);
-          if (thinkingContent.thinking) {
-            result.thinking = thinkingContent.thinking;
-            result.answer = thinkingContent.answer;
+        const toolCalls = message?.tool_calls;
+        if (Array.isArray(toolCalls) && toolCalls.length > 0) {
+          for (const tc of toolCalls) {
+            const id: string = tc?.id || '';
+            const name: string = tc?.function?.name || '';
+            const rawArgs: string = tc?.function?.arguments || '';
+            let parsedArgs: Record<string, unknown> = {};
+            if (typeof rawArgs === 'string' && rawArgs.trim().length > 0) {
+              try {
+                parsedArgs = JSON.parse(rawArgs);
+              } catch {}
+            }
+            messageCollection.addAssistantToolCalls([{ callId: id, name, arguments: parsedArgs }]);
           }
         }
-        
-        // Add to messages
-        result.messages = [...messages, {
-          role: "assistant",
-          content: result.answer,
-        }];
+
+        let finalText = message?.content || "";
+        if (message.reasoning) {
+          messageCollection.appendToAssistantThinking(message.reasoning);
+        } else {
+          const thinkingContent = this.extractThinking(finalText);
+          if (thinkingContent.thinking) {
+            messageCollection.appendToAssistantThinking(thinkingContent.thinking);
+            finalText = thinkingContent.answer;
+          }
+        }
+        if (finalText) {
+          messageCollection.addAssistantMessage(finalText);
+        }
       }
       
-      return result;
+      return messageCollection;
     }
     
-    // For streaming
     let thinkingContent = "";
     let visibleContent = "";
-    // Variables to track streaming state for thinking extraction
     let openThinkTagIndex = -1;
     let pendingThinkingContent = "";
     
     const onData = (data: any) => {
       if (data.finished) {
-        // When streaming is complete, do one final extraction
-        // regardless of model reasoning capability in our database
         const extracted = this.extractThinking(visibleContent);
         if (extracted.thinking) {
-          result.thinking = extracted.thinking;
-          result.answer = extracted.answer;
+          messageCollection.appendToAssistantThinking(extracted.thinking);
+          const msg = messageCollection.ensureAssistantTextMessage();
+          msg.content = extracted.answer;
         }
         
-        result.finished = true;
-        onResult?.(result);
+        messageCollection.finished = true;
+        options?.onResult?.(messageCollection as any);
         return;
       }
       
       if (data.choices !== undefined) {
         const delta = data.choices[0].delta || {};
         
-        // For parsed reasoning format
         if (delta.reasoning) {
           thinkingContent += delta.reasoning;
-          result.thinking = thinkingContent;
+          messageCollection.appendToAssistantThinking(delta.reasoning);
         }
         
-        // Handle content
         if (delta.content) {
           const currentChunk = delta.content;
           visibleContent += currentChunk;
-          
-          // Process the chunk for potential thinking content
-          this.processChunkForThinking(visibleContent, result);
-          
-          // Update tracking variables based on current state
+          this.processChunkForThinking(visibleContent, messageCollection as any);
           openThinkTagIndex = visibleContent.lastIndexOf("<think>");
           if (openThinkTagIndex !== -1) {
             const closeTagIndex = visibleContent.indexOf("</think>", openThinkTagIndex);
             if (closeTagIndex === -1) {
-              // We have an open tag but no close tag yet
-              pendingThinkingContent = visibleContent.substring(openThinkTagIndex + 7); // +7 to skip "<think>"
+              pendingThinkingContent = visibleContent.substring(openThinkTagIndex + 7);
             }
           }
         }
         
-        // Update messages
-        result.messages = [...messages, {
-          role: "assistant",
-          content: result.answer,
-        }];
+        const textToShow = visibleContent;
+        if (messageCollection.length > 0 && messageCollection[messageCollection.length - 1].role === "assistant") {
+          messageCollection[messageCollection.length - 1].content = textToShow;
+        } else {
+          messageCollection.addAssistantMessage(textToShow);
+        }
         
-        onResult?.(result);
+        options?.onResult?.(messageCollection as any);
       }
     };
     
-    // Call the API with streaming
     const streamingBody = {
       ...this.transformBody({
         model: this._config.model,
-        messages: transformedMessages,
+        messages: messages as any,
         stream: true,
         max_tokens: this._config.maxTokens || 4000,
       }),
@@ -177,10 +176,9 @@ export class GroqLang extends OpenAILikeLang {
     
     await this.callAPI("/chat/completions", streamingBody, onData);
     
-    return result;
+    return messageCollection;
   }
   
-  // Simple helper to extract thinking content from raw format
   private extractThinking(content: string): { thinking: string, answer: string } {
     const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
     const matches = content.match(thinkRegex);
@@ -189,51 +187,42 @@ export class GroqLang extends OpenAILikeLang {
       return { thinking: "", answer: content };
     }
     
-    // Extract thinking content
     const thinking = matches
       .map((match: string) => match.replace(/<think>|<\/think>/g, "").trim())
       .join("\n");
     
-    // Remove thinking tags for clean answer
     const answer = content.replace(thinkRegex, "").trim();
     
     return { thinking, answer };
   }
   
-  // Process a chunk for thinking content during streaming
   private processChunkForThinking(
     fullContent: string, 
-    result: LangResultWithMessages
+    result: LangMessages
   ): void {
-    // Check if we have a complete thinking section
     const extracted = this.extractThinking(fullContent);
     
     if (extracted.thinking) {
-      // We have one or more complete thinking sections
-      result.thinking = extracted.thinking;
-      result.answer = extracted.answer;
+      result.appendToAssistantThinking(extracted.thinking);
+      const msg = result.ensureAssistantTextMessage();
+      msg.content = extracted.answer;
       return;
     }
     
-    // Check for partial thinking tags
     if (fullContent.includes("<think>")) {
-      // We have at least an opening tag
       const lastOpenTagIndex = fullContent.lastIndexOf("<think>");
       const firstCloseTagIndex = fullContent.indexOf("</think>");
       
       if (firstCloseTagIndex === -1 || lastOpenTagIndex > firstCloseTagIndex) {
-        // We have an open tag without a closing tag
-        // Everything from the open tag to the end should be considered thinking
         const beforeThinkingContent = fullContent.substring(0, lastOpenTagIndex).trim();
         const potentialThinkingContent = fullContent.substring(lastOpenTagIndex + 7).trim();
         
-        result.thinking = potentialThinkingContent;
-        result.answer = beforeThinkingContent;
+        result.appendToAssistantThinking(potentialThinkingContent);
+        const msg = result.ensureAssistantTextMessage();
+        msg.content = beforeThinkingContent;
         return;
       }
       
-      // If we have both tags but the regex didn't match (shouldn't happen but just in case)
-      // Extract the content manually
       const startIndex = fullContent.indexOf("<think>") + 7;
       const endIndex = fullContent.indexOf("</think>");
       if (startIndex < endIndex) {
@@ -241,16 +230,16 @@ export class GroqLang extends OpenAILikeLang {
         const beforeThinking = fullContent.substring(0, fullContent.indexOf("<think>")).trim();
         const afterThinking = fullContent.substring(fullContent.indexOf("</think>") + 8).trim();
         
-        result.thinking = thinkingContent;
-        result.answer = (beforeThinking + " " + afterThinking).trim();
+        result.appendToAssistantThinking(thinkingContent);
+        const msg = result.ensureAssistantTextMessage();
+        msg.content = (beforeThinking + " " + afterThinking).trim();
       }
     } else {
-      // No thinking tags yet, just update the answer
-      result.answer = fullContent;
+      const msg = result.ensureAssistantTextMessage();
+      msg.content = fullContent;
     }
   }
-  
-  // Helper method to call the API
+
   private async callAPI(endpoint: string, body: any, onData: (data: any) => void) {
     const response = await fetch(`${this._config.baseURL}${endpoint}`, {
       method: "POST",
@@ -269,7 +258,6 @@ export class GroqLang extends OpenAILikeLang {
     return response;
   }
   
-  // Process the response stream
   private async processResponse(response: Response, onData: (data: any) => void) {
     const reader = response.body?.getReader();
     if (!reader) return;
@@ -284,7 +272,6 @@ export class GroqLang extends OpenAILikeLang {
         
         buffer += decoder.decode(value, { stream: true });
         
-        // Process complete lines
         let lineEnd = buffer.indexOf('\n');
         while (lineEnd !== -1) {
           const line = buffer.substring(0, lineEnd).trim();
@@ -308,7 +295,6 @@ export class GroqLang extends OpenAILikeLang {
         }
       }
       
-      // Process any remaining buffer content
       if (buffer.trim() && buffer.startsWith('data: ')) {
         const dataValue = buffer.substring(6).trim();
         if (dataValue === '[DONE]') {

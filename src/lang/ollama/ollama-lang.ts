@@ -1,6 +1,7 @@
-import { LangChatMessages, LangResultWithMessages, LangResultWithString, LanguageProvider } from "../language-provider.ts";
+import { LangOptions, LangResult, LanguageProvider, LangContentPart, LangMessage } from "../language-provider.ts";
+import { LangMessages } from "../messages.ts";
 import { httpRequestWithRetry as fetch } from "../../http-request.ts";
-import { processResponseStream } from "../../process-response-stream.ts";
+import { processServerEvents } from "../../process-server-events.ts";
 import { models, Model } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
 
@@ -57,9 +58,13 @@ export class OllamaLang extends LanguageProvider {
 
   async ask(
     prompt: string,
-    onResult?: (result: LangResultWithString) => void,
-  ): Promise<LangResultWithString> {
-    const result = new LangResultWithString(prompt);
+    options?: LangOptions,
+  ): Promise<LangResult> {
+    // Create a proper message collection
+    const messages = new LangMessages();
+    messages.addUserMessage(prompt);
+    
+    const result = new LangResult(messages);
 
     // Try to get model info and calculate max tokens
     let requestMaxTokens = this._config.maxTokens;
@@ -77,17 +82,20 @@ export class OllamaLang extends LanguageProvider {
     let openThinkTagIndex = -1;
     let pendingThinkingContent = "";
     
+    const onResult = options?.onResult;
     const onData = (data: any) => {
       if (data.done) {
         // Final check for thinking content when streaming is complete
         const extracted = this.extractThinking(visibleContent);
         if (extracted.thinking) {
-          result.thinking = extracted.thinking;
-          result.answer = extracted.answer;
+          result.appendToAssistantThinking(extracted.thinking);
+          const msg = result.ensureAssistantTextMessage();
+          msg.content = extracted.answer;
         }
         
         result.finished = true;
-        onResult?.(result);
+        const last = result.length > 0 ? result[result.length - 1] : undefined;
+        if (last) options?.onResult?.(last as any);
         return;
       }
 
@@ -109,7 +117,8 @@ export class OllamaLang extends LanguageProvider {
         }
       }
 
-      onResult?.(result);
+      const last = result.length > 0 ? result[result.length - 1] : undefined;
+      if (last) options?.onResult?.(last as any);
     };
 
     const response = await fetch(`${this._config.baseURL}/api/generate`, {
@@ -128,24 +137,23 @@ export class OllamaLang extends LanguageProvider {
         throw new Error(err);
       });
 
-    await processResponseStream(response, onData);
+    await processServerEvents(response, onData);
     
     // For non-streaming case, perform final extraction
     if (!onResult) {
       const extracted = this.extractThinking(result.answer);
       if (extracted.thinking) {
-        result.thinking = extracted.thinking;
-        result.answer = extracted.answer;
+        result.appendToAssistantThinking(extracted.thinking);
+        const msg = result.ensureAssistantTextMessage();
+        msg.content = extracted.answer;
       }
     }
 
     return result;
   }
 
-  async chat(messages: LangChatMessages, onResult?: (result: LangResultWithMessages) => void): Promise<LangResultWithMessages> {
-    const result = new LangResultWithMessages(
-      messages,
-    );
+  async chat(messages: LangMessage[] | LangMessages, options?: LangOptions): Promise<LangResult> {
+    const result = new LangResult(messages);
 
     // Try to get model info and calculate max tokens
     let requestMaxTokens = this._config.maxTokens;
@@ -163,17 +171,20 @@ export class OllamaLang extends LanguageProvider {
     let openThinkTagIndex = -1;
     let pendingThinkingContent = "";
     
+    const onResult = options?.onResult;
     const onData = (data: any) => {
       if (data.done) {
         // Final check for thinking content when streaming is complete
         const extracted = this.extractThinking(visibleContent);
         if (extracted.thinking) {
-          result.thinking = extracted.thinking;
-          result.answer = extracted.answer;
+          result.appendToAssistantThinking(extracted.thinking);
+          const msg = result.ensureAssistantTextMessage();
+          msg.content = extracted.answer;
         }
         
         result.finished = true;
-        onResult?.(result);
+        const last = result.length > 0 ? result[result.length - 1] : undefined;
+        if (last) options?.onResult?.(last as any);
         return;
       }
 
@@ -195,14 +206,40 @@ export class OllamaLang extends LanguageProvider {
         }
       }
 
-      onResult?.(result);
+      const last = result.length > 0 ? result[result.length - 1] : undefined;
+      if (last) options?.onResult?.(last as any);
     };
+
+    // Extract base64 images for models that support vision via images array.
+    const images: string[] = [];
+    const mappedMessages = messages.map((m: any) => {
+      if (Array.isArray(m.content)) {
+        for (const part of m.content as LangContentPart[]) {
+          if (part.type === 'image') {
+            const img: any = part.image;
+            if (img.kind === 'base64') images.push(img.base64);
+            if (img.kind === 'url' && typeof img.url === 'string' && img.url.startsWith('data:')) {
+              const match = img.url.match(/^data:([^;]+);base64,(.*)$/);
+              if (match) images.push(match[2]);
+            }
+          }
+        }
+        // Replace structured parts with concatenated text for message content
+        const text = (m.content as LangContentPart[])
+          .filter(p => p.type === 'text')
+          .map(p => (p as any).text)
+          .join('\n');
+        return { role: m.role, content: text };
+      }
+      return m;
+    });
 
     const response = await fetch(`${this._config.baseURL}/api/chat`, {
       method: "POST",
       body: JSON.stringify({
         model: this._config.model,
-        messages,
+        messages: mappedMessages,
+        ...(images.length > 0 ? { images } : {}),
         stream: true,
         ...(requestMaxTokens && { num_predict: requestMaxTokens }),
       })
@@ -211,14 +248,15 @@ export class OllamaLang extends LanguageProvider {
         throw new Error(err);
       });
 
-    await processResponseStream(response, onData);
+    await processServerEvents(response, onData);
     
     // For non-streaming case, perform final extraction
     if (!onResult) {
       const extracted = this.extractThinking(result.answer);
       if (extracted.thinking) {
-        result.thinking = extracted.thinking;
-        result.answer = extracted.answer;
+        result.appendToAssistantThinking(extracted.thinking);
+        const msg = result.ensureAssistantTextMessage();
+        msg.content = extracted.answer;
       }
     }
 
@@ -249,7 +287,7 @@ export class OllamaLang extends LanguageProvider {
   private processChunkForThinking(
     currentChunk: string, 
     fullContent: string, 
-    result: LangResultWithString | LangResultWithMessages,
+    result: LangMessages,
     openTagIndex: number,
     pendingThinking: string
   ): void {
@@ -258,8 +296,9 @@ export class OllamaLang extends LanguageProvider {
     
     if (extracted.thinking) {
       // We have one or more complete thinking sections
-      result.thinking = extracted.thinking;
-      result.answer = extracted.answer;
+      result.appendToAssistantThinking(extracted.thinking);
+      const msg = result.ensureAssistantTextMessage();
+      msg.content = extracted.answer;
       return;
     }
     
@@ -275,8 +314,9 @@ export class OllamaLang extends LanguageProvider {
         const beforeThinkingContent = fullContent.substring(0, lastOpenTagIndex).trim();
         const potentialThinkingContent = fullContent.substring(lastOpenTagIndex + 7).trim();
         
-        result.thinking = potentialThinkingContent;
-        result.answer = beforeThinkingContent;
+        result.appendToAssistantThinking(potentialThinkingContent);
+        const msg = result.ensureAssistantTextMessage();
+        msg.content = beforeThinkingContent;
         return;
       }
       
@@ -289,12 +329,14 @@ export class OllamaLang extends LanguageProvider {
         const beforeThinking = fullContent.substring(0, fullContent.indexOf("<think>")).trim();
         const afterThinking = fullContent.substring(fullContent.indexOf("</think>") + 8).trim();
         
-        result.thinking = thinkingContent;
-        result.answer = (beforeThinking + " " + afterThinking).trim();
+        result.appendToAssistantThinking(thinkingContent);
+        const msg = result.ensureAssistantTextMessage();
+        msg.content = (beforeThinking + " " + afterThinking).trim();
       }
     } else {
       // No thinking tags yet, just update the answer
-      result.answer = fullContent;
+      const msg = result.ensureAssistantTextMessage();
+      msg.content = fullContent;
     }
   }
 }

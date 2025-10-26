@@ -1,4 +1,4 @@
-import { OpenAILikeLang } from "../openai-like/openai-like-lang.ts";
+import { OpenAIChatCompletionsLang } from "../openai/openai-chat-completions-lang.ts";
 
 export type OpenRouterLangOptions = {
   apiKey: string;
@@ -12,7 +12,7 @@ export type OpenRouterLangOptions = {
   bodyProperties?: Record<string, unknown>; // Additional request body properties
 };
 
-export class OpenRouterLang extends OpenAILikeLang {
+export class OpenRouterLang extends OpenAIChatCompletionsLang {
   constructor(options: OpenRouterLangOptions) {
     const modelName = options.model || "openai/gpt-4o-mini"; // Updated to a more recent default
     
@@ -41,4 +41,6 @@ export class OpenRouterLang extends OpenAILikeLang {
       bodyProperties: options.bodyProperties,
     });
   }
-} 
+
+}
+ 

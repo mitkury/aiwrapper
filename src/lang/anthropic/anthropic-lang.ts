@@ -1,16 +1,30 @@
 import {
-  DecisionOnNotOkResponse,
   httpRequestWithRetry as fetch,
 } from "../../http-request.ts";
-import { processResponseStream } from "../../process-response-stream.ts";
+import { processServerEvents } from "../../process-server-events.ts";
 import {
-  LangChatMessages,
-  LangResultWithMessages,
-  LangResultWithString,
+  LangMessage,
+  LangOptions,
   LanguageProvider,
 } from "../language-provider.ts";
 import { models } from 'aimodels';
+import { LangContentPart, LangImageInput } from "../language-provider.ts";
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
+import { LangMessages, LangToolWithHandler } from "../messages.ts";
+
+type AnthropicTool = {
+  name: string;
+  description: string;
+  input_schema: Record<string, any>;
+};
+
+type StreamState = {
+  isReceivingThinking: boolean;
+  thinkingContent: string;
+  toolCalls: Array<{ id: string; name: string; arguments: any }>;
+  pendingToolInputs: Map<string, { name: string; buffer: string }>;
+  indexToToolId: Map<number, string>;
+};
 
 export type AnthropicLangOptions = {
   apiKey: string;
@@ -35,7 +49,6 @@ export class AnthropicLang extends LanguageProvider {
     const modelName = options.model || "claude-3-sonnet-20240229";
     super(modelName);
 
-    // Get model info from aimodels
     const modelInfo = models.id(modelName);
     if (!modelInfo) {
       console.error(`Invalid Anthropic model: ${modelName}. Model not found in aimodels database.`);
@@ -52,173 +65,41 @@ export class AnthropicLang extends LanguageProvider {
 
   async ask(
     prompt: string,
-    onResult?: (result: LangResultWithString) => void,
-  ): Promise<LangResultWithString> {
-    const messages: LangChatMessages = [];
-
+    options?: LangOptions,
+  ): Promise<LangMessages> {
+    const messages = new LangMessages();
     if (this._config.systemPrompt) {
       messages.push({
-        role: "system",
+        role: "user" as "user",
         content: this._config.systemPrompt,
       });
     }
-
-    messages.push({
-      role: "user",
-      content: prompt,
-    });
-
-    return await this.chat(messages, onResult);
+    messages.push({ role: "user", content: prompt });
+    return await this.chat(messages, options);
   }
 
   async chat(
-    messages: LangChatMessages,
-    onResult?: (result: LangResultWithMessages) => void,
-  ): Promise<LangResultWithMessages> {
-    
-    // Remove all system messages, save the first one if it exists.
-    let detectedSystemMessage = "";
-    messages = messages.filter((message) => {
-      if (message.role === "system") {
-        if (!detectedSystemMessage) {
-          // Saving the first system message.
-          detectedSystemMessage = message.content;
-        }
-        return false;
-      }
-      return true;
-    });
+    messages: LangMessage[] | LangMessages,
+    options?: LangOptions,
+  ): Promise<LangMessages> {
+    const messageCollection = messages instanceof LangMessages
+      ? messages
+      : new LangMessages(messages);
 
-    const result = new LangResultWithMessages(messages);
+    const { system, providerMessages, requestMaxTokens, tools } =
+      this.prepareRequest(messageCollection);
 
-    // Get model info and calculate max tokens
-    const modelInfo = models.id(this._config.model);
-    if (!modelInfo) {
-      throw new Error(`Model info not found for ${this._config.model}`);
-    }
+    const result = messageCollection;
 
-    const requestMaxTokens = calculateModelResponseTokens(
-      modelInfo,
-      messages,
-      this._config.maxTokens
-    );
-
-    // Track if we're receiving thinking content
-    let isReceivingThinking = false;
-    let thinkingContent = "";
-
-    const onData = (data: any) => {
-      if (data.type === "message_stop") {
-        // Store the thinking content in the result object before finishing
-        result.thinking = thinkingContent;
-        result.finished = true;
-        onResult?.(result);
-        return;
-      }
-
-      // Handle thinking content
-      if (data.type === "content_block_start" && data.content_block?.type === "thinking") {
-        isReceivingThinking = true;
-        return;
-      }
-
-      if (data.type === "content_block_stop" && isReceivingThinking) {
-        isReceivingThinking = false;
-        // Update the thinking content in the result object
-        result.thinking = thinkingContent;
-        onResult?.(result);
-        return;
-      }
-
-      if (
-        data.type === "message_delta" && data.delta.stop_reason === "end_turn"
-      ) {
-        const choices = data.delta.choices;
-        if (choices && choices.length > 0) {
-          const deltaContent = choices[0].delta.content
-            ? choices[0].delta.content
-            : "";
-          result.answer += deltaContent;
-          result.messages = [
-            ...messages,
-            {
-              role: "assistant",
-              content: result.answer,
-            },
-          ];
-          onResult?.(result);
-        }
-      }
-
-      if (data.type === "content_block_delta") {
-        // Handle thinking content delta
-        if (data.delta.type === "thinking_delta" && data.delta.thinking) {
-          thinkingContent += data.delta.thinking;
-          // Update the thinking content in the result object
-          result.thinking = thinkingContent;
-          onResult?.(result);
-          return;
-        }
-        
-        // Handle regular text delta
-        const deltaContent = data.delta.text ? data.delta.text : "";
-        
-        // If we're receiving thinking content, store it separately
-        if (isReceivingThinking) {
-          thinkingContent += deltaContent;
-          // Update the thinking content in the result object
-          result.thinking = thinkingContent;
-          onResult?.(result);
-          return;
-        }
-        
-        result.answer += deltaContent;
-        onResult?.(result);
-      }
-    };
-
-    // Check if the model supports extended thinking by looking for the "reason" capability
-    const supportsExtendedThinking = modelInfo.can && modelInfo.can("reason");
-    
-    // Prepare request body
     const requestBody: any = {
       model: this._config.model,
-      messages: messages,
+      messages: providerMessages,
       max_tokens: requestMaxTokens,
-      system: this._config.systemPrompt ? this._config.systemPrompt : detectedSystemMessage,
+      system,
+      // Always stream internally to unify the code path
       stream: true,
+      ...(tools ? { tools } : {}),
     };
-
-    // Add extended thinking if enabled and supported
-    if (this._config.extendedThinking && supportsExtendedThinking) {
-      // Calculate a reasonable thinking budget
-      // According to Anthropic's docs, max_tokens must be greater than thinking.budget_tokens
-      // So we'll set thinking budget to be 75% of max_tokens
-      let thinkingBudget = Math.floor(requestMaxTokens * 0.75);
-      
-      // Check if the model has extended reasoning info
-      // Using type assertion to avoid TypeScript errors since the aimodels types might not include the extended property
-      const contextObj = modelInfo.context as any;
-      if (contextObj && contextObj.extended && contextObj.extended.reasoning && contextObj.extended.reasoning.maxOutput) {
-        // Make sure thinking budget doesn't exceed the model's capabilities
-        thinkingBudget = Math.min(
-          thinkingBudget,
-          Math.floor(contextObj.extended.reasoning.maxOutput * 0.75)
-        );
-      }
-      
-      // Make sure thinking budget is at least 1000 tokens for meaningful reasoning
-      thinkingBudget = Math.max(thinkingBudget, 1000);
-      
-      // Ensure max_tokens is greater than thinking.budget_tokens
-      requestBody.max_tokens = Math.max(requestMaxTokens, thinkingBudget + 1000);
-      
-      // According to the Anthropic API, we need to use 'enabled' as the type
-      requestBody.thinking = {
-        type: "enabled",
-        budget_tokens: thinkingBudget
-      };
-    }
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -229,37 +110,276 @@ export class AnthropicLang extends LanguageProvider {
         "x-api-key": this._config.apiKey
       },
       body: JSON.stringify(requestBody),
-      onNotOkResponse: async (
-        res,
-        decision,
-      ): Promise<DecisionOnNotOkResponse> => {
+      onError: async (res: Response, error: Error): Promise<void> => {
         if (res.status === 401) {
-          // We don't retry if the API key is invalid.
-          decision.retry = false;
-          throw new Error(
-            "API key is invalid. Please check your API key and try again.",
-          );
+          throw new Error("API key is invalid. Please check your API key and try again.");
         }
-
         if (res.status === 400) {
           const data = await res.text();
-
-          // We don't retry if the model is invalid.
-          decision.retry = false;
-          throw new Error(
-            data,
-          );
+          throw new Error(data);
         }
-
-        return decision;
       },
-    })
-      .catch((err) => {
-        throw new Error(err);
-      });
+    } as any).catch((err) => { throw new Error(err); });
 
-    await processResponseStream(response, onData);
+    const streamState: StreamState = {
+      isReceivingThinking: false,
+      thinkingContent: "",
+      toolCalls: [],
+      pendingToolInputs: new Map(),
+      indexToToolId: new Map(),
+    };
+
+    await processServerEvents(response, (data: any) =>
+      this.handleStreamEvent(data, result, options?.onResult, streamState)
+    );
+
+    // Automatically execute tools if the assistant requested them
+    const toolResults = await result.executeRequestedTools();
+    if (options?.onResult && toolResults) options.onResult(toolResults);
 
     return result;
+  }
+
+  private prepareRequest(messageCollection: LangMessages) {
+    const processedMessages: any[] = [];
+    const systemContent: string[] = [];
+
+    if (messageCollection.instructions) {
+      systemContent.push(messageCollection.instructions);
+    }
+
+    for (const message of messageCollection) {
+      if (message.role === "system") {
+        systemContent.push(message.content as string);
+      } else {
+        processedMessages.push(message);
+      }
+    }
+
+    const system = systemContent.join('\n\n');
+    const providerMessages = this.transformMessagesForProvider(processedMessages);
+
+    const modelInfo = models.id(this._config.model);
+    if (!modelInfo) {
+      console.warn(`Model info not found for ${this._config.model}`);
+    }
+
+    const requestMaxTokens = modelInfo ? calculateModelResponseTokens(
+      modelInfo,
+      processedMessages,
+      this._config.maxTokens
+    ) : this._config.maxTokens || 16000;
+
+    let tools: AnthropicTool[] | undefined;
+    if (messageCollection.availableTools?.length) {
+      tools = messageCollection.availableTools.map((t) => ({
+        name: t.name,
+        description: t.description || "",
+        input_schema: t.parameters,
+      }));
+    }
+
+    return { system, providerMessages, requestMaxTokens, tools };
+  }
+
+  private handleStreamEvent(
+    data: any,
+    result: LangMessages,
+    onResult?: (result: LangMessage) => void,
+    streamState?: StreamState
+  ): void {
+    if (!streamState) return;
+
+
+    if (data.type === "message_stop") {
+      this.finalizeStreamingResponse(result, streamState);
+      const last = result.length > 0 ? result[result.length - 1] : undefined;
+      if (last) onResult?.(last);
+      return;
+    }
+
+    if (data.type === "content_block_start") {
+      if (data.content_block?.type === "tool_use") {
+        const id = data.content_block.id;
+        const name = data.content_block.name || '';
+        const index = data.index;
+        streamState.indexToToolId.set(index, id);
+        streamState.pendingToolInputs.set(id, { name, buffer: '' });
+        streamState.toolCalls.push({ id, name, arguments: {} });
+      } else if (data.content_block?.type === "thinking") {
+        streamState.isReceivingThinking = true;
+      }
+      return;
+    }
+
+    if (data.type === "content_block_delta") {
+      if (data.delta?.type === "thinking_delta" && data.delta.thinking) {
+        streamState.isReceivingThinking = true;
+        streamState.thinkingContent += data.delta.thinking;
+        const msg = result.appendToAssistantThinking(data.delta.thinking);
+        if (msg) onResult?.(msg);
+        return;
+      }
+
+      // Get tool ID from index (Anthropic uses index in content_block_delta)
+      const index = data.index;
+      const toolUseId = index !== undefined ? streamState.indexToToolId.get(index) : undefined;
+      if (toolUseId && streamState.pendingToolInputs.has(toolUseId)) {
+        this.handleToolDelta(data.delta, toolUseId, streamState);
+        return;
+      }
+
+      const deltaText = data.delta.text || "";
+      if (!toolUseId && deltaText) {
+        if (streamState.isReceivingThinking) {
+          streamState.thinkingContent += deltaText;
+          const msg = result.appendToAssistantThinking(deltaText);
+          if (msg) onResult?.(msg);
+        } else {
+          const msg = result.appendToAssistantText(deltaText);
+          onResult?.(msg);
+        }
+      }
+      return;
+    }
+
+    if (data.type === "content_block_stop") {
+      if (streamState.isReceivingThinking) {
+        streamState.isReceivingThinking = false;
+        const msg = result.appendToAssistantThinking('');
+        if (msg) onResult?.(msg);
+      }
+      return;
+    }
+  }
+
+  private handleToolDelta(delta: any, toolUseId: string, streamState: StreamState): void {
+    const acc = streamState.pendingToolInputs.get(toolUseId)!;
+    const argChunk = delta.partial_json || delta.input_json_delta || delta.text;
+
+    if (typeof argChunk === 'string') {
+      acc.buffer += argChunk;
+      try {
+        const parsed = JSON.parse(acc.buffer);
+        const entry = streamState.toolCalls.find((t) => t.id === toolUseId);
+        if (entry) entry.arguments = parsed;
+      } catch { }
+    }
+  }
+
+  private finalizeStreamingResponse(result: LangMessages, streamState: StreamState): void {
+    // Finalize tool arguments from buffered inputs
+    for (const [id, acc] of streamState.pendingToolInputs) {
+      const entry = streamState.toolCalls.find((t) => t.id === id);
+      if (entry) {
+        try {
+          entry.arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
+        } catch { }
+      }
+    }
+
+    // Add messages in the correct order
+    if (streamState.toolCalls.length > 0) {
+      // Only add assistant message if it's not already there (streaming already added it)
+      if (result.answer && (result.length === 0 || result[result.length - 1].role !== "assistant")) {
+        result.push({ role: "assistant", content: result.answer });
+      }
+      const formattedToolCalls = streamState.toolCalls.map(tc => ({
+        callId: tc.id,
+        id: tc.id,
+        name: tc.name,
+        arguments: tc.arguments
+      }));
+      result.addAssistantToolCalls(formattedToolCalls);
+    } else if (result.answer) {
+      if (result.length === 0 || result[result.length - 1].role !== "assistant") {
+        result.push({ role: "assistant", content: result.answer });
+      }
+    }
+
+    result.finished = true;
+  }
+
+  // Non-streaming response handling removed: Anthropic now always streams internally
+
+  protected transformMessagesForProvider(messages: LangMessage[]): any[] {
+    const out: any[] = [];
+    for (const m of messages) {
+      if (m.role === 'tool') {
+        // Tool calls from assistant
+        const contentAny = m.content as any;
+        if (Array.isArray(contentAny)) {
+          const blocks = contentAny.map(tc => ({
+            type: 'tool_use',
+            id: tc.callId || tc.id,
+            name: tc.name,
+            input: tc.arguments || {}
+          }));
+          out.push({ role: 'assistant', content: blocks });
+          continue;
+        }
+      }
+      if (m.role === 'tool-results') {
+        const contentAny = m.content as any;
+        if (Array.isArray(contentAny)) {
+          const blocks = contentAny.map(tr => ({
+            type: 'tool_result',
+            tool_use_id: tr.toolId,
+            content: typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result)
+          }));
+          out.push({ role: 'user', content: blocks });
+          continue;
+        }
+      }
+      const contentAny = m.content as any;
+      if (Array.isArray(contentAny)) {
+        const blocks = this.mapPartsToAnthropicBlocks(contentAny as LangContentPart[]);
+        out.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: blocks });
+        continue;
+      }
+      out.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content });
+    }
+    return out;
+  }
+
+  private mapPartsToAnthropicBlocks(parts: LangContentPart[]): any[] {
+    return parts.map(p => {
+      if (p.type === 'text') {
+        return { type: 'text', text: p.text };
+      }
+      if (p.type === 'image') {
+        const src = this.imageInputToAnthropicSource(p.image);
+        return { type: 'image', source: src } as any;
+      }
+      if (p.type === 'thinking') {
+        return { type: 'thinking', thinking: p.text } as any;
+      }
+      // Fallback for unknown parts
+      return { type: 'text', text: JSON.stringify(p) };
+    });
+  }
+
+  private imageInputToAnthropicSource(image: LangImageInput): any {
+    const kind: any = (image as any).kind;
+    if (kind === 'base64') {
+      const base64 = (image as any).base64 as string;
+      const media_type = (image as any).mimeType || 'image/png';
+      return { type: 'base64', media_type, data: base64 };
+    }
+    if (kind === 'url') {
+      const url = (image as any).url as string;
+      if (url.startsWith('data:')) {
+        const match = url.match(/^data:([^;]+);base64,(.*)$/);
+        if (!match) throw new Error('Invalid data URL for Anthropic image');
+        const media_type = match[1];
+        const data = match[2];
+        return { type: 'base64', media_type, data };
+      }
+      return { type: 'url', url };
+    }
+    if (kind === 'bytes' || kind === 'blob') {
+      throw new Error("Anthropic image input requires base64. Convert bytes/blob to base64 first.");
+    }
+    throw new Error('Unknown image input kind for Anthropic');
   }
 }

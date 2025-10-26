@@ -1,56 +1,26 @@
-// @TODO: change to use schema instead of objectExamples
+/**
+ * Generate a prompt for extracting structured data based on a schema
+ * This is a fallback for LLMs that don't support structured output
+ * 
+ * @param prompt The instruction for the LLM (e.g., "List all planets with their diameters")
+ * @param schema The schema that the output should conform to
+ * @returns A formatted prompt string
+ */
+export function addInstructionAboutSchema(prompt: string, schema: object | object[]): string {
+  // Format the schema as a JSON string with proper indentation
+  const schemaJson = JSON.stringify(schema, null, 2);
+  const schemaType = Array.isArray(schema) ? "an array" : "an object";
+  
+  return `${prompt}
 
-// Consider: instructions, schema, objects, examples (?)
+## IMPORTANT
+You must return a valid JSON (${schemaType}) that follows this exact schema structure:
+\`\`\`json
+${schemaJson}
+\`\`\`
 
-export type PromptForObject = {
-  // @TODO: make title and description optional
-  title?: string;
-  description?: string;
-  instructions: string[];
-  objectExamples: object[];
-  content?: {
-    [key: string]: string;
-  };
-};
+Don't include any text outside the JSON.
 
-export function buildPromptForGettingJSON(prompt: PromptForObject): string {
-  const instructionsCount = prompt.instructions
-    ? prompt.instructions.length
-    : 0;
-  const instructions = prompt.instructions
-    ? "\n## Instructions\n" + prompt.instructions
-      .map((instruction, idx) => `${idx + 1}. ${instruction}`)
-      .join("\n")
-    : "";
-
-  let contentFields = prompt.content ? prompt.content : "";
-
-  if (prompt.content) {
-    contentFields = Object.keys(prompt.content)
-      .map((key) => `## ${key}\n${prompt.content ? prompt.content[key] : ""}`)
-      .join("\n\n");
-  }
-
-  let exampleOutputs = "";
-  if (prompt.objectExamples && prompt.objectExamples.length > 0) {
-    exampleOutputs = `## Examples of Output\n${
-      prompt.objectExamples
-        .map((example) => JSON.stringify(example, null, 2))
-        .join("\n\n")
-    }`;
-  }
-
-  return `# ${prompt.title ? prompt.title : "Prompt for JSON"}
-${prompt.description ? prompt.description : ""}
-${instructions}
-${
-    instructionsCount + 1
-  }. Output: Provide a correctly formatted JSON object (using Examples of Output) as your output in the Output section, in accordance with ECMA-404 standards. Make sure there are no comments or extraneous text.
-
-${contentFields}
-
-${exampleOutputs}
-
-## Output (JSON as ECMA-404)
+## Output
 \`\`\`json`;
 }

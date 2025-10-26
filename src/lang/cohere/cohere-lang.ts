@@ -1,14 +1,14 @@
 import {
-  DecisionOnNotOkResponse,
   httpRequestWithRetry as fetch,
 } from "../../http-request.ts";
-import { processResponseStream } from "../../process-response-stream.ts";
+import { processServerEvents } from "../../process-server-events.ts";
 import {
-  LangChatMessages,
-  LangResultWithMessages,
-  LangResultWithString,
+  LangMessage,
+  LangOptions,
+  LangResult,
   LanguageProvider,
 } from "../language-provider.ts";
+import { LangMessages } from "../messages.ts";
 import { models, Model } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
 
@@ -45,13 +45,13 @@ export class CohereLang extends LanguageProvider {
 
   async ask(
     prompt: string,
-    onResult?: (result: LangResultWithString) => void,
-  ): Promise<LangResultWithString> {
-    const messages: LangChatMessages = [];
+    options?: LangOptions,
+  ): Promise<LangResult> {
+    const messages = new LangMessages();
 
     if (this._systemPrompt) {
       messages.push({
-        role: "system",
+        role: "user" as "user",
         content: this._systemPrompt,
       });
     }
@@ -61,14 +61,14 @@ export class CohereLang extends LanguageProvider {
       content: prompt,
     });
 
-    return await this.chat(messages, onResult);
+    return await this.chat(messages, options);
   }
 
   async chat(
-    messages: LangChatMessages,
-    onResult?: (result: LangResultWithMessages) => void,
-  ): Promise<LangResultWithMessages> {
-    const result = new LangResultWithMessages(messages);
+    messages: LangMessage[] | LangMessages,
+    options?: LangOptions,
+  ): Promise<LangResult> {
+    const result = new LangResult(messages);
 
     // Transform messages to Cohere's format (only user/assistant roles)
     const transformedMessages = messages.map(msg => ({
@@ -103,12 +103,8 @@ export class CohereLang extends LanguageProvider {
         "Accept": "text/event-stream",
       },
       body: JSON.stringify(requestBody),
-      onNotOkResponse: async (
-        res,
-        decision,
-      ): Promise<DecisionOnNotOkResponse> => {
+      onError: async (res: Response, error: Error): Promise<void> => {
         if (res.status === 401) {
-          decision.retry = false;
           throw new Error(
             "API key is invalid. Please check your API key and try again.",
           );
@@ -116,38 +112,33 @@ export class CohereLang extends LanguageProvider {
 
         if (res.status === 400 || res.status === 422) {
           const data = await res.text();
-          decision.retry = false;
           throw new Error(data);
         }
 
-        return decision;
+        // For other errors, let the default retry behavior handle it
       },
     }).catch((err) => {
       throw new Error(err);
     });
 
+    const onResult = options?.onResult;
     const onData = (data: any) => {
       if (data.type === "message-end") {
         result.finished = true;
-        onResult?.(result);
+        const last = result.length > 0 ? result[result.length - 1] : undefined;
+        if (last) onResult?.(last as any);
         return;
       }
 
       // Handle Cohere's streaming format
       if (data.type === "content-delta" && data.delta?.message?.content?.text) {
         const text = data.delta.message.content.text;
-        result.answer += text;
-
-        result.messages = [...messages, {
-          role: "assistant",
-          content: result.answer,
-        }];
-
-        onResult?.(result);
+        const msg = result.appendToAssistantText(text);
+        onResult?.(msg);
       }
     };
 
-    await processResponseStream(response, onData);
+    await processServerEvents(response, onData);
 
     return result;
   }

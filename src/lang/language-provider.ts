@@ -1,5 +1,63 @@
-import { buildPromptForGettingJSON, PromptForObject } from "./prompt-for-json.ts";
+// Import necessary utilities
 import extractJSON from "./json/extract-json.ts";
+import { z } from 'zod';
+import {  
+  validateAgainstSchema 
+} from "./schema/schema-utils.ts";
+import { LangMessages } from "./messages.ts";
+import type { LangMessage } from "./messages.ts";
+
+// Export zod for convenience
+export { z };
+
+/**
+ * Type for any supported schema (Zod or JSON Schema)
+ */
+export type Schema = z.ZodType | Record<string, unknown>;
+
+// Re-export message types from messages.ts to keep public API stable
+export type { LangMessage, LangContentPart, LangContentImage as LangImageInput } from "./messages.ts";
+
+/**
+ * Image output type for providers that can generate images
+ */
+export type LangImageOutput = {
+  url?: string;
+  base64?: string;
+  mimeType?: string;
+  width?: number;
+  height?: number;
+  provider?: string;
+  model?: string;
+  metadata?: Record<string, unknown>;
+};
+
+/**
+ * Options that can be passed to language model methods
+ */
+export interface LangOptions {
+  schema?: Schema;
+  
+  // Streaming callback
+  onResult?: (result: LangMessage) => void;
+
+  providerSpecificBody?: Record<string, any>;
+  providerSpecificHeaders?: Record<string, string>;
+}
+
+/**
+ * Backward-compatible result class that is also the conversation object
+ * Extends LangMessages and exposes a 'messages' getter for old code.
+ */
+export class LangResult extends LangMessages {
+  constructor(messages: LangMessages | LangMessage[]) {
+    super(Array.isArray(messages) ? messages as LangMessage[] : [...(messages as LangMessages)]);
+  }
+
+  get messages(): this {
+    return this;
+  }
+}
 
 /**
  * LanguageProvider is an abstract class that represents a language model and
@@ -12,171 +70,63 @@ export abstract class LanguageProvider {
     this.name = name;
   }
 
+  /**
+   * Simple text generation
+   */
   abstract ask(
     prompt: string,
-    onResult: (result: LangResultWithString) => void,
-  ): Promise<LangResultWithString>;
+    options?: LangOptions,
+  ): Promise<LangMessages>;
 
+  /**
+   * Continue a conversation
+   */
   abstract chat(
-    messages: LangChatMessages,
-    onResult: (result: LangResultWithMessages) => void,
-  ): Promise<LangResultWithMessages>;
+    messages: LangMessage[] | LangMessages,
+    options?: LangOptions,
+  ): Promise<LangMessages>;
 
+  /**
+   * Get structured answer from a language model
+   * Supports both Zod schemas and JSON Schema objects
+   */
   async askForObject(
-    promptObj: PromptForObject,
-    onResult?: (result: LangResultWithObject) => void,
-  ): Promise<LangResultWithObject> {
-    let trialsLeft = 3;
-    const trials = trialsLeft;
-    const prompt = buildPromptForGettingJSON(promptObj);
-    const result = new LangResultWithObject(
-      prompt,
-    );
-
-    while (trialsLeft > 0) {
-      trialsLeft--;
-      const res = await this.ask(
-        prompt,
-        (r) => {
-          result.answer = r.answer;
-          result.finished = r.finished;
-
-          onResult?.(result);
-        },
-      );
-
-      const jsonObj = extractJSON(res.answer);
-      if (jsonObj !== null) {
-        result.answerObj = jsonObj;
-      }
-
-      if (result.answerObj === null && trialsLeft <= 0) {
-        throw new Error(`Failed to parse JSON after ${trials} trials`);
-      } else if (result.answerObj === null) {
-        console.log(`Failed to parse JSON, trying again...`);
-        continue;
-      }
-
-      // @TODO: make sure examples themselves have consistent schemas
-      const firstExample = promptObj.objectExamples[0];
-      const shemasAreMatching = schemasAreMatching(firstExample, result.answerObj);
-
-      if (!shemasAreMatching && trialsLeft <= 0) {
-        throw new Error(`The parsed JSON doesn't match the schema after ${trials} trials`);
-      } else if (!shemasAreMatching) {
-        console.log(`The parsed JSON doesn't match the schema, trying again...`);
-        continue;
-      }
-
-      break;
+    prompt: string | LangMessage[] | LangMessages,
+    schema: Schema,
+    options?: LangOptions,
+  ): Promise<LangMessages> {
+    // Create a message collection with the prompt
+    let messages: LangMessages;
+    
+    if (typeof prompt === 'string') {
+      messages = new LangMessages();
+      messages.addUserMessage(prompt);
+    } else if (prompt instanceof LangMessages) {
+      messages = prompt;
+    } else {
+      messages = new LangMessages(prompt);
     }
 
-    result.finished = true;
+    // Call chat with schema to allow providers to use native structured output options
+    const result = await this.chat(messages, { ...options, schema });
 
-    // Calling it one more time after parsing JSON to return a valid JSON string
-    onResult?.(result);
+    // Post-process: try to parse JSON object from the answer and validate
+    const maybeObject = extractJSON(result.answer);
+    if (maybeObject !== null) {
+      const validation = validateAgainstSchema(maybeObject, schema);
+      if (validation.valid) {
+        result.object = maybeObject;
+        result.validationErrors = [];
+      } else {
+        result.object = null;
+        result.validationErrors = validation.errors;
+      }
+    } else {
+      // Could not parse JSON
+      result.object = null;
+      result.validationErrors = ["Failed to parse JSON from the model response"];
+    }
 
     return result;
-  }
-}
-
-function schemasAreMatching(example: any, target: any): boolean {
-  // If both are arrays
-  if (Array.isArray(example) && Array.isArray(target)) {
-    return true;
-  }
-
-  // If both are objects
-  if (typeof example === 'object' && typeof target === 'object') {
-    const exampleKeys = Object.keys(example);
-    const targetKeys = Object.keys(target);
-
-    return exampleKeys.length === targetKeys.length && exampleKeys.every(key => targetKeys.includes(key));
-  }
-
-  // If example and target are neither arrays nor objects, they don't match the schema
-  return false;
-}
-
-interface LangProcessingResult {
-  prompt: string;
-  finished: boolean;
-  thinking?: string;
-}
-
-export class LangResultWithString implements LangProcessingResult {
-  prompt: string;
-  answer: string;
-  thinking?: string;
-  finished = false;
-
-  constructor(
-    prompt: string
-  ) {
-    this.prompt = prompt;
-    this.answer = "";
-    this.finished;
-  }
-
-  toString(): string {
-    return this.answer;
-  }
-
-  abort(): void {
-    throw new Error("Not implemented yet");
-  }
-}
-
-export class LangResultWithObject implements LangProcessingResult {
-  answerObj: object = {};
-  answer = "";
-  thinking?: string;
-  prompt: string;
-  finished = false;
-
-  constructor(
-    prompt: string,
-  ) {
-    this.prompt = prompt;
-    this.finished;
-  }
-
-  toString(): string {
-    if (Object.keys(this.answerObj).length === 0) {
-      return this.answer;
-    }
-
-    return JSON.stringify(this.answerObj);
-  }
-}
-
-export type LangChatMessages = {
-  role: string;
-  content: string;
-}[];
-
-
-export class LangResultWithMessages implements LangProcessingResult {
-  prompt: string;
-  answer: string;
-  thinking?: string;
-  messages: LangChatMessages = [];
-  finished = false;
-
-  constructor(
-    messages: LangChatMessages,
-  ) {
-    // The prompt is the latest message
-    this.prompt = messages.length > 0 ? messages[messages.length - 1].content : "";
-    this.answer = "";
-    this.finished;
-  }
-
-  toString(): string {
-    return this.answer;
-  }
-
-  abort(): void {
-    throw new Error("Not implemented yet");
   }
 }

@@ -8,22 +8,15 @@ Use LLMs from anywhere—servers, browsers and web-apps. AIWrapper works in anyt
 
 ## Features
 - Generate plain text or JSON objects with a simple API
-- Use different LLM providers: OpenAI, Anthropic, Groq, DeepSeek, Ollama, OpenRouter and any OpenAI-compatible services
-- Output objects based on needed schemas
+- Use different LLM providers: OpenAI, Anthropic, Groq, DeepSeek, Ollama and any OpenAI-compatible services
+- Output objects based on Zod schemas or JSON Schema
 - Swap models quickly or chain different models together
 - Use it with JavaScript or TypeScript from anywhere
 
 ## Installation
-Install with npm or import in Deno by URL.
 
-### NPM
 ```bash
 npm install aiwrapper
-```
-
-### Deno
-```typescript
-import * as aiwrapper from "https://deno.land/x/aiwrapper/mod.ts";
 ```
 
 ## Quick Start
@@ -34,7 +27,7 @@ import { Lang } from "aiwrapper";
 
 const lang = Lang.openai({ apiKey: "YOUR KEY" });
 const result = await lang.ask("Say hi!");
-console.log(result);
+console.log(result.answer);
 ```
 
 ## Lang (LLM) Examples
@@ -73,7 +66,7 @@ const lang = Lang.openaiLike({
 
 // Use it just like any other LLM provider
 const result = await lang.ask("Hello!");
-console.log(result);
+console.log(result.answer);
 ```
 
 ### Use OpenRouter (Access 100+ Models)
@@ -102,8 +95,8 @@ console.log(result.answer);
 
 ### Stream Results
 ```javascript
-await lang.ask('Hello, AI!', streamingResult => {
-  console.log(streamingResult.answer);
+await lang.ask("Hello, AI!", {
+  onResult: (msg) => console.log(msg)
 });
 ```
 
@@ -117,112 +110,135 @@ Write just the name. Nothing else aside from the name - no extra comments or cha
 
 const prompt = getPrompt("colorful socks");
 
-await lang.ask(prompt, streamingResult => { 
-  console.log(streamingResult.answer);
+await lang.ask(prompt, {
+  onResult: (msg) => console.log(msg)
 });
+```
+
+### Conversation Management
+```javascript
+// Start a conversation
+const result = await lang.ask("Hello, who are you?");
+console.log(result.answer);
+
+// Add a user message and continue the conversation
+result.addUserMessage("Tell me more about yourself");
+const newResult = await lang.chat(result);
+console.log(newResult.answer);
+
+// Continue the conversation further
+newResult.addUserMessage("What can you help me with?");
+const finalResult = await lang.chat(newResult);
+console.log(finalResult.answer);
+
+// You can also create message collections directly
+import { LangMessages } from "aiwrapper";
+
+const messages = new LangMessages();
+messages.addSystemMessage("You are a helpful assistant.");
+messages.addUserMessage("Tell me about TypeScript.");
+
+const chatResult = await lang.chat(messages);
+console.log(chatResult.answer);
 ```
 
 ### Getting Objects from LLMs
 ```javascript
-async function askForCompanyNames() {
-  // We can ask for an object with a particular schema. In that case - an array with company names as strings.
-  
-  const product = "colorful socks";
-  const numberOfNames = 3;
-  
-  const result = await lang.askForObject({
-    instructions: [
-      `You are a naming consultant for new companies. What is a good name for a company that makes ${product}?`,
-      `Return ${numberOfNames} names.`
-    ],
-    objectExamples: [
-      ["Name A", "Name B", "Name C"]
-    ]
-  }, streamingResult => { 
-    console.log(streamingResult.answer);
-  });
-  
-  return result.answerObj;
-}
+// We can ask for an object with a particular schema
+// You can use either Zod schemas or JSON Schema
 
-const names = await askForCompanyNames();
-```
+// Option 1: Using Zod schema (recommended for TypeScript users)
+import { z } from "aiwrapper";
 
-### Chaining Prompts
-```javascript
-async function askForStoriesBehindTheNames() {
-  // We can use an answer in other prompts. Here we ask to come up with stories for all of the names we've got.
-  const names = await askForCompanyNames();
-  const stories = [];
+// Schema for an array of strings
+const companyNamesSchema = z.array(z.string());
 
-  for (const name of names) {
-    const story = await lang.askForObject({
-      instructions: [
-        `You are a professional writer and a storyteller.`,
-        `Look at the name "${name}" carefully and reason step-by-step about the meaning of the name and what is the potential story behind it.`,
-        `Write a short story. Don't include any comments or characters that are not part of the story.`,
-      ],
-      objectExamples: [
-        {
-          "name": "Name A",
-          "reasoning": "Reasoning about Name A",
-          "story": "Story about Name A"
-        }
-      ]
-    }, streamingResult => { 
-      console.log(streamingResult.answer);
-    });
+const result = await lang.askForObject(
+  "You are a naming consultant for new companies. What are 3 good names for a company that makes colorful socks?",
+  companyNamesSchema
+);
 
-    stories.push(story);
+// TypeScript automatically infers the type as string[]
+console.log(result.object); // ["Chromatic Toe", "SockSpectra", "VividStep"]
+
+// Option 2: Using JSON Schema (compatible with existing code)
+const jsonSchema = {
+  type: "array",
+  items: {
+    type: "string"
   }
+};
 
-  return stories;
-}
+const result2 = await lang.askForObject(
+  "You are a naming consultant for new companies. What are 3 good names for a company that makes colorful socks?",
+  jsonSchema
+);
 
-const namesWithStories = await askForStoriesBehindTheNames();
+console.log(result2.object); // ["Chromatic Toe", "SockSpectra", "VividStep"]
 ```
 
 ### Getting Complex Objects
 ```javascript
-// When you work with complex objects it's better to define them as classes or types.
-class Task {
-  constructor(name, description, tasks) {
-    this.name = name;
-    this.description = description;
-    this.tasks = tasks;
+
+// Option 1: Using Zod schema
+import { z } from "aiwrapper";
+
+// Define a schema using Zod
+const companySchema = z.object({
+  name: z.string(),
+  tagline: z.string(),
+  marketingStrategy: z.object({
+    target: z.string(),
+    channels: z.array(z.string()),
+    budget: z.number()
+  })
+});
+
+// TypeScript automatically infers the correct type
+const result = await lang.askForObject(
+  "Create a company profile for a business that makes colorful socks",
+  companySchema
+);
+
+console.log(result.object);
+// The object is fully typed with TypeScript!
+
+// Option 2: Using JSON Schema
+const jsonSchema = {
+  type: "object",
+  properties: {
+    name: { type: "string" },
+    tagline: { type: "string" },
+    marketingStrategy: {
+      type: "object",
+      properties: {
+        target: { type: "string" },
+        channels: {
+          type: "array",
+          items: { type: "string" }
+        },
+        budget: { type: "number" }
+      }
+    }
+  },
+  required: ["name", "tagline", "marketingStrategy"]
+};
+
+const result2 = await lang.askForObject(
+  "Create a company profile for a business that makes colorful socks",
+  jsonSchema
+);
+
+console.log(result2.object);
+/* Example output:
+{
+  "name": "ChromaSocks",
+  "tagline": "Step into Color, Step into Life",
+  "marketingStrategy": {
+    "target": "Fashion-conscious young adults aged 18-35",
+    "channels": ["Instagram", "TikTok", "Influencer partnerships"],
+    "budget": 50000
   }
 }
-
-async function getTask() {
-  // In this case we represent the schema. You may also treat it 
-  // as a few shot example.
-  const exampleTask = new Task("Root Task", "This is the task that has subtasks", [
-    new Task("Task A1", "This is task A1", []),
-    new Task("Task A2", "This is task A2", []),
-  ]);
-
-  const taskPrompt = {
-    instructions: [
-      "Reflect on the objective and tasks (from the Objective section) step by step. Ensure that you understand them; identify any ambiguities or gaps in information. The Context section offers relevant information. Feel free to add critique or insights about the objective.",
-      "Create a tree of tasks. If the task is complex, break it down into subtasks, following the KISS principle. Each task should have a clear, actionable title, and a reasoning. If there are ambiguities or gaps in information, start by posing follow-up questions.",
-    ],
-    outputExamples: [
-      exampleTask,
-    ],
-    content: {
-      "Objective":
-        "Make me $1 000 000 in 3 years. I have $10000 to spare and can live without income for 18 months. I only want to do it by starting a business. Be my CEO.",
-      "Context": "I'm a software developer and a digital nomad",
-    },
-  };
-
-  const result = await lang.askForObject(taskPrompt, res => { 
-    console.log(res.answer);
-  });
-
-  
-  return result.answerObject
-}
-
-const task = await getTask();
+*/
 ```
