@@ -22,7 +22,7 @@ export interface LangMessage {
   meta?: Record<string, any>;
 }
 
-export type LangImageInput =
+export type LangContentImage =
   | { kind: "url"; url: string }
   | { kind: "base64"; base64: string; mimeType?: string }
   | { kind: "bytes"; bytes: ArrayBuffer | Uint8Array; mimeType?: string }
@@ -39,7 +39,7 @@ export type LangImageOutput = {
 
 export type LangContentPart =
   | { type: "text"; text: string }
-  | { type: "image"; image: LangImageInput; alt?: string }
+  | { type: "image"; image: LangContentImage; alt?: string }
   | { type: "thinking"; text: string };
 
 export type LangToolWithHandler = {
@@ -109,13 +109,24 @@ export class LangMessages extends Array<LangMessage> {
     return "";
   }
 
-  get images(): LangImageOutput[] {
+  get assistantImages(): LangImageOutput[] {
+    return this.getImagesFromLastMessage("assistant");
+  }
+
+  get userImages(): LangImageOutput[] {
+    return this.getImagesFromLastMessage("user");
+  }
+
+  private getImagesFromLastMessage(role: "assistant" | "user"): LangImageOutput[] {
     const images: LangImageOutput[] = [];
-    for (const msg of this) {
-      if (msg.role === "assistant" && Array.isArray(msg.content)) {
+    
+    // Find the last message from the specified role
+    for (let i = this.length - 1; i >= 0; i--) {
+      const msg = this[i];
+      if (msg.role === role && Array.isArray(msg.content)) {
         for (const part of msg.content) {
           if ((part as any).type === "image") {
-            const imagePart = part as { type: "image"; image: LangImageInput; alt?: string };
+            const imagePart = part as { type: "image"; image: LangContentImage; alt?: string };
             images.push({
               url: imagePart.image.kind === "url" ? imagePart.image.url : undefined,
               base64: imagePart.image.kind === "base64" ? imagePart.image.base64 : undefined,
@@ -124,6 +135,7 @@ export class LangMessages extends Array<LangMessage> {
             });
           }
         }
+        break; // Only process the last message from this role
       }
     }
     return images;
@@ -192,7 +204,7 @@ export class LangMessages extends Array<LangMessage> {
     return this;
   }
 
-  addAssistantImage(image: LangImageInput, alt?: string): this {
+  addAssistantImage(image: LangContentImage, alt?: string): this {
     return this.addAssistantContentPart({ type: "image", image, alt });
   }
 
@@ -206,7 +218,7 @@ export class LangMessages extends Array<LangMessage> {
     return this;
   }
 
-  addUserImage(image: LangImageInput, alt?: string): this {
+  addUserImage(image: LangContentImage, alt?: string): this {
     const parts: LangContentPart[] = [{ type: "image", image, alt }];
     return this.addUserContent(parts);
   }

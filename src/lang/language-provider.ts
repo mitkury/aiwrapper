@@ -16,7 +16,7 @@ export { z };
 export type Schema = z.ZodType | Record<string, unknown>;
 
 // Re-export message types from messages.ts to keep public API stable
-export type { LangMessage, LangContentPart, LangImageInput } from "./messages.ts";
+export type { LangMessage, LangContentPart, LangContentImage as LangImageInput } from "./messages.ts";
 
 /**
  * Image output type for providers that can generate images

@@ -1,4 +1,4 @@
-import { LangMessages, LangMessage, LangContentPart, LangImageInput, LangTool } from "../../messages";
+import { LangMessages, LangMessage, LangContentPart, LangContentImage, LangTool } from "../../messages";
 
 export type BodyPartForOpenAIResponses = {
   input?: any[];
@@ -167,7 +167,7 @@ export function transformToolResultsToResponsesItems(message: LangMessage): any[
   return items;
 }
 
-export function mapImageInput(image: LangImageInput): any {
+export function mapImageInput(image: LangContentImage): any {
   const kind: any = (image as any).kind;
   if (kind === 'url') {
     const url = (image as any).url as string;
