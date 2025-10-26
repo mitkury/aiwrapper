@@ -29,11 +29,11 @@ async function runTest(lang: LanguageProvider) {
     messages.availableTools = [{ name: "image_generation" }];
     const res = await lang.chat(messages);
 
-    console.log('Generated images:', res.images.length);
+    console.log('Generated images:', res.assistantImages.length);
     
     // Save the first generated image to a file
-    if (res.images.length > 0) {
-      const image = res.images[0];
+    if (res.assistantImages.length > 0) {
+      const image = res.assistantImages[0];
       if (image.base64) {
         // Convert base64 to buffer and save
         const buffer = Buffer.from(image.base64, 'base64');
@@ -44,7 +44,7 @@ async function runTest(lang: LanguageProvider) {
         console.log(`Saved generated image to: ${filepath}`);
         
         // Verify the image was saved
-        expect(res.images.length).toBeGreaterThan(0);
+        expect(res.assistantImages.length).toBeGreaterThan(0);
         expect(image.base64).toBeDefined();
         expect(image.mimeType).toBeDefined();
       }
