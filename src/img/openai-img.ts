@@ -166,13 +166,15 @@ export class OpenAIImg {
       const base64 = (image as any).base64 as string;
       const mimeType = (image as any).mimeType || 'image/png';
       const buf = Buffer.from(base64, 'base64');
-      return new Blob([buf], { type: mimeType });
+      const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+      return new Blob([arrayBuffer as any], { type: mimeType });
     }
     if (kind === 'bytes') {
       const bytes = (image as any).bytes as ArrayBuffer | Uint8Array;
       const mimeType = (image as any).mimeType || 'application/octet-stream';
       const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-      return new Blob([arr], { type: mimeType });
+      const arrayBuffer = arr.buffer.slice(arr.byteOffset, arr.byteOffset + arr.byteLength);
+      return new Blob([arrayBuffer as any], { type: mimeType });
     }
     if (kind === 'blob') {
       const blob = (image as any).blob as Blob;

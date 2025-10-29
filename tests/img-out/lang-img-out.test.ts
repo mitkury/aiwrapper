@@ -48,6 +48,16 @@ async function runTest(lang: LanguageProvider) {
         expect(image.base64).toBeDefined();
         expect(image.mimeType).toBeDefined();
       }
+      // Validate single consolidated assistant message (image + optional text)
+      const last = res[res.length - 1];
+      expect(last.role).toBe('assistant');
+      expect(Array.isArray(last.content)).toBe(true);
+      const parts = last.content as any[];
+      const hasImage = parts.some(p => p && p.type === 'image');
+      expect(hasImage).toBe(true);
+      // Ensure we didn't split into two assistant messages at the end
+      const prev = res.length > 1 ? res[res.length - 2] : undefined;
+      expect(prev?.role).not.toBe('assistant');
     } else {
       console.log('No images generated');
     }
