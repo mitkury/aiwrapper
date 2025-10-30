@@ -31,38 +31,39 @@ async function runTest(lang: LanguageProvider) {
     const res = await lang.chat(messages);
 
     console.log('Generated images:', res.assistantImages.length);
-    
+
     // Must generate at least one image
     expect(res.assistantImages.length).toBeGreaterThan(0);
 
     // Save the first generated image to a file
-    if (res.assistantImages.length > 0) {
-      const image = res.assistantImages[0];
-      if (image.base64) {
-        // Convert base64 to buffer and save
-        const buffer = Buffer.from(image.base64, 'base64');
-        const filename = `generated-image-${Date.now()}.${image.mimeType?.split('/')[1] || 'png'}`;
-        const filepath = join(process.cwd(), 'tests', 'img-out', filename);
-        
-        writeFileSync(filepath, buffer);
-        console.log(`Saved generated image to: ${filepath}`);
-        
-        // Verify the image was saved
-        expect(res.assistantImages.length).toBeGreaterThan(0);
-        expect(image.base64).toBeDefined();
-        expect(image.mimeType).toBeDefined();
-      }
-      // Validate single consolidated assistant message (image + optional text)
-      const last = res[res.length - 1];
-      expect(last.role).toBe('assistant');
-      expect(Array.isArray(last.content)).toBe(true);
-      const parts = last.content as any[];
-      const hasImage = parts.some(p => p && p.type === 'image');
-      expect(hasImage).toBe(true);
-      // Ensure we didn't split into two assistant messages at the end
-      const prev = res.length > 1 ? res[res.length - 2] : undefined;
-      expect(prev?.role).not.toBe('assistant');
+
+    const image = res.assistantImages[0];
+    if (image.base64) {
+      // Convert base64 to buffer and save
+      const buffer = Buffer.from(image.base64, 'base64');
+      const filename = `generated-image-${Date.now()}.${image.mimeType?.split('/')[1] || 'png'}`;
+      const filepath = join(process.cwd(), 'tests', 'img-out', filename);
+
+      writeFileSync(filepath, buffer);
+      console.log(`Saved generated image to: ${filepath}`);
+
+      // Verify the image was saved
+      expect(res.assistantImages.length).toBeGreaterThan(0);
+      expect(image.base64).toBeDefined();
+      expect(image.mimeType).toBeDefined();
     }
+    
+    // Validate single consolidated assistant message (image + optional text)
+    const last = res[res.length - 1];
+    expect(last.role).toBe('assistant');
+    expect(Array.isArray(last.content)).toBe(true);
+    const parts = last.content as any[];
+    const hasImage = parts.some(p => p && p.type === 'image');
+    expect(hasImage).toBe(true);
+    // Ensure we didn't split into two assistant messages at the end
+    const prev = res.length > 1 ? res[res.length - 2] : undefined;
+    expect(prev?.role).not.toBe('assistant');
+
   });
 }
 
