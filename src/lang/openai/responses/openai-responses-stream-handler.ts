@@ -98,14 +98,18 @@ export class OpenAIResponseStreamHandler {
             const existingText = typeof item.targetMessage.content === 'string' ? item.targetMessage.content : '';
             item.targetMessage.content = existingText ? [{ type: 'text', text: existingText }] : [];
           }
-          for (const content of target.content) {
-            if (content.type === 'output_text') {
-              const parts = item.targetMessage.content as any[];
-              const lastPart = parts.length > 0 ? parts[parts.length - 1] : undefined;
-              if (lastPart && lastPart.type === 'text') {
-                lastPart.text += String(content.text ?? '');
-              } else {
-                parts.push({ type: 'text', text: String(content.text ?? '') });
+          // If we already accumulated text via deltas, do not append again on 'done'
+          const alreadyStreamedText = typeof (item as any).text === 'string' && (item as any).text.length > 0;
+          if (!alreadyStreamedText) {
+            for (const content of target.content) {
+              if (content.type === 'output_text') {
+                const parts = item.targetMessage.content as any[];
+                const lastPart = parts.length > 0 ? parts[parts.length - 1] : undefined;
+                if (lastPart && lastPart.type === 'text') {
+                  lastPart.text += String(content.text ?? '');
+                } else {
+                  parts.push({ type: 'text', text: String(content.text ?? '') });
+                }
               }
             }
           }

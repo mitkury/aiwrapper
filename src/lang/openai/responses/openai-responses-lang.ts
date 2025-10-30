@@ -1,6 +1,7 @@
 import { LangOptions, LanguageProvider } from "../../language-provider.ts";
 import { LangMessage, LangMessages } from "../../messages.ts";
 import { prepareBodyPartForOpenAIResponsesAPI } from "./openai-responses-messages.ts";
+import { addInstructionAboutSchema } from "../../prompt-for-json.ts";
 import { processServerEvents } from "../../../process-server-events.ts";
 import { OpenAIResponseStreamHandler } from "./openai-responses-stream-handler.ts";
 
@@ -54,6 +55,18 @@ export class OpenAIResponsesLang extends LanguageProvider {
   }
 
   private async sendToApi(msgCollection: LangMessages, options?: LangOptions): Promise<void> {
+    // If a schema is provided, strongly instruct the model to return JSON matching it
+    if (options?.schema) {
+      const baseInstruction = msgCollection.instructions || '';
+      msgCollection.instructions = addInstructionAboutSchema(
+        baseInstruction || 'Return only the JSON. No prose.',
+        options.schema as any
+      );
+      // Also add a system message up front to bias the model strongly
+      const sys = addInstructionAboutSchema('You must return ONLY JSON that matches this schema.', options.schema as any);
+      (msgCollection as any).splice(0, 0, { role: 'system', content: sys });
+    }
+
     const bodyPart = prepareBodyPartForOpenAIResponsesAPI(msgCollection);
 
     const body = {
