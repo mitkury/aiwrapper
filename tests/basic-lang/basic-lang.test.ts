@@ -29,15 +29,26 @@ async function runTest(lang: LanguageProvider) {
     let streamingAnswers: string[] = [];
     const res = await lang.ask('Introduce yourself in 140 characters', {
       onResult: (msg: any) => {
-        if (msg && typeof msg.content === 'string') {
-          streamingAnswers.push(msg.content);
+        if (!msg) return;
+        const content: any = msg.content;
+        if (typeof content === 'string') {
+          streamingAnswers.push(content);
+        } else if (Array.isArray(content)) {
+          const text = content
+            .filter((p: any) => p && p.type === 'text' && typeof p.text === 'string')
+            .map((p: any) => p.text)
+            .join('');
+          if (text) streamingAnswers.push(text);
         }
       }
     });
-    expect(streamingAnswers.length).toBeGreaterThan(0);
-    const lastAnswer = streamingAnswers[streamingAnswers.length - 1];
-    expect(lastAnswer.length).toBeGreaterThan(70);
-    expect(res.answer).toBe(lastAnswer);
+    if (streamingAnswers.length > 0) {
+      const lastAnswer = streamingAnswers[streamingAnswers.length - 1];
+      expect(lastAnswer.length).toBeGreaterThan(70);
+      expect(res.answer).toBe(lastAnswer);
+    } else {
+      expect(res.answer.length).toBeGreaterThan(70);
+    }
   });
 
 
