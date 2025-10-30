@@ -1,3 +1,5 @@
+
+
 /**
  * Interface for tool requests that can be sent to language models
  */
@@ -16,10 +18,72 @@ export interface ToolResult {
   result: any;
 }
 
+// @TODO: thinking about removing string content and just use parts insteads
+// @TODO: and potentially splitting the content into multiple fields instead of a union
 export interface LangMessage {
   role: "user" | "assistant" | "tool" | "tool-results" | "system";
   content: string | LangContentPart[] | ToolRequest[] | ToolResult[];
   meta?: Record<string, any>;
+}
+
+/** A type to simplify extracting content from a message */
+export type ExtractedMessageContent = {
+  text?: string;
+  images?: LangImageOutput[];
+  toolRequests?: ToolRequest[];
+  toolResults?: ToolResult[];
+}
+
+/** Extract content from a message
+ * The content on LangMessage is a union which could be tedious to check 
+ * So this function simplifies it by extracting the content into an object with separate fields for 
+ * each union type.
+ */
+export function extractContentFromMessage(message: LangMessage): ExtractedMessageContent {
+  const out: ExtractedMessageContent = {};
+
+  // Text-only content
+  if (typeof message.content === "string") {
+    out.text = message.content;
+    return out;
+  }
+
+  // Tool-related roles take precedence
+  if (message.role === "tool" && Array.isArray(message.content)) {
+    out.toolRequests = message.content as ToolRequest[];
+    return out;
+  }
+  if (message.role === "tool-results" && Array.isArray(message.content)) {
+    out.toolResults = message.content as ToolResult[];
+    return out;
+  }
+
+  // Mixed/parts content: extract text and images if present
+  if (Array.isArray(message.content)) {
+    const parts = message.content as LangContentPart[];
+
+    const text = parts
+      .filter(p => (p as any).type === "text")
+      .map(p => (p as any).text as string)
+      .join("\n\n");
+    if (text) out.text = text;
+
+    const images: LangImageOutput[] = [];
+    for (const part of parts) {
+      if ((part as any).type === "image") {
+        const imagePart = part as { type: "image"; image: LangContentImage; alt?: string };
+        images.push({
+          url: imagePart.image.kind === "url" ? imagePart.image.url : undefined,
+          base64: imagePart.image.kind === "base64" ? imagePart.image.base64 : undefined,
+          mimeType: (imagePart.image as any).mimeType,
+          metadata: message.meta?.imageGeneration
+        });
+      }
+    }
+    if (images.length > 0) out.images = images;
+  }
+
+  return out;
 }
 
 export type LangContentImage =
@@ -93,6 +157,7 @@ export class LangMessages extends Array<LangMessage> {
     for (let i = this.length - 1; i >= 0; i--) {
       const msg = this[i];
       if (msg.role === "assistant") {
+        /*
         const content: any = (msg as any).content;
         if (typeof content === "string") return content;
         if (Array.isArray(content)) {
@@ -104,6 +169,10 @@ export class LangMessages extends Array<LangMessage> {
           }
           return text;
         }
+        */
+
+        const content = extractContentFromMessage(msg);
+        if (content.text) return content.text;
       }
     }
     return "";
@@ -118,8 +187,16 @@ export class LangMessages extends Array<LangMessage> {
   }
 
   private getImagesFromLastMessage(role: "assistant" | "user"): LangImageOutput[] {
+    const lastMessageByRole = this.findLast(msg => msg.role === role);
+    if (!lastMessageByRole) return [];
+
+    const content = extractContentFromMessage(lastMessageByRole);
+    if (content.images) return content.images;
+    return [];
+
+    /*
     const images: LangImageOutput[] = [];
-    
+
     // Find the last message from the specified role
     for (let i = this.length - 1; i >= 0; i--) {
       const msg = this[i];
@@ -139,6 +216,7 @@ export class LangMessages extends Array<LangMessage> {
       }
     }
     return images;
+    */
   }
 
   /**
