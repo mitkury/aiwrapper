@@ -5,7 +5,7 @@ import {
   validateAgainstSchema 
 } from "./schema/schema-utils.ts";
 import { LangMessages } from "./messages.ts";
-import type { LangMessage } from "./messages.ts";
+import type { LangMessage, LangMessageContent, LangMessageRole } from "./messages.ts";
 
 // Export zod for convenience
 export { z };
@@ -82,7 +82,7 @@ export abstract class LanguageProvider {
    * Continue a conversation
    */
   abstract chat(
-    messages: LangMessage[] | LangMessages,
+    messages: { role: LangMessageRole; content: LangMessageContent }[] | LangMessage[] | LangMessages,
     options?: LangOptions,
   ): Promise<LangMessages>;
 
@@ -91,7 +91,7 @@ export abstract class LanguageProvider {
    * Supports both Zod schemas and JSON Schema objects
    */
   async askForObject(
-    prompt: string | LangMessage[] | LangMessages,
+    prompt: string | { role: LangMessageRole; content: LangMessageContent }[] | LangMessage[] | LangMessages,
     schema: Schema,
     options?: LangOptions,
   ): Promise<LangMessages> {
