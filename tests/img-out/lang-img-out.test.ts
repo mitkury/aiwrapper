@@ -10,6 +10,7 @@ describe('Lang - image in (providers)', () => {
   createLangTestRunner(runTest, {
     includeOpenAI: true,
     includeOpenAIResponses: true,
+    includeDeepSeek: false,
     includeOpenRouter: false,
     includeAnthropic: false,
     modelOverrides: {
@@ -31,6 +32,9 @@ async function runTest(lang: LanguageProvider) {
 
     console.log('Generated images:', res.assistantImages.length);
     
+    // Must generate at least one image
+    expect(res.assistantImages.length).toBeGreaterThan(0);
+
     // Save the first generated image to a file
     if (res.assistantImages.length > 0) {
       const image = res.assistantImages[0];
@@ -58,8 +62,6 @@ async function runTest(lang: LanguageProvider) {
       // Ensure we didn't split into two assistant messages at the end
       const prev = res.length > 1 ? res[res.length - 2] : undefined;
       expect(prev?.role).not.toBe('assistant');
-    } else {
-      console.log('No images generated');
     }
   });
 }

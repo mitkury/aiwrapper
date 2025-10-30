@@ -144,9 +144,21 @@ export class OpenAIResponseStreamHandler {
       case 'message':
 
         if (target.role === 'assistant') {
-          // Initialize as parts message to allow images + text together
-          this.messages.addAssistantContent([], { openaiResponseId: this.id });
-          target.targetMessage = this.messages[this.messages.length - 1];
+          // Reuse an existing trailing assistant message (possibly created by image events)
+          const last = this.messages.length > 0 ? this.messages[this.messages.length - 1] : undefined;
+          if (last && last.role === 'assistant') {
+            // Ensure it's parts to allow mixed content and set response id
+            if (!Array.isArray(last.content)) {
+              const existingText = typeof last.content === 'string' ? last.content : '';
+              (last as any).content = existingText ? [{ type: 'text', text: existingText }] : [];
+            }
+            last.meta = { ...(last.meta || {}), openaiResponseId: this.id };
+            target.targetMessage = last;
+          } else {
+            // Initialize as parts message to allow images + text together
+            this.messages.addAssistantContent([], { openaiResponseId: this.id });
+            target.targetMessage = this.messages[this.messages.length - 1];
+          }
           this.onResult?.(target.targetMessage);
         } else {
           console.warn('Unknown role:', target.role, 'for item:', target);
@@ -179,6 +191,9 @@ export class OpenAIResponseStreamHandler {
       });
       
       const last = this.messages[this.messages.length - 1];
+      if (last) {
+        last.meta = { ...(last.meta || {}), openaiResponseId: this.id };
+      }
       this.onResult?.(last);
     }
   }
@@ -201,6 +216,7 @@ export class OpenAIResponseStreamHandler {
       // Store metadata in the message
       const last = this.messages[this.messages.length - 1];
       if (!last.meta) last.meta = {};
+      last.meta.openaiResponseId = this.id;
       last.meta.imageGeneration = {
         size,
         format,
