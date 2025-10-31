@@ -1,9 +1,13 @@
-import { LangOptions, LanguageProvider } from "../../language-provider.ts";
-import { LangMessage, LangMessages } from "../../messages.ts";
+import { LangOptions, LangResponseSchema, LanguageProvider } from "../../language-provider.ts";
+import { LangMessage, LangMessageContent, LangMessageRole, LangMessages } from "../../messages.ts";
 import { prepareBodyPartForOpenAIResponsesAPI } from "./openai-responses-messages.ts";
 import { addInstructionAboutSchema } from "../../prompt-for-json.ts";
 import { processServerEvents } from "../../../process-server-events.ts";
 import { OpenAIResponseStreamHandler } from "./openai-responses-stream-handler.ts";
+import { isZodSchema, validateAgainstSchema, zodToJsonSchema } from "../../schema/schema-utils.ts";
+import {
+  httpRequestWithRetry as fetch,
+} from "../../../http-request.ts";
 
 
 /**
@@ -38,13 +42,12 @@ export class OpenAIResponsesLang extends LanguageProvider {
 
   async ask(prompt: string, options?: LangOptions): Promise<LangMessages> {
     const messages = new LangMessages();
-
-    messages.push({ role: "user", content: prompt });
+    messages.push(new LangMessage("user", prompt));
 
     return this.chat(messages, options);
   }
 
-  async chat(messages: LangMessage[] | LangMessages, options?: LangOptions): Promise<LangMessages> {
+  async chat(messages: { role: LangMessageRole; content: LangMessageContent }[] | LangMessage[] | LangMessages, options?: LangOptions): Promise<LangMessages> {
     const msgCollection = messages instanceof LangMessages
       ? messages
       : new LangMessages(messages);
@@ -54,28 +57,46 @@ export class OpenAIResponsesLang extends LanguageProvider {
     return msgCollection;
   }
 
-  private async sendToApi(msgCollection: LangMessages, options?: LangOptions): Promise<void> {
-    // If a schema is provided, strongly instruct the model to return JSON matching it
-    if (options?.schema) {
-      const baseInstruction = msgCollection.instructions || '';
-      msgCollection.instructions = addInstructionAboutSchema(
-        baseInstruction || 'Return only the JSON. No prose.',
-        options.schema as any
-      );
-      // Also add a system message up front to bias the model strongly
-      const sys = addInstructionAboutSchema('You must return ONLY JSON that matches this schema.', options.schema as any);
-      (msgCollection as any).splice(0, 0, { role: 'system', content: sys });
+  private buildStructuredOutput(schema: LangResponseSchema | undefined): Record<string, unknown> | undefined {
+    if (!schema) {
+      return undefined;
     }
 
+    if (isZodSchema(schema)) {
+      const jsonSchema = zodToJsonSchema(schema);
+      return {
+        text: {
+          format: {
+            type: "json_schema",
+            name: "name_thing",
+            schema: jsonSchema
+          }
+        }
+      } as any;
+    } else {
+      return {
+        type: "json_schema",
+        json_schema: schema as any
+      };
+    }
+  }
+
+  private buildRequestBody(msgCollection: LangMessages, options?: LangOptions): Record<string, unknown> {
+    let structuredOutput = this.buildStructuredOutput(options?.schema);
     const bodyPart = prepareBodyPartForOpenAIResponsesAPI(msgCollection);
 
-    const body = {
+    return {
       model: this.model,
       ...{ stream: true },
       ...bodyPart,
       ...{ truncation: "auto" },
+      ...structuredOutput,
       ...options?.providerSpecificBody,
     };
+  }
+
+  private async sendToApi(msgCollection: LangMessages, options?: LangOptions): Promise<void> {
+    const body = this.buildRequestBody(msgCollection, options);
 
     const req = {
       method: "POST",
@@ -86,11 +107,31 @@ export class OpenAIResponsesLang extends LanguageProvider {
         ...options?.providerSpecificHeaders,
       },
       body: JSON.stringify(body),
+      onError: async (res: Response, _error: Error): Promise<void> => {
+        if (res.status === 401) {
+          throw new Error(
+            "Authentication failed. Please check your credentials and try again.",
+          );
+        }
+        if (res.status === 400) {
+          const data = await res.text();
+          throw new Error(data);
+        }
+        // For other errors, let the default retry behavior handle it
+      },
     };
 
     const streamHander = new OpenAIResponseStreamHandler(msgCollection, options?.onResult);
     const response = await fetch(`${this.baseURL}/responses`, req);
     await processServerEvents(response, (data) => streamHander.handleEvent(data));
+
+    // If we expect a structured output, validate the schema against the result
+    if (options?.schema) {
+      const validation = validateAgainstSchema(msgCollection.object, options.schema);
+      if (!validation.valid) {
+        throw new Error(`Schema validation failed: ${validation.errors.join(', ')}`);
+      }
+    }
 
     msgCollection.finished = true;
 

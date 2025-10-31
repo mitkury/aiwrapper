@@ -6,7 +6,7 @@ import {
   LangResult, 
   LangOptions, 
   LangMessage,
-  Schema,
+  LangResponseSchema,
   z
 } from "./language-provider.ts";
 import { LangMessages, LangToolWithHandler, ToolRequest, ToolResult, LangTool } from "./messages.ts";
@@ -15,7 +15,7 @@ import { LangMessages, LangToolWithHandler, ToolRequest, ToolResult, LangTool } 
 export { Lang, LangVecs, LanguageProvider, LangResult, LangMessages, z, MockOpenAILikeLang };
 
 // Export types
-export type { LangOptions, LangMessage, LangToolWithHandler as ToolWithHandler, ToolRequest, ToolResult, LangTool as Tool, Schema };
+export type { LangOptions, LangMessage, LangToolWithHandler as ToolWithHandler, ToolRequest, ToolResult, LangTool as Tool, LangResponseSchema as Schema };
 
 // Re-export image and content part types
 export type { LangImageInput, LangContentPart, LangImageOutput } from "./language-provider.ts";

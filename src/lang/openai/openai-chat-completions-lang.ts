@@ -4,7 +4,7 @@ import {
   LangContentPart,
   LangImageInput,
 } from "../language-provider.ts";
-import { LangMessages, LangMessage, LangTool } from "../messages.ts";
+import { LangMessages, LangMessage, LangTool, LangMessage as ConversationMessage } from "../messages.ts";
 import {
   httpRequestWithRetry as fetch,
 } from "../../http-request.ts";
@@ -154,16 +154,10 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
   ): Promise<LangMessages> {
     const messages = new LangMessages();
     if (this._config.systemPrompt) {
-      messages.push({
-        role: "user" as "user",
-        content: this._config.systemPrompt,
-      });
+      messages.push(new ConversationMessage("user", this._config.systemPrompt));
     }
 
-    messages.push({
-      role: "user",
-      content: prompt,
-    });
+    messages.push(new ConversationMessage("user", prompt));
 
     return await this.chat(messages, options);
   }

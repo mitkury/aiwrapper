@@ -1,3 +1,5 @@
+import extractJSON from "./json/extract-json";
+
 /**
  * Interface for tool requests that can be sent to language models
  */
@@ -204,10 +206,7 @@ export type LangTool = LangToolWithHandler | BuiltInLangTool;
 export class LangMessages extends Array<LangMessage> {
   availableTools?: LangTool[];
 
-  // Merged result fields
-  object: any | null = null;
   finished: boolean = false;
-  validationErrors: string[] = [];
   instructions?: string;
 
   constructor();
@@ -245,6 +244,14 @@ export class LangMessages extends Array<LangMessage> {
       }
     }
     return "";
+  }
+
+  get object(): any | null {
+    const answer = this.answer;
+    if (answer.length > 0) {
+      return extractJSON(answer);
+    }
+    return null;
   }
 
   get assistantImages(): LangImageOutput[] {
