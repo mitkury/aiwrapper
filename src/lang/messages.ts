@@ -74,72 +74,6 @@ export class LangMessage {
     return this;
   }
 
-  /**
-   * Extracts all relevant content types from the message in a structured way.
-   * 
-   * Returns an object containing:
-   * - `text` (string): All text content, if present in the message.
-   * - `toolRequests` (ToolRequest[]): All tool requests, if the role is "tool".
-   * - `toolResults` (ToolResult[]): All tool results, if the role is "tool-results".
-   * - `images` (LangImageOutput[]): All image attachments, if present.
-   * 
-   * This makes it easier to access different content forms (text, tools, images)
-   * regardless of how the message was constructed.
-   * 
-   * Example usages:
-   *   const extracted = msg.extractContent();
-   *   if (extracted.text) { ... }
-   *   if (extracted.toolRequests) { ... }
-   *   if (extracted.images?.length) { ... }
-   */
-  extractContent(): ExtractedMessageContent {
-    const out: ExtractedMessageContent = {};
-
-    // Text-only content
-    if (typeof this.content === "string") {
-      out.text = this.content;
-      return out;
-    }
-
-    // Tool-related roles take precedence
-    if (this.role === "tool" && Array.isArray(this.content)) {
-      out.toolRequests = this.content as ToolRequest[];
-      return out;
-    }
-    if (this.role === "tool-results" && Array.isArray(this.content)) {
-      out.toolResults = this.content as ToolResult[];
-      return out;
-    }
-
-    // Mixed/parts content: extract text and images if present
-    if (Array.isArray(this.content)) {
-      const parts = this.content as LangContentPart[];
-
-      const text = parts
-        .filter(p => (p as any).type === "text")
-        .map(p => (p as any).text as string)
-        .join("\n\n");
-      if (text) out.text = text;
-
-      const images: LangImageOutput[] = [];
-      for (const part of parts) {
-        if ((part as any).type === "image") {
-          const imagePart = part as { type: "image"; image: LangContentImage; alt?: string };
-          images.push({
-            url: imagePart.image.kind === "url" ? imagePart.image.url : undefined,
-            base64: imagePart.image.kind === "base64" ? imagePart.image.base64 : undefined,
-            mimeType: (imagePart.image as any).mimeType,
-            metadata: this.meta?.imageGeneration
-          });
-        }
-      }
-      if (images.length > 0) out.images = images;
-    }
-
-    return out;
-
-  }
-
   get text(): string {
     if (typeof this.content === "string") return this.content;
     if (this.role === "tool" && Array.isArray(this.content)) return "";
@@ -152,14 +86,44 @@ export class LangMessage {
     }
     return "";
   }
-}
 
-/** A type to simplify extracting content from a message */
-export type ExtractedMessageContent = {
-  text?: string;
-  images?: LangImageOutput[];
-  toolRequests?: ToolRequest[];
-  toolResults?: ToolResult[];
+  get object(): any | null {
+    const text = this.text;
+    if (text && text.length > 0) return extractJSON(text);
+    return null;
+  }
+
+  get toolRequests(): ToolRequest[] {
+    if (this.role === "tool" && Array.isArray(this.content)) {
+      return this.content as ToolRequest[];
+    }
+    return [];
+  }
+
+  get toolResults(): ToolResult[] {
+    if (this.role === "tool-results" && Array.isArray(this.content)) {
+      return this.content as ToolResult[];
+    }
+    return [];
+  }
+
+  get images(): LangImageOutput[] {
+    if (!Array.isArray(this.content)) return [];
+    const parts = this.content as LangContentPart[];
+    const images: LangImageOutput[] = [];
+    for (const part of parts) {
+      if ((part as any).type === "image") {
+        const imagePart = part as { type: "image"; image: LangContentImage; alt?: string };
+        images.push({
+          url: imagePart.image.kind === "url" ? imagePart.image.url : undefined,
+          base64: imagePart.image.kind === "base64" ? imagePart.image.base64 : undefined,
+          mimeType: (imagePart.image as any).mimeType,
+          metadata: this.meta?.imageGeneration
+        });
+      }
+    }
+    return images;
+  }
 }
 
 export type LangContentImage =
@@ -235,12 +199,14 @@ export class LangMessages extends Array<LangMessage> {
     }
   }
 
+  /**
+   * Last assistant message as text
+   */
   get answer(): string {
     for (let i = this.length - 1; i >= 0; i--) {
       const msg = this[i];
       if (msg.role === "assistant") {
-        const content = msg.extractContent();
-        if (content.text) return content.text;
+        return msg.text;
       }
     }
     return "";
@@ -269,9 +235,7 @@ export class LangMessages extends Array<LangMessage> {
     }
     if (!lastMessageByRole) return [];
 
-    const content = lastMessageByRole.extractContent();
-    if (content.images) return content.images;
-    return [];
+    lastMessageByRole.images;
   }
 
   /**
@@ -440,5 +404,3 @@ export class LangMessages extends Array<LangMessage> {
     return out.join("\n\n");
   }
 }
-
-
