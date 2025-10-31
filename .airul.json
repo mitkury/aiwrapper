@@ -9,7 +9,7 @@
   "output": {
     "cursor": true,
     "codex": true,
-    "windsurf": true,
+    "windsurf": false,
     "copilot": false,
     "cline": false
   }

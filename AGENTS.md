@@ -342,7 +342,8 @@ When publishing, follow these steps in order:
     "aimodels": "^0.4.15",
     "ajv": "^8.17.1",
     "jsonic": "^2.16.0",
-    "zod": "^3.24.4"
+    "zod": "^3.24.4",
+    "zod-to-json-schema": "^3.24.6"
   },
   "devDependencies": {
     "@playwright/test": "^1.42.1",
