@@ -1,5 +1,5 @@
 import { describe, it, expect, assert } from 'vitest';
-import { LangMessage, LangMessages, LangOptions, LanguageProvider, ToolRequest, ToolResult } from 'aiwrapper';
+import { LangMessage, LangMessages, LangOptions, LanguageProvider, ToolRequest, ToolResult, z } from 'aiwrapper';
 import { createLangTestRunner, printAvailableProviders } from '../utils/lang-gatherer.js';
 
 // Show available providers for debugging
@@ -62,13 +62,37 @@ async function runTest(lang: LanguageProvider) {
     expect(res.answer.toLocaleLowerCase()).toContain('paris');
   });
 
+  it('should return a simple JSON object', async () => {
 
-  it('should return a JSON object', async () => {
-    const res = await lang.askForObject('Return a JSON object with a "name" property', {
-      name: 'string',
+    const nameSchema = z.object({
+      name: z.string(),
     });
+
+    const res = await lang.askForObject('Return a JSON object with a "name" property', nameSchema);
     expect(typeof res.object).toBe('object');
     expect(res.object?.name).toBeDefined();
+  });
+
+  it('should return a more complex JSON without tips in the prompt', async () => {
+
+    const schema = z.object({
+      names: z.array(z.object({
+        pitch: z.string(),
+        reasoning: z.string(),
+        name: z.string(),
+      })),
+    });
+
+    const messages = new LangMessages();
+    messages.instructions = "You're a naming consultant. When users ask for a name, give them at least 3 good names. Keep it short and punchy."
+    messages.addUserMessage('What is a good name for a company that makes colorful socks?');
+
+    const res = await lang.chat(messages, { schema });
+    expect(typeof res.object).toBe('object');
+    expect(res.object?.names.length).toBeGreaterThan(2);
+    expect(res.object?.names[0].name.length).toBeGreaterThan(0);
+    expect(res.object?.names[0].pitch.length).toBeGreaterThan(0);
+    expect(res.object?.names[0].reasoning.length).toBeGreaterThan(0);
   });
 
   it('should follow instructions', async () => {
