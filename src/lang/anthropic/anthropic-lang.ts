@@ -10,7 +10,8 @@ import {
 import { models } from 'aimodels';
 import { LangContentPart, LangImageInput } from "../language-provider.ts";
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
-import { LangMessages, LangToolWithHandler } from "../messages.ts";
+import { LangMessages, LangToolWithHandler, LangMessage as ConversationMessage } from "../messages.ts";
+import { addInstructionAboutSchema } from "../prompt-for-json.ts";
 
 type AnthropicTool = {
   name: string;
@@ -69,12 +70,9 @@ export class AnthropicLang extends LanguageProvider {
   ): Promise<LangMessages> {
     const messages = new LangMessages();
     if (this._config.systemPrompt) {
-      messages.push({
-        role: "user" as "user",
-        content: this._config.systemPrompt,
-      });
+      messages.push(new ConversationMessage("user", this._config.systemPrompt));
     }
-    messages.push({ role: "user", content: prompt });
+    messages.push(new ConversationMessage("user", prompt));
     return await this.chat(messages, options);
   }
 
@@ -85,6 +83,13 @@ export class AnthropicLang extends LanguageProvider {
     const messageCollection = messages instanceof LangMessages
       ? messages
       : new LangMessages(messages);
+
+    if (options?.schema) {
+      const baseInstruction = messageCollection.instructions || '';
+      messageCollection.instructions = baseInstruction + '\n\n' + addInstructionAboutSchema(
+        options.schema
+      );
+    }
 
     const { system, providerMessages, requestMaxTokens, tools } =
       this.prepareRequest(messageCollection);
@@ -282,7 +287,7 @@ export class AnthropicLang extends LanguageProvider {
     if (streamState.toolCalls.length > 0) {
       // Only add assistant message if it's not already there (streaming already added it)
       if (result.answer && (result.length === 0 || result[result.length - 1].role !== "assistant")) {
-        result.push({ role: "assistant", content: result.answer });
+        result.push(new ConversationMessage("assistant", result.answer));
       }
       const formattedToolCalls = streamState.toolCalls.map(tc => ({
         callId: tc.id,
@@ -293,7 +298,7 @@ export class AnthropicLang extends LanguageProvider {
       result.addAssistantToolCalls(formattedToolCalls);
     } else if (result.answer) {
       if (result.length === 0 || result[result.length - 1].role !== "assistant") {
-        result.push({ role: "assistant", content: result.answer });
+        result.push(new ConversationMessage("assistant", result.answer));
       }
     }
 
