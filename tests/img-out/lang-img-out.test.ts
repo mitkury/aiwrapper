@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, assert } from 'vitest';
 import { LangMessages, LanguageProvider } from 'aiwrapper';
 import { createLangTestRunner } from '../utils/lang-gatherer.js';
 import { readImageBase64 } from '../utils/test-images.ts';
@@ -30,12 +30,9 @@ async function runTest(lang: LanguageProvider) {
     messages.availableTools = [{ name: "image_generation" }];
     const res = await lang.chat(messages);
 
-    console.log('Generated images:', res.assistantImages.length);
+    const assistantImages = res.assistantImages;
 
-    // Must generate at least one image
-    expect(res.assistantImages.length).toBeGreaterThan(0);
-
-    // Save the first generated image to a file
+    assert(assistantImages && assistantImages.length > 0, 'No images generated');
 
     const image = res.assistantImages[0];
     if (image.base64) {

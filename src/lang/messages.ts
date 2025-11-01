@@ -235,7 +235,7 @@ export class LangMessages extends Array<LangMessage> {
     }
     if (!lastMessageByRole) return [];
 
-    lastMessageByRole.images;
+    return lastMessageByRole.images;
   }
 
   /**
