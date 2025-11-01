@@ -110,5 +110,41 @@ describe('httpRequestWithRetry', () => {
       }
     }
   });
+
+  it('should have body available even when on400Error reads response', async () => {
+    let on400ErrorCalled = false;
+    
+    setHttpRequestImpl(async () => {
+      return new Response('{"error":{"code":"invalid_request","message":"Bad request"}}', {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    try {
+      await httpRequestWithRetry('https://example.com/api', {
+        method: 'GET',
+        on400Error: async (res, error, options) => {
+          on400ErrorCalled = true;
+          // Read the response body (this would consume it)
+          const text = await res.text();
+          expect(text).toBeDefined();
+          return { retry: false };
+        },
+      });
+      expect.fail('Should have thrown an error');
+    } catch (error) {
+      expect(error).toBeInstanceOf(HttpRequestError);
+      expect(on400ErrorCalled).toBe(true);
+      
+      const httpError = error as HttpRequestError;
+      // Body should be available even though on400Error read the response
+      expect(httpError.body).toBeDefined();
+      expect(httpError.body?.error).toBeDefined();
+      expect(httpError.body?.error?.code).toBe('invalid_request');
+      expect(httpError.bodyText).toBeDefined();
+      expect(httpError.bodyText).toContain('invalid_request');
+    }
+  });
 });
 

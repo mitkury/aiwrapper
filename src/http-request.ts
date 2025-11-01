@@ -237,19 +237,26 @@ export const httpRequestWithRetry = async (
       const status = response.status;
       const error = new Error(`HTTP error! status: ${status}`);
 
+      // Parse response body once (body can only be read once)
+      // Clone response so on400Error can also read it if needed
+      let responseForCallback = response;
+      try {
+        responseForCallback = response.clone();
+      } catch {
+        // Clone failed (e.g., streaming response), use original
+      }
+      const bodyData = await parseResponseBody(response).catch(() => ({}));
+
       // Handle 400 errors with custom callback
       if (status === 400 && options.on400Error) {
         try {
-          const action = await options.on400Error(response, error, options);
-          // Parse body for error (may fail if on400Error already consumed it, that's okay)
-          const bodyData = await parseResponseBody(response).catch(() => ({}));
+          const action = await options.on400Error(responseForCallback, error, options);
           throw new HttpRequestError(`HTTP error! status: ${status}`, response, action, bodyData);
         } catch (customError) {
           // If on400Error throws, don't retry
           if (customError instanceof HttpRequestError) {
             throw customError;
           }
-          const bodyData = await parseResponseBody(response).catch(() => ({}));
           throw new HttpRequestError(`HTTP error! status: ${status}`, response, { retry: false }, bodyData);
         }
       }
@@ -263,8 +270,6 @@ export const httpRequestWithRetry = async (
         retry = false;
       }
 
-      // Parse response body for error (body can only be read once)
-      const bodyData = await parseResponseBody(response).catch(() => ({}));
       throw new HttpRequestError(`HTTP error! status: ${status}`, response, { retry }, bodyData);
     }
     return response;
