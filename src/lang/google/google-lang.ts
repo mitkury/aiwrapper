@@ -10,7 +10,7 @@ import { processServerEvents } from "../../process-server-events.ts";
 import { models, Model } from 'aimodels';
 import { LangContentPart, LangImageInput } from "../language-provider.ts";
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
-import { LangMessages, LangToolWithHandler } from "../messages.ts";
+import { LangMessages, LangToolWithHandler, LangMessage as ConversationMessage } from "../messages.ts";
 
 export type GoogleLangOptions = {
   apiKey: string;
@@ -48,12 +48,9 @@ export class GoogleLang extends LanguageProvider {
   ): Promise<LangMessages> {
     const messages = new LangMessages();
     if (this._systemPrompt) {
-      messages.push({
-        role: "user" as "user",
-        content: this._systemPrompt,
-      });
+      messages.push(new ConversationMessage("user", this._systemPrompt));
     }
-    messages.push({ role: "user", content: prompt });
+    messages.push(new ConversationMessage("user", prompt));
     return await this.chat(messages, options);
   }
 
