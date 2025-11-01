@@ -6,27 +6,21 @@ export interface LangProvider {
   lang: LanguageProvider;
 }
 
+/** Supported provider names */
+export type SupportedProvider = 'openai' | 'openrouter' | 'anthropic' | 'deepseek';
+
 export interface LangGathererOptions {
-  /** Include OpenAI Completions API */
-  includeOpenAI?: boolean;
-  /** Include OpenAI Responses API */
-  includeOpenAIResponses?: boolean;
-  /** Include OpenRouter */
-  includeOpenRouter?: boolean;
-  /** Include Anthropic */
-  includeAnthropic?: boolean;
-  /** Include DeepSeek */
-  includeDeepSeek?: boolean;
   /** Custom model overrides */
   modelOverrides?: {
     openai?: string;
-    openaiResponses?: string;
     openrouter?: string;
     anthropic?: string;
     deepseek?: string;
   };
   /** Specific providers to include (overrides other options) */
-  providers?: string[];
+  providers?: SupportedProvider[];
+  /** Override providers - if provided, only use these providers; otherwise use all available */
+  overrideProviders?: SupportedProvider[];
 }
 
 /**
@@ -59,30 +53,38 @@ function getProviderFilters(): string[] {
  * Gathers available language providers based on environment variables and options
  */
 export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider[] {
-  // Check for provider filters
+  // Check for provider filters from env/CLI
   const providerFilters = getProviderFilters();
   
   const {
-    includeOpenAI = true,
-    includeOpenRouter = true,
-    includeAnthropic = true,
-    includeDeepSeek = true,
     modelOverrides = {},
-    providers = providerFilters
+    providers,
+    overrideProviders
   } = options;
+
+  // Determine which providers to use
+  // If overrideProviders is explicitly provided and non-empty, use only those
+  // Otherwise, if providers is provided, use those
+  // Otherwise, if env/CLI filters exist, use those
+  // Otherwise, use all available providers
+  const activeProviders = (overrideProviders !== undefined && overrideProviders.length > 0)
+    ? overrideProviders 
+    : (providers ?? (providerFilters.length > 0 ? providerFilters : undefined));
 
   const langs: LanguageProvider[] = [];
 
   // Helper function to check if provider should be included
   const shouldIncludeProvider = (providerName: string): boolean => {
-    if (providers.length > 0) {
-      return providers.includes(providerName.toLowerCase());
+    // If activeProviders is undefined or empty, include all available providers
+    if (!activeProviders || activeProviders.length === 0) {
+      return true;
     }
-    return true;
+    // Otherwise, only include providers in the list
+    return activeProviders.map(p => p.toLowerCase()).includes(providerName.toLowerCase());
   };
 
   // OpenAI
-  if (includeOpenAI && process.env.OPENAI_API_KEY && shouldIncludeProvider('openai')) {
+  if (process.env.OPENAI_API_KEY && shouldIncludeProvider('openai')) {
     langs.push(Lang.openai({
       apiKey: process.env.OPENAI_API_KEY as string,
       model: modelOverrides.openai || 'gpt-5-nano'
@@ -90,7 +92,7 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
   }
 
   // OpenRouter
-  if (includeOpenRouter && process.env.OPENROUTER_API_KEY && shouldIncludeProvider('openrouter')) {
+  if (process.env.OPENROUTER_API_KEY && shouldIncludeProvider('openrouter')) {
     langs.push(Lang.openrouter({
       apiKey: process.env.OPENROUTER_API_KEY as string,
       model: modelOverrides.openrouter || 'google/gemini-2.5-flash'
@@ -98,7 +100,7 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
   }
 
   // Anthropic
-  if (includeAnthropic && process.env.ANTHROPIC_API_KEY && shouldIncludeProvider('anthropic')) {
+  if (process.env.ANTHROPIC_API_KEY && shouldIncludeProvider('anthropic')) {
     langs.push(Lang.anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY as string,
       model: modelOverrides.anthropic || 'claude-3-5-haiku-latest'
@@ -106,7 +108,7 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
   }
 
   // DeepSeek
-  if (includeDeepSeek && process.env.DEEPSEEK_API_KEY && shouldIncludeProvider('deepseek')) {
+  if (process.env.DEEPSEEK_API_KEY && shouldIncludeProvider('deepseek')) {
     langs.push(Lang.deepseek({
       apiKey: process.env.DEEPSEEK_API_KEY as string,
       model: modelOverrides.deepseek || 'deepseek-chat'
@@ -182,10 +184,19 @@ export function getAvailableLangsWithNames(options: LangGathererOptions = {}): L
 export function printAvailableProviders(options: LangGathererOptions = {}): void {
   const namedLangs = getAvailableLangsWithNames(options);
   const providerFilters = getProviderFilters();
+  const { overrideProviders, providers } = options;
   
   console.log('\n🔧 Available Language Providers:');
-  if (providerFilters.length > 0) {
-    console.log(`   Filtered by: ${providerFilters.join(', ')}`);
+  
+  // Show what filtering is active
+  if (overrideProviders !== undefined && overrideProviders.length > 0) {
+    console.log(`   Using overrideProviders: ${overrideProviders.join(', ')}`);
+  } else if (providers !== undefined) {
+    console.log(`   Using providers option: ${providers.length > 0 ? providers.join(', ') : '(empty - no providers)'}`);
+  } else if (providerFilters.length > 0) {
+    console.log(`   Filtered by env/CLI: ${providerFilters.join(', ')}`);
+  } else {
+    console.log(`   Using all available providers`);
   }
   
   if (namedLangs.length === 0) {

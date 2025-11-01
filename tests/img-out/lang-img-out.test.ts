@@ -6,13 +6,9 @@ import { writeFileSync } from 'fs';
 import { join } from 'path';
 
 describe('Lang - image in (providers)', () => {
-  // Focus on OpenAI (Responses), OpenRouter, Anthropic. Others will be picked up only if configured.
+  // Focus on OpenAI, OpenRouter, Anthropic. Others will be picked up only if configured.
   createLangTestRunner(runTest, {
-    includeOpenAI: true,
-    includeOpenAIResponses: true,
-    includeDeepSeek: false,
-    includeOpenRouter: false,
-    includeAnthropic: false,
+    overrideProviders: ['openai'],
     modelOverrides: {
       // Ensure OpenRouter uses an explicit provider/model path for vision
       //openrouter: 'openai/gpt-4o-mini',
