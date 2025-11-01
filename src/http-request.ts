@@ -38,11 +38,15 @@ export interface HttpRequestInit {
   referrerPolicy?: string;
 }
 
+export type HttpResponseOnErrorAction =
+  | { retry: true; consumeRetry?: boolean }
+  | { retry: false };
+
 export interface HttpResponseWithRetries extends HttpRequestInit {
   retries?: number;
   backoffMs?: number;
-  // Simplified API: throw an error to prevent retry, don't throw to use default behavior
-  onError?: (res: Response, error: Error) => Promise<void>;
+  maxBackoffMs?: number;
+  onError?: (res: Response, error: Error) => Promise<HttpResponseOnErrorAction>;
 }
 
 let _httpRequest = (
@@ -65,6 +69,11 @@ export const httpRequest = (
   return _httpRequest(url, options);
 };
 
+export class HttpRequestError extends Error {
+  constructor(message: string, public response: Response, public action: HttpResponseOnErrorAction) {
+    super(message);
+  }
+}
 
 export const httpRequestWithRetry = async (
   url: string | URL,
@@ -76,6 +85,9 @@ export const httpRequestWithRetry = async (
   if (options.backoffMs === undefined) {
     options.backoffMs = 100;
   }
+  if (options.maxBackoffMs === undefined) {
+    options.maxBackoffMs = 3000;
+  }
 
   try {
     const response = await httpRequest(url, options);
@@ -84,35 +96,48 @@ export const httpRequestWithRetry = async (
       if (options.onError) {
         try {
           const error = new Error(`HTTP error! status: ${response.status}`);
-          await options.onError(response, error);
-          // If onError doesn't throw, we'll continue with default behavior
+          const action = await options.onError(response, error);
+          throw new HttpRequestError(`HTTP error! status: ${response.status}`, response, action);
         } catch (customError) {
-          // Custom error handling - don't retry
-          throw customError;
+          // If onError throws, don't retry
+          if (customError instanceof HttpRequestError) {
+            throw customError;
+          }
+          throw new HttpRequestError(`HTTP error! status: ${response.status}`, response, { retry: false });
         }
-      }
+      } else {
+        let retry = true;
+        // Default behavior: don't retry 4xx errors, retry 5xx errors
+        // Because 500 errors are usually due to server issues, and we want to retry in that case
+        if (response.status >= 400 && response.status < 500) {
+          retry = false;
+        }
 
-      // Default behavior: don't retry 4xx errors, retry 5xx errors
-      if (response.status >= 400 && response.status < 500) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new HttpRequestError(`HTTP error! status: ${response.status}`, response, { retry });
       }
-
-      throw new Error(`HTTP error! status: ${response.status}`);
     }
     return response;
   } catch (error) {
-    // Check if this is a retryable error (5xx or network errors)
-    const isRetryable = !error.message.includes('status: 4') && 
-                       options.retries > 0;
+    if (error instanceof HttpRequestError) {
+      if (error.action.retry) {
+        // Check if we have retries left before attempting retry
+        if (options.retries <= 0) {
+          throw error;
+        }
 
-    if (isRetryable) {
-      options.retries -= 1;
-      options.backoffMs *= 2;
+        // Default consumeRetry to true when retry is true
+        // Only skip consuming if explicitly set to false
+        if (error.action.consumeRetry !== false) {
+          options.retries -= 1;
+        }
 
-      await new Promise((resolve) => setTimeout(resolve, options.backoffMs));
-      return httpRequestWithRetry(url, options);
-    } else {
-      throw error;
+        const targetBackoffMs = Math.min(options.backoffMs * 2, options.maxBackoffMs);
+        options.backoffMs = targetBackoffMs;
+        await new Promise((resolve) => setTimeout(resolve, targetBackoffMs));
+        return httpRequestWithRetry(url, options);
+      }
     }
+
+    throw error;
   }
 };
