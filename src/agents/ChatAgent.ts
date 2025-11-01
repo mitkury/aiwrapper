@@ -1,6 +1,6 @@
 import { Agent } from "./agent";
 import { LangMessage, LangMessages, LanguageProvider, ToolWithHandler } from "../lang/index.ts";
-import { LangTool } from "../lang/messages";
+import { LangMessageContent, LangMessageRole, LangTool } from "../lang/messages";
 
 export type ChatOutput = {
   answer: string;
@@ -12,7 +12,7 @@ export interface ChatStreamingEvent {
   data: { msg: LangMessage; idx: number };
 }
 
-export class ChatAgent extends Agent<LangMessages | LangMessage[], LangMessages, ChatStreamingEvent> {
+export class ChatAgent extends Agent<{ role: LangMessageRole; content: LangMessageContent }[] | LangMessages | LangMessage[], LangMessages, ChatStreamingEvent> {
   private lang?: LanguageProvider;
   private messages: LangMessages;
 
@@ -25,14 +25,12 @@ export class ChatAgent extends Agent<LangMessages | LangMessage[], LangMessages,
     });
   }
 
-  protected async runInternal(input: LangMessages | LangMessage[]): Promise<LangMessages> {
+  protected async runInternal(input: { role: LangMessageRole; content: LangMessageContent }[] | LangMessages | LangMessage[]): Promise<LangMessages> {
     if (input instanceof LangMessages) {
       this.messages = input;
     }
     else {
-      for (const message of input) {
-        this.messages.push(message);
-      }
+      this.messages.push(...new LangMessages(input));
     }
 
     if (!this.lang) {
@@ -64,7 +62,7 @@ export class ChatAgent extends Agent<LangMessages | LangMessage[], LangMessages,
       if (!lastMessageHasToolResults) {
         break;
       }
-      
+
       // Increment index for the next iteration since we'll be starting with new messages
       streamIdx++;
     }

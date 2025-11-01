@@ -1,0 +1,4 @@
+# Ignore generated images from tests
+*.png
+*.jpg
+*.jpeg

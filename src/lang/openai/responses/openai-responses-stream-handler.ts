@@ -93,9 +93,24 @@ export class OpenAIResponseStreamHandler {
           return;
         }
         if (item.role === 'assistant') {
-          for (const content of target.content) {
-            if (content.type === 'output_text') {
-              item.targetMessage.content = content.text as string;
+          // Ensure we use parts so image and text live in one message
+          if (!Array.isArray(item.targetMessage.content)) {
+            const existingText = typeof item.targetMessage.content === 'string' ? item.targetMessage.content : '';
+            item.targetMessage.content = existingText ? [{ type: 'text', text: existingText }] : [];
+          }
+          // If we already accumulated text via deltas, do not append again on 'done'
+          const alreadyStreamedText = typeof (item as any).text === 'string' && (item as any).text.length > 0;
+          if (!alreadyStreamedText) {
+            for (const content of target.content) {
+              if (content.type === 'output_text') {
+                const parts = item.targetMessage.content as any[];
+                const lastPart = parts.length > 0 ? parts[parts.length - 1] : undefined;
+                if (lastPart && lastPart.type === 'text') {
+                  lastPart.text += String(content.text ?? '');
+                } else {
+                  parts.push({ type: 'text', text: String(content.text ?? '') });
+                }
+              }
             }
           }
 
@@ -133,11 +148,21 @@ export class OpenAIResponseStreamHandler {
       case 'message':
 
         if (target.role === 'assistant') {
-          this.messages.addAssistantMessage(target.text ?? '');
-          target.targetMessage = this.messages[this.messages.length - 1];
-          // We set the openaiResponseId so we effectively respond to this message
-          // without re-sending all of the previous messages (check how we prepare input for the API when we send messages)
-          target.targetMessage.meta = { openaiResponseId: this.id };
+          // Reuse an existing trailing assistant message (possibly created by image events)
+          const last = this.messages.length > 0 ? this.messages[this.messages.length - 1] : undefined;
+          if (last && last.role === 'assistant') {
+            // Ensure it's parts to allow mixed content and set response id
+            if (!Array.isArray(last.content)) {
+              const existingText = typeof last.content === 'string' ? last.content : '';
+              (last as any).content = existingText ? [{ type: 'text', text: existingText }] : [];
+            }
+            last.meta = { ...(last.meta || {}), openaiResponseId: this.id };
+            target.targetMessage = last;
+          } else {
+            // Initialize as parts message to allow images + text together
+            this.messages.addAssistantContent([], { openaiResponseId: this.id });
+            target.targetMessage = this.messages[this.messages.length - 1];
+          }
           this.onResult?.(target.targetMessage);
         } else {
           console.warn('Unknown role:', target.role, 'for item:', target);
@@ -170,6 +195,9 @@ export class OpenAIResponseStreamHandler {
       });
       
       const last = this.messages[this.messages.length - 1];
+      if (last) {
+        last.meta = { ...(last.meta || {}), openaiResponseId: this.id };
+      }
       this.onResult?.(last);
     }
   }
@@ -192,6 +220,7 @@ export class OpenAIResponseStreamHandler {
       // Store metadata in the message
       const last = this.messages[this.messages.length - 1];
       if (!last.meta) last.meta = {};
+      last.meta.openaiResponseId = this.id;
       last.meta.imageGeneration = {
         size,
         format,
@@ -230,15 +259,26 @@ export class OpenAIResponseStreamHandler {
       }
 
       if (item.targetMessage) {
+        // Ensure parts structure to safely append text alongside images
+        if (!Array.isArray(item.targetMessage.content)) {
+          const existingText = typeof item.targetMessage.content === 'string' ? item.targetMessage.content : '';
+          item.targetMessage.content = existingText ? [{ type: 'text', text: existingText }] : [];
+        }
+
         if (typeof delta === "string") {
-          item.targetMessage.content += delta;
+          const parts = item.targetMessage.content as any[];
+          const lastPart = parts.length > 0 ? parts[parts.length - 1] : undefined;
+          if (lastPart && lastPart.type === 'text') {
+            lastPart.text += delta;
+          } else {
+            parts.push({ type: 'text', text: delta });
+          }
         } else {
           // @TODO: handle other delta types
           console.warn('Unknown delta type:', typeof delta, 'for item:', item);
         }
 
-        // This callback is reponsible for the real-time vizualizaiton of the model output.
-        // So we can show the output being generated in UIs.
+        // This callback is responsible for the real-time visualization of the model output.
         this.onResult?.(item.targetMessage);
       }
     }

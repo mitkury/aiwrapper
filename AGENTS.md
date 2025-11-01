@@ -73,14 +73,34 @@ const result = await lang.ask("Hello!");
 console.log(result.answer);
 ```
 
+### Use OpenRouter (Access 100+ Models)
+```javascript
+import { Lang } from "aiwrapper";
+
+// Basic OpenRouter usage
+const lang = Lang.openrouter({
+  apiKey: "YOUR_OPENROUTER_API_KEY",
+  model: "openai/gpt-4o", // Or any model from OpenRouter's catalog
+});
+
+// With optional site information for rankings
+const langWithSiteInfo = Lang.openrouter({
+  apiKey: "YOUR_OPENROUTER_API_KEY",
+  model: "anthropic/claude-3.5-sonnet",
+  siteUrl: "https://your-app.com", // Optional: appears on OpenRouter leaderboards
+  siteName: "Your App Name", // Optional: appears on OpenRouter leaderboards
+  systemPrompt: "You are a helpful assistant.",
+  maxTokens: 4000,
+});
+
+const result = await langWithSiteInfo.ask("Explain quantum computing in simple terms");
+console.log(result.answer);
+```
+
 ### Stream Results
 ```javascript
 await lang.ask("Hello, AI!", {
-  onResult: (msg) => {
-    if (typeof msg.content === "string") {
-      process.stdout.write(msg.content);
-    }
-  }
+  onResult: (msg) => console.log(msg)
 });
 ```
 
@@ -95,11 +115,7 @@ Write just the name. Nothing else aside from the name - no extra comments or cha
 const prompt = getPrompt("colorful socks");
 
 await lang.ask(prompt, {
-  onResult: (msg) => {
-    if (typeof msg.content === "string") {
-      process.stdout.write(msg.content);
-    }
-  }
+  onResult: (msg) => console.log(msg)
 });
 ```
 
@@ -278,7 +294,7 @@ When publishing, follow these steps in order:
   "type": "module",
   "name": "aiwrapper",
   "description": "A Universal AI Wrapper for JavaScript & TypeScript",
-  "version": "2.0.0-alpha.5",
+  "version": "2.0.0",
   "author": "Dmitry Kury (https://dkury.com)",
   "license": "MIT",
   "repository": {
@@ -326,7 +342,8 @@ When publishing, follow these steps in order:
     "aimodels": "^0.4.15",
     "ajv": "^8.17.1",
     "jsonic": "^2.16.0",
-    "zod": "^3.24.4"
+    "zod": "^3.24.4",
+    "zod-to-json-schema": "^3.24.6"
   },
   "devDependencies": {
     "@playwright/test": "^1.42.1",

@@ -3,14 +3,18 @@ import {
   LanguageProvider,
   LangContentPart,
   LangImageInput,
+  LangResponseSchema,
 } from "../language-provider.ts";
-import { LangMessages, LangMessage, LangTool } from "../messages.ts";
+import { LangMessages, LangMessage, LangTool, LangMessage as ConversationMessage } from "../messages.ts";
 import {
   httpRequestWithRetry as fetch,
 } from "../../http-request.ts";
 import { processServerEvents } from "../../process-server-events.ts";
 import { models, Model } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
+import zodToJsonSchema from "zod-to-json-schema";
+import { isZodSchema } from "../schema/schema-utils.ts";
+import { addInstructionAboutSchema } from "../prompt-for-json.ts";
 
 export type ReasoningEffort = "low" | "medium" | "high";
 
@@ -74,7 +78,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
         this._config.maxTokens
       );
     }
-    return this._config.maxTokens || 4000;
+    return this._config.maxTokens || 32000;
   }
 
   /** Build OpenAI-like request body including tools and json schema toggles */
@@ -87,12 +91,10 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     const base: Record<string, unknown> = {
       model: this._config.model,
       messages: providerMessages,
-      // Always stream internally to unify the code path
       stream: true,
       max_tokens: requestMaxTokens,
       ...this._config.bodyProperties,
       ...(messageCollection.availableTools ? { tools: this.formatTools(messageCollection.availableTools) } : {}),
-      ...(options?.schema ? { response_format: { type: 'json_object' } } : {}),
     };
     return this.transformBody(base);
   }
@@ -154,16 +156,10 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
   ): Promise<LangMessages> {
     const messages = new LangMessages();
     if (this._config.systemPrompt) {
-      messages.push({
-        role: "user" as "user",
-        content: this._config.systemPrompt,
-      });
+      messages.push(new ConversationMessage("user", this._config.systemPrompt));
     }
 
-    messages.push({
-      role: "user",
-      content: prompt,
-    });
+    messages.push(new ConversationMessage("user", prompt));
 
     return await this.chat(messages, options);
   }
@@ -193,6 +189,11 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     const result = messages instanceof LangMessages
       ? messages
       : new LangMessages(messages);
+
+    if (options?.schema) {
+      const baseInstruction = result.instructions + '\n\n' || '';
+      result.instructions = baseInstruction + addInstructionAboutSchema(options.schema);
+    }
 
     const requestMaxTokens = this.computeRequestMaxTokens(result);
     if (this.supportsReasoning() && this._config.maxCompletionTokens === undefined) {
@@ -334,7 +335,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
       result.addAssistantToolCalls([]);
       return result[result.length - 1];
     };
-    
+
     if (data.finished) {
       // Finalize any buffered tool arguments onto the last tool message
       if (toolArgBuffers && toolArgBuffers.size > 0) {

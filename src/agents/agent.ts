@@ -54,7 +54,7 @@ export abstract class Agent<TInput, TOutput, TCustomEvents = never> {
   }
 
   // Run the agent either with a new input or the provided in this.lastInput
-  async run(input?: TInput): Promise<TOutput | void> {
+  async run(input?: TInput): Promise<TOutput> {
     this.setState("running");
 
     try {      
@@ -69,7 +69,7 @@ export abstract class Agent<TInput, TOutput, TCustomEvents = never> {
   }
 
   // Set state and emit state change event
-  private setState(newState: AgentState): void {
+  private setState(newState: AgentState) {
     if (this._state !== newState) {
       this._state = newState;
       this.emit({ type: "state", state: newState });
@@ -77,7 +77,7 @@ export abstract class Agent<TInput, TOutput, TCustomEvents = never> {
   }
 
   // Emit events to all listeners
-  protected emit(event: AgentEvent<TOutput, TCustomEvents>): void {
+  protected emit(event: AgentEvent<TOutput, TCustomEvents>) {
     this.listeners.forEach(listener => {
       try {
         listener(event);
@@ -88,6 +88,5 @@ export abstract class Agent<TInput, TOutput, TCustomEvents = never> {
   }
 
   // Abstract method to be implemented by concrete agents
-  // Implementations can return TOutput for one-off tasks or void for long-running agents
-  protected abstract runInternal(input?: TInput): Promise<TOutput | void>;
+  protected abstract runInternal(input?: TInput): Promise<TOutput>;
 }

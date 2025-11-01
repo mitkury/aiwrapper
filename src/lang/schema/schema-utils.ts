@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { zodToJsonSchema as zodToJsonSchemaPkg } from 'zod-to-json-schema';
 import Ajv, { ErrorObject } from 'ajv';
 
 // Lazy singleton Ajv instance to avoid repeated construction
@@ -14,21 +15,21 @@ function getAjv(): Ajv {
  * Type guard to check if a value is a Zod schema
  */
 export function isZodSchema(schema: unknown): schema is z.ZodType {
-  return schema !== null && 
-         typeof schema === 'object' && 
-         'parse' in schema && 
-         'safeParse' in schema && 
-         typeof (schema as z.ZodType).parse === 'function' && 
-         typeof (schema as z.ZodType).safeParse === 'function';
+  return schema !== null &&
+    typeof schema === 'object' &&
+    'parse' in schema &&
+    'safeParse' in schema &&
+    typeof (schema as z.ZodType).parse === 'function' &&
+    typeof (schema as z.ZodType).safeParse === 'function';
 }
 
 /**
  * Type guard to check if a value is a JSON schema
  */
 export function isJsonSchema(schema: unknown): schema is Record<string, unknown> {
-  return schema !== null && 
-         typeof schema === 'object' && 
-         !isZodSchema(schema);
+  return schema !== null &&
+    typeof schema === 'object' &&
+    !isZodSchema(schema);
 }
 
 /**
@@ -40,8 +41,8 @@ export function validateAgainstSchema(value: unknown, schema: unknown): { valid:
     if (result.success) {
       return { valid: true, errors: [] };
     } else {
-      return { 
-        valid: false, 
+      return {
+        valid: false,
         errors: result.error.errors.map(err => `${err.path.join('.')}: ${err.message}`)
       };
     }
@@ -67,4 +68,11 @@ export function validateAgainstSchema(value: unknown, schema: unknown): { valid:
   } else {
     return { valid: false, errors: ["Invalid schema"] };
   }
+}
+
+/**
+ * Convert a subset of Zod schemas to JSON Schema (sufficient for common cases)
+ */
+export function zodToJsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
+  return zodToJsonSchemaPkg(schema) as unknown as Record<string, unknown>;
 }

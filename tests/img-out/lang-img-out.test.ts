@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, assert } from 'vitest';
 import { LangMessages, LanguageProvider } from 'aiwrapper';
 import { createLangTestRunner } from '../utils/lang-gatherer.js';
 import { readImageBase64 } from '../utils/test-images.ts';
@@ -10,6 +10,7 @@ describe('Lang - image in (providers)', () => {
   createLangTestRunner(runTest, {
     includeOpenAI: true,
     includeOpenAIResponses: true,
+    includeDeepSeek: false,
     includeOpenRouter: false,
     includeAnthropic: false,
     modelOverrides: {
@@ -29,28 +30,37 @@ async function runTest(lang: LanguageProvider) {
     messages.availableTools = [{ name: "image_generation" }];
     const res = await lang.chat(messages);
 
-    console.log('Generated images:', res.assistantImages.length);
-    
-    // Save the first generated image to a file
-    if (res.assistantImages.length > 0) {
-      const image = res.assistantImages[0];
-      if (image.base64) {
-        // Convert base64 to buffer and save
-        const buffer = Buffer.from(image.base64, 'base64');
-        const filename = `generated-image-${Date.now()}.${image.mimeType?.split('/')[1] || 'png'}`;
-        const filepath = join(process.cwd(), 'tests', 'img-out', filename);
-        
-        writeFileSync(filepath, buffer);
-        console.log(`Saved generated image to: ${filepath}`);
-        
-        // Verify the image was saved
-        expect(res.assistantImages.length).toBeGreaterThan(0);
-        expect(image.base64).toBeDefined();
-        expect(image.mimeType).toBeDefined();
-      }
-    } else {
-      console.log('No images generated');
+    const assistantImages = res.assistantImages;
+
+    assert(assistantImages && assistantImages.length > 0, 'No images generated');
+
+    const image = res.assistantImages[0];
+    if (image.base64) {
+      // Convert base64 to buffer and save
+      const buffer = Buffer.from(image.base64, 'base64');
+      const filename = `generated-image-${Date.now()}.${image.mimeType?.split('/')[1] || 'png'}`;
+      const filepath = join(process.cwd(), 'tests', 'img-out', filename);
+
+      writeFileSync(filepath, buffer);
+      console.log(`Saved generated image to: ${filepath}`);
+
+      // Verify the image was saved
+      expect(res.assistantImages.length).toBeGreaterThan(0);
+      expect(image.base64).toBeDefined();
+      expect(image.mimeType).toBeDefined();
     }
+    
+    // Validate single consolidated assistant message (image + optional text)
+    const last = res[res.length - 1];
+    expect(last.role).toBe('assistant');
+    expect(Array.isArray(last.content)).toBe(true);
+    const parts = last.content as any[];
+    const hasImage = parts.some(p => p && p.type === 'image');
+    expect(hasImage).toBe(true);
+    // Ensure we didn't split into two assistant messages at the end
+    const prev = res.length > 1 ? res[res.length - 2] : undefined;
+    expect(prev?.role).not.toBe('assistant');
+
   });
 }
 

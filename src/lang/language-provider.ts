@@ -5,7 +5,7 @@ import {
   validateAgainstSchema 
 } from "./schema/schema-utils.ts";
 import { LangMessages } from "./messages.ts";
-import type { LangMessage } from "./messages.ts";
+import type { LangMessage, LangMessageContent, LangMessageRole } from "./messages.ts";
 
 // Export zod for convenience
 export { z };
@@ -13,7 +13,7 @@ export { z };
 /**
  * Type for any supported schema (Zod or JSON Schema)
  */
-export type Schema = z.ZodType | Record<string, unknown>;
+export type LangResponseSchema = z.ZodType | Record<string, unknown>;
 
 // Re-export message types from messages.ts to keep public API stable
 export type { LangMessage, LangContentPart, LangContentImage as LangImageInput } from "./messages.ts";
@@ -36,7 +36,7 @@ export type LangImageOutput = {
  * Options that can be passed to language model methods
  */
 export interface LangOptions {
-  schema?: Schema;
+  schema?: LangResponseSchema;
   
   // Streaming callback
   onResult?: (result: LangMessage) => void;
@@ -82,7 +82,7 @@ export abstract class LanguageProvider {
    * Continue a conversation
    */
   abstract chat(
-    messages: LangMessage[] | LangMessages,
+    messages: { role: LangMessageRole; content: LangMessageContent }[] | LangMessage[] | LangMessages,
     options?: LangOptions,
   ): Promise<LangMessages>;
 
@@ -91,8 +91,8 @@ export abstract class LanguageProvider {
    * Supports both Zod schemas and JSON Schema objects
    */
   async askForObject(
-    prompt: string | LangMessage[] | LangMessages,
-    schema: Schema,
+    prompt: string | { role: LangMessageRole; content: LangMessageContent }[] | LangMessage[] | LangMessages,
+    schema: LangResponseSchema,
     options?: LangOptions,
   ): Promise<LangMessages> {
     // Create a message collection with the prompt
@@ -109,23 +109,6 @@ export abstract class LanguageProvider {
 
     // Call chat with schema to allow providers to use native structured output options
     const result = await this.chat(messages, { ...options, schema });
-
-    // Post-process: try to parse JSON object from the answer and validate
-    const maybeObject = extractJSON(result.answer);
-    if (maybeObject !== null) {
-      const validation = validateAgainstSchema(maybeObject, schema);
-      if (validation.valid) {
-        result.object = maybeObject;
-        result.validationErrors = [];
-      } else {
-        result.object = null;
-        result.validationErrors = validation.errors;
-      }
-    } else {
-      // Could not parse JSON
-      result.object = null;
-      result.validationErrors = ["Failed to parse JSON from the model response"];
-    }
 
     return result;
   }

@@ -14,7 +14,7 @@ export type OpenRouterLangOptions = {
 
 export class OpenRouterLang extends OpenAIChatCompletionsLang {
   constructor(options: OpenRouterLangOptions) {
-    const modelName = options.model || "openai/gpt-4o-mini"; // Updated to a more recent default
+    const modelName = options.model || "openai/gpt-5-mini";
     
     // Build headers with OpenRouter-specific optional headers
     const headers: Record<string, string> = {
