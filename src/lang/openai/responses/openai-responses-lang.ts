@@ -76,7 +76,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
     } else {
       return {
         type: "json_schema",
-        json_schema: schema 
+        json_schema: schema
       };
     }
   }
@@ -115,6 +115,23 @@ export class OpenAIResponsesLang extends LanguageProvider {
         }
         if (res.status === 400) {
           const data = await res.text();
+
+          const dataObj = JSON.parse(data);
+
+          if (dataObj.error?.code?.contains('previous_response_not_found')) {
+            // @TODO: detect if the error is because of an outdated response_id
+            // And in that case re-build the request body without the previous_response_id
+
+            console.log('Previous response not found, rebuilding request body without previous_response_id');
+            /*
+            // In this case we need to re-build the request body without the previous_response_id
+            const newBody = this.buildRequestBody(msgCollection, options);
+            newBody.previous_response_id = undefined;
+            return this.sendToApi(msgCollection, options);
+            */
+          }
+
+
           throw new Error(data);
         }
         // For other errors, let the default retry behavior handle it
