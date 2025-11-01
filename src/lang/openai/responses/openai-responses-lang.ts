@@ -68,21 +68,21 @@ export class OpenAIResponsesLang extends LanguageProvider {
         text: {
           format: {
             type: "json_schema",
-            name: "name_thing",
+            name: "response_schema",
             schema: jsonSchema
           }
         }
-      } as any;
+      };
     } else {
       return {
         type: "json_schema",
-        json_schema: schema as any
+        json_schema: schema 
       };
     }
   }
 
   private buildRequestBody(msgCollection: LangMessages, options?: LangOptions): Record<string, unknown> {
-    let structuredOutput = this.buildStructuredOutput(options?.schema);
+    const structuredOutput = this.buildStructuredOutput(options?.schema);
     const bodyPart = prepareBodyPartForOpenAIResponsesAPI(msgCollection);
 
     return {

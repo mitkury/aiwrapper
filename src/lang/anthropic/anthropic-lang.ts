@@ -85,8 +85,8 @@ export class AnthropicLang extends LanguageProvider {
       : new LangMessages(messages);
 
     if (options?.schema) {
-      const baseInstruction = messageCollection.instructions || '';
-      messageCollection.instructions = baseInstruction + '\n\n' + addInstructionAboutSchema(
+      const baseInstruction = messageCollection.instructions + '\n\n' || '';
+      messageCollection.instructions = baseInstruction + addInstructionAboutSchema(
         options.schema
       );
     }
