@@ -47,6 +47,9 @@ export interface HttpResponseWithRetries extends HttpRequestInit {
   backoffMs?: number;
   maxBackoffMs?: number;
   onError?: (res: Response, error: Error) => Promise<HttpResponseOnErrorAction>;
+  // Internal: tracks total attempts to prevent infinite loops (not part of public API)
+  _attemptCount?: number;
+  _maxTotalAttempts?: number;
 }
 
 let _httpRequest = (
@@ -70,7 +73,7 @@ export const httpRequest = (
 };
 
 export class HttpRequestError extends Error {
-  constructor(message: string, public response: Response, public action: HttpResponseOnErrorAction) {
+  constructor(message: string, public response: Response | null, public action: HttpResponseOnErrorAction) {
     super(message);
   }
 }
@@ -79,6 +82,7 @@ export const httpRequestWithRetry = async (
   url: string | URL,
   options: HttpResponseWithRetries,
 ): Promise<Response> => {
+  // Initialize defaults (mutates options object)
   if (options.retries === undefined) {
     options.retries = 6;
   }
@@ -88,6 +92,16 @@ export const httpRequestWithRetry = async (
   if (options.maxBackoffMs === undefined) {
     options.maxBackoffMs = 3000;
   }
+
+  // Track total attempts to prevent infinite loops when consumeRetry: false
+  // Initialize on first call only
+  if (options._maxTotalAttempts === undefined) {
+    options._maxTotalAttempts = (options.retries || 6) + 1; // Initial attempt + retries
+    options._attemptCount = 0;
+  }
+
+  // Increment attempt count (tracks total attempts, not just retries)
+  options._attemptCount = (options._attemptCount || 0) + 1;
 
   try {
     const response = await httpRequest(url, options);
@@ -118,10 +132,25 @@ export const httpRequestWithRetry = async (
     }
     return response;
   } catch (error) {
+    // Handle network errors (no Response object) - treat as retryable
+    if (!(error instanceof HttpRequestError)) {
+      // Network errors (timeout, DNS, connection refused, etc.) should be retried
+      throw new HttpRequestError(
+        error instanceof Error ? error.message : String(error),
+        null,
+        { retry: true }
+      );
+    }
+
     if (error instanceof HttpRequestError) {
       if (error.action.retry) {
-        // Check if we have retries left before attempting retry
-        if (options.retries <= 0) {
+        // Prevent infinite retry loops (attemptCount already incremented above)
+        if (options._attemptCount! >= options._maxTotalAttempts!) {
+          throw error;
+        }
+
+        // Check if we have retries left (for consumeRetry: true case)
+        if (options.retries <= 0 && error.action.consumeRetry !== false) {
           throw error;
         }
 
