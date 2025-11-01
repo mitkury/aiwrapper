@@ -8,7 +8,7 @@ import {
   LangResult,
   LanguageProvider,
 } from "../language-provider.ts";
-import { LangMessages } from "../messages.ts";
+import { LangMessages, LangMessage as ConversationMessage } from "../messages.ts";
 import { models, Model } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
 
@@ -50,16 +50,10 @@ export class CohereLang extends LanguageProvider {
     const messages = new LangMessages();
 
     if (this._systemPrompt) {
-      messages.push({
-        role: "user" as "user",
-        content: this._systemPrompt,
-      });
+      messages.push(new ConversationMessage("user", this._systemPrompt));
     }
 
-    messages.push({
-      role: "user",
-      content: prompt,
-    });
+    messages.push(new ConversationMessage("user", prompt));
 
     return await this.chat(messages, options);
   }
