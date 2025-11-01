@@ -115,15 +115,6 @@ export class AnthropicLang extends LanguageProvider {
         "x-api-key": this._config.apiKey
       },
       body: JSON.stringify(requestBody),
-      onError: async (res: Response, error: Error): Promise<void> => {
-        if (res.status === 401) {
-          throw new Error("API key is invalid. Please check your API key and try again.");
-        }
-        if (res.status === 400) {
-          const data = await res.text();
-          throw new Error(data);
-        }
-      },
     } as any).catch((err) => { throw new Error(err); });
 
     const streamState: StreamState = {

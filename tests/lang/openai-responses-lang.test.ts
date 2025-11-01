@@ -20,7 +20,7 @@ async function runTest(lang: LanguageProvider) {
 
     // Here we simulate that the last message has an outdated/wrong openaiResponseId
     // We we expect the provider to handle this and continue the conversation
-    messages[messages.length - 1].meta = {
+    messages[messages.length - 2].meta = {
       openaiResponseId: 'resp_wrong-response-id'
     };
 

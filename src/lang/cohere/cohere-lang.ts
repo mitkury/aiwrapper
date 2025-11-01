@@ -97,20 +97,6 @@ export class CohereLang extends LanguageProvider {
         "Accept": "text/event-stream",
       },
       body: JSON.stringify(requestBody),
-      onError: async (res: Response, error: Error): Promise<void> => {
-        if (res.status === 401) {
-          throw new Error(
-            "API key is invalid. Please check your API key and try again.",
-          );
-        }
-
-        if (res.status === 400 || res.status === 422) {
-          const data = await res.text();
-          throw new Error(data);
-        }
-
-        // For other errors, let the default retry behavior handle it
-      },
     }).catch((err) => {
       throw new Error(err);
     });

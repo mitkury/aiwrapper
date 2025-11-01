@@ -111,18 +111,6 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
         ...this._config.headers,
       },
       body: JSON.stringify(body),
-      onError: async (res: Response, _error: Error): Promise<void> => {
-        if (res.status === 401) {
-          throw new Error(
-            "Authentication failed. Please check your credentials and try again.",
-          );
-        }
-        if (res.status === 400) {
-          const data = await res.text();
-          throw new Error(data);
-        }
-        // For other errors, let the default retry behavior handle it
-      },
     } as const;
   }
 

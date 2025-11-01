@@ -42,11 +42,52 @@ export type HttpResponseOnErrorAction =
   | { retry: true; consumeRetry?: boolean }
   | { retry: false };
 
+/**
+ * Options for httpRequestWithRetry that adds automatic retry logic.
+ * 
+ * Retry behavior:
+ * - Network errors (timeout, DNS failures, etc.) are automatically retried
+ * - HTTP 400 errors: can use `on400Error` callback to fix the request and retry, otherwise not retried
+ * - HTTP 429 errors: always retried (rate limiting is usually temporary)
+ * - HTTP 4xx errors (other): not retried by default (client errors that won't fix themselves)
+ * - HTTP 5xx errors: always retried (server errors are usually transient)
+ * 
+ * Custom 400 error handling:
+ * - Use `on400Error` to inspect the error response and potentially fix the request:
+ *   - `{ retry: true }` - fix the request and retry (consumes one retry attempt)
+ *   - `{ retry: true, consumeRetry: false }` - fix the request and retry without consuming budget
+ *   - `{ retry: false }` - don't retry, throw immediately
+ * 
+ * Retry limits:
+ * - `retries` - maximum number of retry attempts that can be consumed (default: 6)
+ * - Total attempts are capped at `retries + 1` (initial + retries) to prevent infinite loops
+ *   when using `consumeRetry: false`
+ * 
+ * Backoff:
+ * - Exponential backoff starts at `backoffMs` (default: 100ms) and doubles each retry
+ * - Capped at `maxBackoffMs` (default: 3000ms)
+ * - If `Retry-After` header is present in the response (e.g., 429, 503), uses that value
+ *   instead of exponential backoff. Supports both seconds format and HTTP date format.
+ * 
+ * Note: The options object is mutated during execution (retries countdown, backoff increases).
+ */
 export interface HttpResponseWithRetries extends HttpRequestInit {
   retries?: number;
   backoffMs?: number;
   maxBackoffMs?: number;
-  onError?: (res: Response, error: Error) => Promise<HttpResponseOnErrorAction>;
+  /**
+   * Called when a 400 Bad Request error occurs. Allows fixing the request and retrying.
+   * Examples: adding missing headers, fixing data format, handling API version mismatches.
+   * 
+   * You can modify the `options` object (e.g., `options.body`, `options.headers`) to fix
+   * the request before retrying. The modified options will be used in the retry.
+   * 
+   * @param res - The HTTP response with status 400
+   * @param error - Error object with status information
+   * @param options - The request options object (can be mutated to fix the request)
+   * @returns Action indicating whether to retry and whether to consume retry budget
+   */
+  on400Error?: (res: Response, error: Error, options: HttpResponseWithRetries) => Promise<HttpResponseOnErrorAction>;
   // Internal: tracks total attempts to prevent infinite loops (not part of public API)
   _attemptCount?: number;
   _maxTotalAttempts?: number;
@@ -78,6 +119,46 @@ export class HttpRequestError extends Error {
   }
 }
 
+/**
+ * Parses the Retry-After header value and returns the delay in milliseconds.
+ * Supports both formats:
+ * - Seconds as number: "60" → 60000ms
+ * - HTTP date: "Wed, 21 Oct 2015 07:28:00 GMT" → milliseconds until that date
+ */
+function parseRetryAfter(retryAfter: string): number {
+  // Try parsing as seconds (number)
+  const seconds = parseInt(retryAfter, 10);
+  if (!isNaN(seconds) && seconds > 0) {
+    return seconds * 1000;
+  }
+
+  // Try parsing as HTTP date
+  const date = new Date(retryAfter);
+  if (!isNaN(date.getTime())) {
+    const now = Date.now();
+    const delayMs = date.getTime() - now;
+    // Return at least 0 (if date is in the past, don't wait)
+    return Math.max(0, delayMs);
+  }
+
+  // Fallback: if parsing fails, return 0 (don't wait)
+  return 0;
+}
+
+/**
+ * Performs an HTTP request with automatic retry logic and exponential backoff.
+ * 
+ * Why use this instead of plain fetch?
+ * - Network errors (timeouts, DNS failures, connection issues) are common in production
+ *   and should be automatically retried rather than failing immediately
+ * - HTTP 5xx errors often indicate temporary server issues that resolve on retry
+ * - Exponential backoff prevents overwhelming servers during outages or rate limiting
+ * - Custom error handling allows fine-grained control over retry behavior per error type
+ * - Provides a unified interface that works across different environments (Node.js, browsers, etc.)
+ * 
+ * This function wraps httpRequest (which can be configured for different HTTP implementations)
+ * and adds retry logic with configurable backoff and error handling strategies.
+ */
 export const httpRequestWithRetry = async (
   url: string | URL,
   options: HttpResponseWithRetries,
@@ -106,29 +187,33 @@ export const httpRequestWithRetry = async (
   try {
     const response = await httpRequest(url, options);
     if (!response.ok) {
-      // Handle custom error logic
-      if (options.onError) {
+      const status = response.status;
+      const error = new Error(`HTTP error! status: ${status}`);
+
+      // Handle 400 errors with custom callback
+      if (status === 400 && options.on400Error) {
         try {
-          const error = new Error(`HTTP error! status: ${response.status}`);
-          const action = await options.onError(response, error);
-          throw new HttpRequestError(`HTTP error! status: ${response.status}`, response, action);
+          const action = await options.on400Error(response, error, options);
+          throw new HttpRequestError(`HTTP error! status: ${status}`, response, action);
         } catch (customError) {
-          // If onError throws, don't retry
+          // If on400Error throws, don't retry
           if (customError instanceof HttpRequestError) {
             throw customError;
           }
-          throw new HttpRequestError(`HTTP error! status: ${response.status}`, response, { retry: false });
+          throw new HttpRequestError(`HTTP error! status: ${status}`, response, { retry: false });
         }
-      } else {
-        let retry = true;
-        // Default behavior: don't retry 4xx errors, retry 5xx errors
-        // Because 500 errors are usually due to server issues, and we want to retry in that case
-        if (response.status >= 400 && response.status < 500) {
-          retry = false;
-        }
-
-        throw new HttpRequestError(`HTTP error! status: ${response.status}`, response, { retry });
       }
+
+      // Default behavior based on status code
+      let retry = true;
+      // 429 (Too Many Requests) should be retried - rate limiting is usually temporary
+      // Other 4xx errors (client errors) are not retried, except if on400Error handled it above
+      // 5xx errors (server errors) are retried - they're usually transient
+      if (status >= 400 && status < 500 && status !== 429) {
+        retry = false;
+      }
+
+      throw new HttpRequestError(`HTTP error! status: ${status}`, response, { retry });
     }
     return response;
   } catch (error) {
@@ -160,9 +245,31 @@ export const httpRequestWithRetry = async (
           options.retries -= 1;
         }
 
+        // Check for Retry-After header (429, 503 responses may include this)
+        let delayMs: number;
         const targetBackoffMs = Math.min(options.backoffMs * 2, options.maxBackoffMs);
-        options.backoffMs = targetBackoffMs;
-        await new Promise((resolve) => setTimeout(resolve, targetBackoffMs));
+        
+        if (error.response) {
+          const retryAfter = error.response.headers.get('retry-after');
+          if (retryAfter) {
+            const retryAfterMs = parseRetryAfter(retryAfter);
+            // Use Retry-After if valid (> 0), otherwise fall back to exponential backoff
+            delayMs = retryAfterMs > 0 ? retryAfterMs : targetBackoffMs;
+          } else {
+            // Use exponential backoff if no Retry-After header
+            delayMs = targetBackoffMs;
+          }
+        } else {
+          // No response (network error), use exponential backoff
+          delayMs = targetBackoffMs;
+        }
+
+        // Update backoff for next retry (only if not using Retry-After or Retry-After was invalid)
+        if (delayMs === targetBackoffMs) {
+          options.backoffMs = targetBackoffMs;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
         return httpRequestWithRetry(url, options);
       }
     }

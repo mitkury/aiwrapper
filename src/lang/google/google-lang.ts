@@ -140,20 +140,6 @@ export class GoogleLang extends LanguageProvider {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(requestBody),
-        onError: async (res: Response, error: Error): Promise<void> => {
-          if (res.status === 401) {
-            throw new Error(
-              "API key is invalid. Please check your API key and try again.",
-            );
-          }
-
-          if (res.status === 400) {
-            const data = await res.text();
-            throw new Error(data);
-          }
-
-          // For other errors, let the default retry behavior handle it
-        },
       },
     ).catch((err) => {
       throw new Error(err);

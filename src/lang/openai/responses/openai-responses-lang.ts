@@ -7,6 +7,7 @@ import { OpenAIResponseStreamHandler } from "./openai-responses-stream-handler.t
 import { isZodSchema, validateAgainstSchema, zodToJsonSchema } from "../../schema/schema-utils.ts";
 import {
   httpRequestWithRetry as fetch,
+  HttpResponseWithRetries,
 } from "../../../http-request.ts";
 
 
@@ -107,34 +108,32 @@ export class OpenAIResponsesLang extends LanguageProvider {
         ...options?.providerSpecificHeaders,
       },
       body: JSON.stringify(body),
-      onError: async (res: Response, _error: Error): Promise<void> => {
-        if (res.status === 401) {
-          throw new Error(
-            "Authentication failed. Please check your credentials and try again.",
-          );
-        }
-        if (res.status === 400) {
-          const data = await res.text();
+      on400Error: async (res: Response, _error: Error, reqOptions: HttpResponseWithRetries) => {
+        const data = await res.text();
+        const dataObj = JSON.parse(data);
 
-          const dataObj = JSON.parse(data);
-
-          if (dataObj.error?.code?.contains('previous_response_not_found')) {
-            // @TODO: detect if the error is because of an outdated response_id
-            // And in that case re-build the request body without the previous_response_id
-
-            console.log('Previous response not found, rebuilding request body without previous_response_id');
-            /*
-            // In this case we need to re-build the request body without the previous_response_id
+        if (dataObj.error?.code?.includes('previous_response_not_found')) {
+          // Find the last message with openaiResponseId by iterating backwards
+          let lastMessageWithResponseId: LangMessage | undefined;
+          for (let i = msgCollection.length - 1; i >= 0; i--) {
+            if (msgCollection[i].meta?.openaiResponseId) {
+              lastMessageWithResponseId = msgCollection[i];
+              break;
+            }
+          }
+          
+          if (lastMessageWithResponseId) {
+            delete lastMessageWithResponseId.meta.openaiResponseId;
+            // Build new body that contains all messages (with the response id removed)
             const newBody = this.buildRequestBody(msgCollection, options);
-            newBody.previous_response_id = undefined;
-            return this.sendToApi(msgCollection, options);
-            */
+            reqOptions.body = JSON.stringify(newBody);
           }
 
-
-          throw new Error(data);
+          return { retry: true };
         }
-        // For other errors, let the default retry behavior handle it
+
+        // For other 400 errors, don't retry - the request is malformed
+        throw new Error(data);
       },
     };
 

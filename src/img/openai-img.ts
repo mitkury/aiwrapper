@@ -39,10 +39,6 @@ export class OpenAIImg {
         Authorization: `Bearer ${this._apiKey}`,
       },
       body: JSON.stringify(body),
-      onError: async (res: Response, error: Error): Promise<void> => {
-        if (res.status === 401) { throw new Error('Authentication failed.'); }
-        if (res.status === 400) { const data = await res.text(); throw new Error(data); }
-      }
     });
 
     const json: any = await response.json();
@@ -71,10 +67,6 @@ export class OpenAIImg {
       method: 'POST',
       headers: { Authorization: `Bearer ${this._apiKey}` },
       body: form as any,
-      onError: async (res: Response, error: Error): Promise<void> => {
-        if (res.status === 401) { throw new Error('Authentication failed.'); }
-        if (res.status === 400) { const data = await res.text(); throw new Error(data); }
-      }
     });
 
     const json: any = await response.json();
@@ -103,10 +95,6 @@ export class OpenAIImg {
       method: 'POST',
       headers: { Authorization: `Bearer ${this._apiKey}` },
       body: form as any,
-      onError: async (res: Response, error: Error): Promise<void> => {
-        if (res.status === 401) { throw new Error('Authentication failed.'); }
-        if (res.status === 400) { const data = await res.text(); throw new Error(data); }
-      }
     });
 
     const json: any = await response.json();
