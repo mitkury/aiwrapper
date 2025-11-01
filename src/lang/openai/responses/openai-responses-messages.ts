@@ -109,7 +109,14 @@ export function transformMessageToResponsesItem(message: LangMessage): any {
           text: (part as any).text
         });
       } else if ((part as any).type === 'image') {
-        entry.content.push(mapImageInput((part as any).image));
+        if (isAssistant) {
+          // For assistant messages, images must be converted to output_text format
+          // (Responses API only supports output_text or refusal for assistant content)
+          entry.content.push(mapImageOutput((part as any).image));
+        } else {
+          // For user/system messages, use input_image format
+          entry.content.push(mapImageInput((part as any).image));
+        }
       }
     }
   } else {
@@ -181,6 +188,31 @@ export function mapImageInput(image: LangContentImage): any {
     return { type: 'input_image', image_url: dataUrl };
   }
   throw new Error('Unsupported image kind for Responses mapping');
+}
+
+/**
+ * Maps assistant images to output_text format for Responses API.
+ * Assistant messages can only contain output_text or refusal, not input_image.
+ */
+export function mapImageOutput(image: LangContentImage): any {
+  const kind: any = (image as any).kind;
+  if (kind === 'url') {
+    const url = (image as any).url as string;
+    return {
+      type: 'output_text',
+      text: url
+    };
+  }
+  if (kind === 'base64') {
+    const base64 = (image as any).base64 as string;
+    const mimeType = (image as any).mimeType || 'image/png';
+    const dataUrl = `data:${mimeType};base64,${base64}`;
+    return {
+      type: 'output_text',
+      text: dataUrl
+    };
+  }
+  throw new Error(`Unsupported image kind '${kind}' for assistant messages in Responses API`);
 }
 
 export function transformToolsForProvider(tools: LangTool[]): any[] {
