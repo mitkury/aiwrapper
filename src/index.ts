@@ -17,3 +17,12 @@ export * from "./img/img.ts";
 
 // Agents
 export * from "./agents/index.ts";
+
+// HTTP Request utilities
+export {
+  httpRequestWithRetry,
+  HttpRequestError,
+  setHttpRequestImpl,
+  type HttpResponseWithRetries,
+  type HttpResponseOnErrorAction,
+} from "./http-request.ts";

@@ -113,9 +113,56 @@ export const httpRequest = (
   return _httpRequest(url, options);
 };
 
+/**
+ * Helper function to parse response body as JSON or text.
+ * Attempts JSON first, falls back to text if parsing fails.
+ */
+async function parseResponseBody(response: Response): Promise<{ json?: any; text?: string }> {
+  const contentType = response.headers.get('content-type') || '';
+  const isJson = contentType.includes('application/json');
+  
+  try {
+    const text = await response.text();
+    if (isJson && text) {
+      try {
+        return { json: JSON.parse(text), text };
+      } catch {
+        // JSON parse failed, return as text
+        return { text };
+      }
+    }
+    return { text };
+  } catch {
+    // Body read failed
+    return {};
+  }
+}
+
 export class HttpRequestError extends Error {
-  constructor(message: string, public response: Response | null, public action: HttpResponseOnErrorAction) {
+  /**
+   * Parsed JSON body if the response was JSON, otherwise undefined.
+   * Only available if response was present and parseable.
+   */
+  public body?: any;
+  
+  /**
+   * Raw text body if available.
+   * Only available if response was present and body could be read.
+   */
+  public bodyText?: string;
+
+  constructor(
+    message: string,
+    public response: Response | null,
+    public action: HttpResponseOnErrorAction,
+    bodyData?: { json?: any; text?: string }
+  ) {
     super(message);
+    
+    if (bodyData) {
+      this.body = bodyData.json;
+      this.bodyText = bodyData.text;
+    }
   }
 }
 
@@ -194,13 +241,16 @@ export const httpRequestWithRetry = async (
       if (status === 400 && options.on400Error) {
         try {
           const action = await options.on400Error(response, error, options);
-          throw new HttpRequestError(`HTTP error! status: ${status}`, response, action);
+          // Parse body for error (may fail if on400Error already consumed it, that's okay)
+          const bodyData = await parseResponseBody(response).catch(() => ({}));
+          throw new HttpRequestError(`HTTP error! status: ${status}`, response, action, bodyData);
         } catch (customError) {
           // If on400Error throws, don't retry
           if (customError instanceof HttpRequestError) {
             throw customError;
           }
-          throw new HttpRequestError(`HTTP error! status: ${status}`, response, { retry: false });
+          const bodyData = await parseResponseBody(response).catch(() => ({}));
+          throw new HttpRequestError(`HTTP error! status: ${status}`, response, { retry: false }, bodyData);
         }
       }
 
@@ -213,7 +263,9 @@ export const httpRequestWithRetry = async (
         retry = false;
       }
 
-      throw new HttpRequestError(`HTTP error! status: ${status}`, response, { retry });
+      // Parse response body for error (body can only be read once)
+      const bodyData = await parseResponseBody(response).catch(() => ({}));
+      throw new HttpRequestError(`HTTP error! status: ${status}`, response, { retry }, bodyData);
     }
     return response;
   } catch (error) {
