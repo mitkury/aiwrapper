@@ -1,5 +1,5 @@
 import { Agent } from "./agent";
-import { LangMessage, LangMessages, LanguageProvider, ToolWithHandler } from "../lang/index.ts";
+import { LangMessage, LangMessages, LanguageProvider } from "../lang/index.ts";
 import { LangMessageContent, LangMessageRole, LangTool } from "../lang/messages";
 
 export type ChatOutput = {
@@ -14,7 +14,7 @@ export interface ChatStreamingEvent {
 
 export class ChatAgent extends Agent<{ role: LangMessageRole; content: LangMessageContent }[] | LangMessages | LangMessage[], LangMessages, ChatStreamingEvent> {
   private lang?: LanguageProvider;
-  private messages: LangMessages;
+  messages: LangMessages;
 
   constructor(lang?: LanguageProvider, options?: { tools?: LangTool[] }) {
     super();
