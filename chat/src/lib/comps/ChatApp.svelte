@@ -16,8 +16,13 @@
   agent.messages.availableTools = tools;
   let agentIsRunning = $state(false);
   let messages: LangMessage[] = $state([]);
-  let inspectionIsOn = $state(false);
-  let jsonViewIsOn = $state(false);
+  type Mode = "chat" | "inspect" | "json";
+  let mode: Mode = $state("chat");
+  const modeOptions: { id: Mode; label: string }[] = [
+    { id: "chat", label: "Chat" },
+    { id: "inspect", label: "Inspect" },
+    { id: "json", label: "JSON" }
+  ];
 
   const waitForResponse = $derived.by(() => { 
     if (messages.length === 0) return false;
@@ -66,26 +71,18 @@
   }
 
   function handleClear() {
+    console.log("handleClear");
     agent.messages.splice(0, agent.messages.length);
     agent.messages.availableTools = tools;
     messages = [];
     agentIsRunning = false;
-    inspectionIsOn = false;
-    jsonViewIsOn = false;
+    mode = "chat";
+
+    saveMessages();
   }
 
-  function handleInspectToggle(event: CustomEvent<{ active: boolean }>) {
-    inspectionIsOn = event.detail.active;
-    if (inspectionIsOn) {
-      jsonViewIsOn = false;
-    }
-  }
-
-  function handleJsonToggle(event: CustomEvent<{ active: boolean }>) {
-    jsonViewIsOn = event.detail.active;
-    if (jsonViewIsOn) {
-      inspectionIsOn = false;
-    }
+  function setMode(nextMode: Mode) {
+    mode = nextMode;
   }
 
   function saveMessages() {
@@ -107,19 +104,28 @@
 <div class="min-h-screen text-neutral-900 flex flex-col">
   <div class="mx-auto w-full max-w-3xl flex-1 flex flex-col px-4">
     <div class="sticky top-0 z-10 flex items-center gap-2 bg-white py-2">
+      <div class="inline-flex items-center gap-1 rounded-full border border-neutral-200 bg-neutral-100 p-1">
+        {#each modeOptions as option}
+          <button
+            type="button"
+            onclick={() => setMode(option.id)}
+            class={`rounded-full px-3 py-1 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400 ${
+              mode === option.id
+                ? "bg-neutral-900 text-white"
+                : "text-neutral-600 hover:text-neutral-900"
+            }`}
+          >
+            {option.label}
+          </button>
+        {/each}
+      </div>
       <SecretsSetup />
-      <Button on:click={handleClear} disabled={messages.length === 0 && !agentIsRunning}>
+      <Button onclick={handleClear} disabled={messages.length === 0 && !agentIsRunning}>
         Clear Chat
-      </Button>
-      <Button toggle bind:active={inspectionIsOn} on:toggle={handleInspectToggle}>
-        Inspect Messages
-      </Button>
-      <Button toggle bind:active={jsonViewIsOn} on:toggle={handleJsonToggle}>
-        View JSON
       </Button>
     </div>
     <div class="flex-1 overflow-y-auto py-4 sm:py-6">
-      <ChatMessages messages={messages} inspectionIsOn={inspectionIsOn} jsonViewIsOn={jsonViewIsOn} />
+      <ChatMessages messages={messages} mode={mode} />
     </div>
 
     <div class="py-3 border-neutral-200 sticky bottom-0 bg-white">

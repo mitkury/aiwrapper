@@ -3,14 +3,14 @@
   import { Markdown } from '@markpage/svelte';
 	import MessageInspector from "./MessageInspector.svelte";
 
+type Mode = "chat" | "inspect" | "json";
+
 const {
   messages,
-  inspectionIsOn,
-  jsonViewIsOn
+  mode = "chat"
 }: {
   messages: LangMessage[];
-  inspectionIsOn?: boolean;
-  jsonViewIsOn?: boolean;
+  mode?: Mode;
 } = $props();
 
 const formattedMessages = $derived.by(() =>
@@ -31,9 +31,9 @@ const formattedMessages = $derived.by(() =>
 </script>
 
 <div class="space-y-3">
-  {#if jsonViewIsOn}
+  {#if mode === "json"}
     <pre class="overflow-x-auto whitespace-pre-wrap rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-xs text-neutral-800">{formattedMessages}</pre>
-  {:else if inspectionIsOn}
+  {:else if mode === "inspect"}
     {#each messages as message}
       <MessageInspector message={message} />
     {/each}

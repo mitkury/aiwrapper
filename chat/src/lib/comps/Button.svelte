@@ -1,33 +1,21 @@
 <script lang="ts">
-  import { createEventDispatcher } from "svelte";
-  import type { HTMLButtonAttributes } from "svelte/elements";
+	import type { Snippet } from "svelte";
 
-  export let type: HTMLButtonAttributes["type"] = "button";
-  export let disabled = false;
-  export let active = false;
-  export let toggle = false;
-
-  const dispatch = createEventDispatcher<{ toggle: { active: boolean } }>();
+  const { children, onclick, disabled }: { children: Snippet, onclick: () => void, disabled?: boolean } = $props();
 
   function handleClick() {
     if (disabled) return;
-    if (toggle) {
-      active = !active;
-      dispatch("toggle", { active });
-    }
+
+    onclick();
   }
 </script>
 
 <button
-  type={type}
+  type="button"
   disabled={disabled}
-  aria-pressed={toggle ? active : undefined}
-  class={`inline-flex items-center px-2 py-1 text-sm transition-colors ${
-    active ? "text-neutral-900" : "text-neutral-500"
-  } hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-40 focus:outline-none`}
-  on:click={handleClick}
-  {...$$restProps}
+  class={`inline-flex items-center px-2 py-1 text-sm transition-colors text-neutral-500 hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-40 focus:outline-none`}
+  onclick={handleClick}
 >
-  <slot />
+  {@render children()}
 </button>
 
