@@ -176,15 +176,26 @@ export class LangMessages extends Array<LangMessage> {
   constructor();
   constructor(initialPrompt: string, opts?: { tools?: LangTool[] });
   constructor(initialMessages: LangMessage[], opts?: { tools?: LangTool[] });
+  constructor(initialMessages: LangMessages, opts?: { tools?: LangTool[] });
   constructor(initialMessages: { role: LangMessageRole; content: LangMessageContent; }[], opts?: { tools?: LangTool[] });
   constructor(
-    initial?: string | { role: LangMessageRole; content: LangMessageContent; }[] | LangMessage[],
+    initial?: string | { role: LangMessageRole; content: LangMessageContent; }[] | LangMessage[] | LangMessages,
     opts?: { tools?: LangTool[] }
   ) {
     // When extending Array, call super with the initial elements if provided
     super(...(Array.isArray(initial) ? [] : []));
     if (typeof initial === "string") {
       this.addUserMessage(initial);
+    } else if (initial instanceof LangMessages) {
+      for (const m of initial) {
+        this.push(m);
+      }
+      if (opts?.tools) {
+        this.availableTools = opts.tools;
+      } else if (initial.availableTools) {
+        // Share the same tools array reference intentionally
+        this.availableTools = initial.availableTools;
+      }
     } else if (Array.isArray(initial)) {
       for (const m of (initial as (LangMessage | { role: LangMessageRole; content: LangMessageContent; })[])) {
         if (m instanceof LangMessage) {
