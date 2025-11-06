@@ -1,13 +1,23 @@
 <script lang="ts">
-  import { Lang, LangMessage, ChatAgent, LanguageProvider } from "aiwrapper";
+  import { Lang, LangMessage, ChatAgent, LanguageProvider, type LangTool, LangMessages } from "aiwrapper";
 	import ChatInput from "./ChatInput.svelte";
 	import ChatMessages from "./ChatMessages.svelte";
+	import SecretsSetup from "./SecretsSetup.svelte";
+	import Button from "./Button.svelte";
 	import { onMount } from "svelte";
   import { getSecrets } from "$lib/secretsContext.svelte";
 
+  const tools: LangTool[] = $state([
+    { name: "web_search" },
+    { name: "image_generation" }
+  ]);
+
   const agent = new ChatAgent();
+  agent.messages.availableTools = tools;
   let agentIsRunning = $state(false);
-  let messages: LangMessage[] = $state([])
+  let messages: LangMessage[] = $state([]);
+  let inspectionIsOn = $state(false);
+  let jsonViewIsOn = $state(false);
 
   const waitForResponse = $derived.by(() => { 
     if (messages.length === 0) return false;
@@ -28,7 +38,13 @@
       for (let i = 0; i < agent.messages.length; i++) {
         messages.push(new LangMessage(agent.messages[i].role, agent.messages[i].content, agent.messages[i].meta));
       }
+
+      if (event.type === "state" && event.state === "idle") {
+        saveMessages();
+      }
     });
+
+    loadMessages();
 
     return () => sub();
   });
@@ -38,29 +54,75 @@
   $effect(() => {
     const key = secrets?.values.OPENAI_API_SECRET;
     if (key) {
-      agent.setLanguageProvider(Lang.openai({ apiKey: key }));
+      agent.setLanguageProvider(Lang.openai({ apiKey: key, model: "gpt-4o" }));
     }
   });
-  
+
   async function handleSubmit(message: string) {
     agent.messages.addUserMessage(message);
     
     // We run the agent with the latest message from the user
     await agent.run();
   }
+
+  function handleClear() {
+    agent.messages.splice(0, agent.messages.length);
+    agent.messages.availableTools = tools;
+    messages = [];
+    agentIsRunning = false;
+    inspectionIsOn = false;
+    jsonViewIsOn = false;
+  }
+
+  function handleInspectToggle(event: CustomEvent<{ active: boolean }>) {
+    inspectionIsOn = event.detail.active;
+    if (inspectionIsOn) {
+      jsonViewIsOn = false;
+    }
+  }
+
+  function handleJsonToggle(event: CustomEvent<{ active: boolean }>) {
+    jsonViewIsOn = event.detail.active;
+    if (jsonViewIsOn) {
+      inspectionIsOn = false;
+    }
+  }
+
+  function saveMessages() {
+    const messagesJson = JSON.stringify(agent.messages);
+    localStorage.setItem("messages", messagesJson);
+  }
+
+  function loadMessages() {
+    const messagesJson = localStorage.getItem("messages");
+    if (messagesJson) {
+      const loadedMessages = JSON.parse(messagesJson) as LangMessage[];
+      agent.messages = new LangMessages(loadedMessages);
+      agent.messages.availableTools = tools;
+      messages = [...agent.messages];
+    }
+  }
 </script>
 
 <div class="min-h-screen text-neutral-900 flex flex-col">
   <div class="mx-auto w-full max-w-3xl flex-1 flex flex-col px-4">
-    <div class="py-4 sm:py-6">
-      <h1 class="text-lg font-semibold text-neutral-800">Chat</h1>
+    <div class="sticky top-0 z-10 flex items-center gap-2 bg-white py-2">
+      <SecretsSetup />
+      <Button on:click={handleClear} disabled={messages.length === 0 && !agentIsRunning}>
+        Clear Chat
+      </Button>
+      <Button toggle bind:active={inspectionIsOn} on:toggle={handleInspectToggle}>
+        Inspect Messages
+      </Button>
+      <Button toggle bind:active={jsonViewIsOn} on:toggle={handleJsonToggle}>
+        View JSON
+      </Button>
     </div>
-
     <div class="flex-1 overflow-y-auto py-4 sm:py-6">
-      <ChatMessages messages={messages} />
+      <ChatMessages messages={messages} inspectionIsOn={inspectionIsOn} jsonViewIsOn={jsonViewIsOn} />
     </div>
 
-    <div class="py-3 border-neutral-200 backdrop-blur supports-[backdrop-filter]:bg-white/60 sticky bottom-0">
+    <div class="py-3 border-neutral-200 sticky bottom-0 bg-white">
       <ChatInput onsubmit={handleSubmit} waitForResponse={waitForResponse} />
     </div>
   </div>

@@ -11,7 +11,4 @@
     secrets.loadSecrets();
   });
 </script>
-
-<SecretsSetup />
-
 {@render children()}
