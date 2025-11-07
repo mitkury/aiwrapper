@@ -1,7 +1,8 @@
 <script lang="ts">
 	import type { LangMessage } from "aiwrapper";
-  import { Markdown } from '@markpage/svelte';
 	import MessageInspector from "./MessageInspector.svelte";
+	import ChatUserMessage from "./ChatUserMessage.svelte";
+	import ChatAssistantMessage from "./ChatAssistantMessage.svelte";
 
 type Mode = "chat" | "inspect" | "json";
 
@@ -13,21 +14,33 @@ const {
   mode?: Mode;
 } = $props();
 
-const formattedMessages = $derived.by(() =>
-  JSON.stringify(
+const formattedMessages = $derived.by(() => {
+  if (mode !== "json") return "";
+
+  const json = JSON.stringify(
     messages.map((message) => ({
       role: message.role,
-      content: message.content,
-      text: message.text,
-      meta: message.meta,
-      toolRequests: message.toolRequests,
-      toolResults: message.toolResults,
-      images: message.images
+      ...(message.meta ? { meta: message.meta } : {}),
+      ...(message.text ? { text: message.text } : {}),
+      ...(message.toolRequests?.length ? { toolRequests: message.toolRequests } : {}),
+      ...(message.toolResults?.length ? { toolResults: message.toolResults } : {}),
+      ...(message.images?.length
+        ? {
+            images: message.images.map((image) => ({
+              ...image,
+              base64: image.base64
+                ? image.base64.slice(0, 10) + "..." + image.base64.slice(image.base64.length - 10, image.base64.length)
+                : ""
+            }))
+          }
+        : {})
     })),
     null,
     2
-  )
-);
+  );
+
+  return json;
+});
 </script>
 
 <div class="space-y-3">
@@ -40,17 +53,9 @@ const formattedMessages = $derived.by(() =>
   {:else}
     {#each messages as message}
       {#if message.role === "user"}
-        <div class="flex justify-end">
-          <div class="chat-message max-w-[75%] rounded-2xl bg-blue-50 text-blue-950 px-3 py-2 shadow-sm">
-            <Markdown source={message.text} />
-          </div>
-        </div>
+        <ChatUserMessage {message} />
       {:else}
-        <div class="flex justify-start">
-          <div class="chat-message max-w-[75%] text-neutral-800">
-            <Markdown source={message.text} />
-          </div>
-        </div>
+        <ChatAssistantMessage {message} />
       {/if}
     {/each}
   {/if}

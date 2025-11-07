@@ -16,14 +16,6 @@
     toolResults = message.toolResults;
     images = message.images ?? [];
   });
-
-  function getImageAlt(image: LangImageOutput): string {
-    const prompt = image.metadata?.prompt;
-    if (typeof prompt === "string" && prompt.trim().length > 0) {
-      return prompt;
-    }
-    return "";
-  }
 </script>
 
 <div class={`flex ${isUserMessage ? "justify-end" : "justify-start"}`}>
@@ -41,12 +33,16 @@
     {#if images.length > 0}
       <p class="text-neutral-800">Images: {images.length}</p>
       {#each images as image}
-        <img
-          src={image.url ?? image.base64 ?? ""}
-          alt={getImageAlt(image)}
+        {@const url = image.url ?? `data:${image.mimeType ?? "image/png"};base64,${image.base64}`}
+        {@const alt = image.metadata?.prompt as string ?? ""}
+        <div>
+          <img
+          src={url}
+          alt={alt}
           class="w-full h-auto"
           loading="lazy"
-        />
+          />
+        </div>
       {/each}
     {/if}
   </div>
