@@ -301,31 +301,24 @@ export class AnthropicLang extends LanguageProvider {
   protected transformMessagesForProvider(messages: LangMessage[]): any[] {
     const out: any[] = [];
     for (const m of messages) {
-      if (m.role === 'tool') {
-        // Tool calls from assistant
-        const contentAny = m.content as any;
-        if (Array.isArray(contentAny)) {
-          const blocks = contentAny.map(tc => ({
-            type: 'tool_use',
-            id: tc.callId || tc.id,
-            name: tc.name,
-            input: tc.arguments || {}
-          }));
-          out.push({ role: 'assistant', content: blocks });
-          continue;
-        }
+      if (m.role === 'assistant' && m.toolRequests.length > 0) {
+        const blocks = m.toolRequests.map(tc => ({
+          type: 'tool_use',
+          id: tc.callId,
+          name: tc.name,
+          input: tc.arguments || {}
+        }));
+        out.push({ role: 'assistant', content: blocks });
+        continue;
       }
-      if (m.role === 'tool-results') {
-        const contentAny = m.content as any;
-        if (Array.isArray(contentAny)) {
-          const blocks = contentAny.map(tr => ({
-            type: 'tool_result',
-            tool_use_id: tr.toolId,
-            content: typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result)
-          }));
-          out.push({ role: 'user', content: blocks });
-          continue;
-        }
+      if (m.toolResults.length > 0) {
+        const blocks = m.toolResults.map(tr => ({
+          type: 'tool_result',
+          tool_use_id: tr.callId,
+          content: typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result)
+        }));
+        out.push({ role: 'user', content: blocks });
+        continue;
       }
       const contentAny = m.content as any;
       if (Array.isArray(contentAny)) {

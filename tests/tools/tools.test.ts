@@ -42,19 +42,18 @@ async function runTest(lang: LanguageProvider) {
 
     // Verify tool selection via normalized fields or transcript
     const requested = ((res as any).tools || (res as any).toolsRequested || []) as any[];
-    const transcriptToolMsgs = res.filter((m: any) => m.role === 'tool');
+    const transcriptToolMsgs = res.filter((m: any) => m.toolRequests && m.toolRequests.length > 0);
     const requestedNames = [
       ...requested.map((c: any) => c.name),
-      ...transcriptToolMsgs.flatMap((m: any) => (Array.isArray(m.content) ? m.content.map((c: any) => c.name) : []))
+      ...transcriptToolMsgs.flatMap((m: any) => m.toolRequests.map((c: any) => c.name))
     ];
     expect(requestedNames).toContain('get_random_color');
 
     // Find latest tool-results and validate
-    const toolResultsMsg = [...res].reverse().find((m: any) => m.role === 'tool-results');
+    const toolResultsMsg = [...res].reverse().find((m: any) => m.toolResults && m.toolResults.length > 0);
     expect(toolResultsMsg).toBeDefined();
-    expect(Array.isArray((toolResultsMsg as any).content)).toBe(true);
-    const toolResult = (toolResultsMsg as any).content[0];
-    expect(toolResult.toolId).toBeDefined();
+    const toolResult = (toolResultsMsg as any).toolResults[0];
+    expect(toolResult.toolId || toolResult.callId).toBeDefined();
     expect(toolResult.result).toBe('red');
 
     const finalRes = await lang.chat(res);
@@ -101,35 +100,35 @@ async function runTest(lang: LanguageProvider) {
     let sawPopulation = false;
 
     // Allow up to 3 rounds to collect both tool calls (parallel or sequential)
-    for (let i = 0; i < 3 && (called.size < 2); i++) {
-      const res = await lang.chat(messages);
+      for (let i = 0; i < 3 && (called.size < 2); i++) {
+        const res = await lang.chat(messages);
 
-      expect(res.length).toBeGreaterThanOrEqual(2);
+        expect(res.length).toBeGreaterThanOrEqual(2);
 
-      // Collect requested tool names from normalized fields or transcript
-      const requested = ((res as any).tools || (res as any).toolsRequested || []) as any[];
-      for (const c of requested) called.add(c.name);
-      const transcriptToolMsgs = res.filter((m: any) => m.role === 'tool');
-      for (const m of transcriptToolMsgs) {
-        if (Array.isArray((m as any).content)) {
-          for (const c of (m as any).content as any[]) called.add(c.name);
-        }
-      }
-
-      // Gather tool results from the latest tool-results message
-      const toolResultsMsg = [...res].reverse().find((m: any) => m.role === 'tool-results');
-      if (toolResultsMsg && Array.isArray((toolResultsMsg as any).content)) {
-        for (const r of (toolResultsMsg as any).content as any[]) {
-          const val = r.result;
-          if (val && typeof val === 'object') {
-            if (typeof val.tempC === 'number') sawWeather = sawWeather || val.tempC === 21;
-            if (typeof val.population === 'number') sawPopulation = sawPopulation || val.population === 1000000;
+        // Collect requested tool names from normalized fields or transcript
+        const requested = ((res as any).tools || (res as any).toolsRequested || []) as any[];
+        for (const c of requested) called.add(c.name);
+        const transcriptToolMsgs = res.filter((m: any) => m.toolRequests && m.toolRequests.length > 0);
+        for (const m of transcriptToolMsgs) {
+          for (const c of m.toolRequests as any[]) {
+            called.add(c.name);
           }
         }
-      }
 
-      messages = res; // continue the conversation if needed
-    }
+        // Gather tool results from the latest tool-results message
+        const toolResultsMsg = [...res].reverse().find((m: any) => m.toolResults && m.toolResults.length > 0);
+        if (toolResultsMsg) {
+          for (const r of (toolResultsMsg as any).toolResults as any[]) {
+            const val = r.result;
+            if (val && typeof val === 'object') {
+              if (typeof val.tempC === 'number') sawWeather = sawWeather || val.tempC === 21;
+              if (typeof val.population === 'number') sawPopulation = sawPopulation || val.population === 1000000;
+            }
+          }
+        }
+
+        messages = res; // continue the conversation if needed
+      }
 
     expect(called.has('get_weather')).toBe(true);
     expect(called.has('get_population')).toBe(true);
@@ -182,21 +181,21 @@ async function runTest(lang: LanguageProvider) {
     // Verify a tool was requested
     const requested = ((res as any).tools || (res as any).toolsRequested || []) as any[];
     const requestedNames = requested.map((c: any) => c.name);
-    const transcriptToolMsgs = res.filter((m: any) => m.role === 'tool');
-    const transcriptNames = transcriptToolMsgs.flatMap((m: any) => (Array.isArray(m.content) ? m.content.map((c: any) => c.name) : []));
+    const transcriptToolMsgs = res.filter((m: any) => m.toolRequests && m.toolRequests.length > 0);
+    const transcriptNames = transcriptToolMsgs.flatMap((m: any) => m.toolRequests.map((c: any) => c.name));
     const allNames = new Set<string>([...requestedNames, ...transcriptNames]);
     expect(['multiply', 'add'].some(n => allNames.has(n))).toBe(true);
 
     // Verify tool results contained 42
-    const toolResultsMsg = [...res].reverse().find((m: any) => m.role === 'tool-results');
+    const toolResultsMsg = [...res].reverse().find((m: any) => m.toolResults && m.toolResults.length > 0);
     expect(toolResultsMsg).toBeDefined();
-    const toolResultArr = (toolResultsMsg as any).content as any[];
+    const toolResultArr = (toolResultsMsg as any).toolResults as any[];
     expect(Array.isArray(toolResultArr)).toBe(true);
     expect(toolResultArr.some((r: any) => r.result === 42)).toBe(true);
 
     const options: LangOptions = {
-      onResult: (msgs) => {
-        streamingAnswer = msgs.content as string;
+      onResult: (msg) => {
+        streamingAnswer = msg.text;
       }
     };
 

@@ -16,7 +16,7 @@ async function runTest(lang: LanguageProvider) {
 
     const lastMessage = res[res.length - 1];
     expect(lastMessage.role).toBe('assistant');
-    assert(lastMessage.content.length > 0);
+    expect(lastMessage.text.length).toBeGreaterThan(0);
     assert(res.answer.length > 0);
   });
 
@@ -30,15 +30,9 @@ async function runTest(lang: LanguageProvider) {
     const res = await lang.ask('Introduce yourself in 140 characters', {
       onResult: (msg: any) => {
         if (!msg) return;
-        const content: any = msg.content;
-        if (typeof content === 'string') {
-          streamingAnswers.push(content);
-        } else if (Array.isArray(content)) {
-          const text = content
-            .filter((p: any) => p && p.type === 'text' && typeof p.text === 'string')
-            .map((p: any) => p.text)
-            .join('');
-          if (text) streamingAnswers.push(text);
+        const text = msg.text;
+        if (typeof text === 'string' && text.length > 0) {
+          streamingAnswers.push(text);
         }
       }
     });
@@ -125,20 +119,15 @@ async function runTest(lang: LanguageProvider) {
     // After execution, check the last two messages should be tool request and tool results
     expect(res.length).toBeGreaterThanOrEqual(3); // user message + tool message + tool-results message
 
-    const lastMessage = res[res.length - 1];
-    const secondLastMessage = res[res.length - 2];
-
-    // Last message should be tool-results
-    expect(lastMessage.role).toBe('tool-results');
-    expect(Array.isArray(lastMessage.content)).toBe(true);
-    const toolResult = lastMessage.content[0] as ToolResult;
+    const toolResultMessage = res.find(msg => msg.toolResults.length > 0);
+    expect(toolResultMessage).toBeDefined();
+    const toolResult = toolResultMessage!.toolResults[0] as ToolResult;
     expect(toolResult.toolId).toBeDefined();
     expect(toolResult.result).toBe(3131);
 
-    // Second to last message should be tool request
-    expect(secondLastMessage.role).toBe('tool');
-    expect(Array.isArray(secondLastMessage.content)).toBe(true);
-    const toolCall = secondLastMessage.content[0] as ToolRequest;
+    const toolRequestMessage = res.find(msg => msg.toolRequests.length > 0);
+    expect(toolRequestMessage).toBeDefined();
+    const toolCall = toolRequestMessage!.toolRequests[0] as ToolRequest;
     expect(toolCall.callId).toBeDefined();
     expect(toolCall.name).toBe('get_random_number');
     expect(toolCall.arguments).toBeDefined();
@@ -166,7 +155,7 @@ async function runTest(lang: LanguageProvider) {
     expect(streamedMessage).toBeDefined();
 
     expect(res1[res1.length - 1].role).toBe(streamedMessage!.role);
-    expect(res1[res1.length - 1].content).toBe(streamedMessage!.content);
+    expect(res1[res1.length - 1].text).toBe(streamedMessage!.text);
 
     res1.addUserMessage('Give me a random number using a tool');
     res1.availableTools = [
@@ -183,10 +172,10 @@ async function runTest(lang: LanguageProvider) {
 
     const res2 = await lang.chat(res1, {
       onResult: (msg) => {
-        if (msg.role === 'tool') {
+        if (msg.role === 'assistant' && msg.toolRequests.length > 0) {
           streamedMessageWithToolRequest = msg;
         }
-        if (msg.role === 'tool-results') {
+        if (msg.toolResults.length > 0) {
           streamedMessageWithToolResults = msg;
         }
       }
@@ -195,7 +184,16 @@ async function runTest(lang: LanguageProvider) {
     expect(streamedMessageWithToolRequest).toBeDefined();
     expect(streamedMessageWithToolResults).toBeDefined();
 
-    expect(res2[res2.length - 1].role).toBe(streamedMessageWithToolResults!.role);
-    expect(res2[res2.length - 1].content).toBe(streamedMessageWithToolResults!.content);
+    const res2ToolRequestMsg = res2.find(msg => msg.toolRequests.length > 0);
+    expect(res2ToolRequestMsg).toBeDefined();
+    const res2ToolResultMsg = res2.find(msg => msg.toolResults.length > 0);
+    expect(res2ToolResultMsg).toBeDefined();
+
+    if (streamedMessageWithToolRequest) {
+      expect(streamedMessageWithToolRequest.toolRequests.length).toBeGreaterThan(0);
+    }
+    if (streamedMessageWithToolResults) {
+      expect(streamedMessageWithToolResults.toolResults).toEqual(res2ToolResultMsg!.toolResults);
+    }
   });
 }

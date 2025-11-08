@@ -171,9 +171,7 @@ async function runTest(lang: LanguageProvider) {
     // Check that tool calls and results were added to conversation
     const conversation = agent.getMessages();
 
-    const hasToolResult = conversation.some(msg =>
-      msg.role === 'tool-results'
-    );
+    const hasToolResult = conversation.some(msg => msg.toolResults && msg.toolResults.length > 0);
 
     expect(hasToolResult).toBe(true);
 
@@ -304,7 +302,7 @@ Make sure you use all 3 provided tools.`;
     const conversation = agent.getMessages();
 
     // Count tool result messages
-    const toolResultMessages = conversation.filter(msg => msg.role === 'tool-results');
+    const toolResultMessages = conversation.filter(msg => msg.toolResults && msg.toolResults.length > 0);
 
     // Should have multiple tool calls (at least 3 for send_email, wait_for_response, read_url)
     expect(toolResultMessages.length).toBeGreaterThanOrEqual(3);

@@ -58,7 +58,7 @@ export class ChatAgent extends Agent<{ role: LangMessageRole; content: LangMessa
 
       // We continue the loop if the last message is a tool usage results.
       const lastMessage = this.messages[this.messages.length - 1];
-      const lastMessageHasToolResults = lastMessage && lastMessage.role === 'tool-results';
+      const lastMessageHasToolResults = !!(lastMessage && lastMessage.toolResults && lastMessage.toolResults.length > 0);
       if (!lastMessageHasToolResults) {
         break;
       }
