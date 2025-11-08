@@ -75,6 +75,9 @@ export function transformMessagesToResponsesInput(messages: LangMessages): any {
       case 'assistant':
         input.push(transformMessageToResponsesItems(message));
         break;
+      case 'tool-results':
+        input.push(...transformToolResultsToResponsesItems(message));
+        break;
     }
   }
 
@@ -82,7 +85,7 @@ export function transformMessagesToResponsesInput(messages: LangMessages): any {
 }
 
 /**
-* Transform a regular message (system/user/assistant) to Responses API format
+* Transform a regular message (user/assistant) to Responses API format
 */
 export function transformMessageToResponsesItems(message: LangMessage): any {
   const isAssistant = message.role === 'assistant';
@@ -111,23 +114,13 @@ export function transformMessageToResponsesItems(message: LangMessage): any {
           name: msgItem.name,
           arguments: JSON.stringify(msgItem.arguments || {})
         });
-
         break;
 
-      case 'tool-result':
-        entry.content.push({
-          type: 'function_call_output',
-          call_id: msgItem.callId,
-          output: JSON.stringify(msgItem.result || {})
-        });
-
-        break;
       case 'image':
         entry.content.push({
           type: 'input_image',
           image_url: msgItem.url
         });
-
         break;
     }
 
@@ -170,6 +163,23 @@ export function transformMessageToResponsesItems(message: LangMessage): any {
 
   return entry;
   */
+}
+
+/**
+ * Transform tool results message to function_call_output items
+ */
+export function transformToolResultsToResponsesItems(message: LangMessage): any {
+  const items: any[] = [];
+  for (const toolResult of message.toolResults) {
+    items.push({
+      type: 'function_call_output',
+      call_id: toolResult.callId,
+      output: typeof toolResult.result === 'string'
+      ? toolResult.result
+      : JSON.stringify(toolResult.result)
+    });
+  }
+  return items;
 }
 
 /**

@@ -1,6 +1,6 @@
 import extractJSON from "./json/extract-json";
 
-export type LangMessageRole = "user" | "assistant" /*| "tool" | "tool-results" | "system"*/;
+export type LangMessageRole = "user" | "assistant" | "tool-results"  /*| "tool" | "tool-results" | "system"*/;
 export type LangMessageContent = string | LangContentPart[] | ToolRequest[] | ToolResult[];
 export type LangMessageMeta = Record<string, any>;
 //export type LangMessageMetaValue = string | number | boolean | null | LangMessageMetaValue[];
@@ -93,7 +93,7 @@ export type LangMessageItemTool = {
 }
 
 export type LangMessageItemToolResult = {
-  type: "tool-result";
+  type: "tool-result"; // @TODO: consider to remove it
   name: string;
   callId: string;
   result: any;
@@ -230,6 +230,11 @@ export class LangMessages extends Array<LangMessage> {
     return this;
   }
 
+  addToolResultsMessage(items: LangMessageItemToolResult[]): this {
+    this.push(new LangMessage("tool-results", items));
+    return this;
+  }
+
   addUserImage(image: LangMessageItemImage): this {
     return this.addUserItems([image]);
   }
@@ -291,8 +296,10 @@ export class LangMessages extends Array<LangMessage> {
       toolResults.push({ toolId: id, name: toolName, result });
     }
 
-    // Create a new user message with the tool results
-    this.addUserItems(toolResults.map(result => ({ type: "tool-result", name: result.name, callId: result.toolId, result: result.result })));
+    if (toolResults.length > 0) {
+      // Create a new message with the tool results
+      this.addToolResultsMessage(toolResults.map(result => ({ type: "tool-result", name: result.name, callId: result.toolId, result: result.result })));
+    }
 
     // We return the tool results message we've just added
     return this[this.length - 1];

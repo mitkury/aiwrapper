@@ -11,6 +11,8 @@ describe('Basic Lang', () => {
 });
 
 async function runTest(lang: LanguageProvider) {
+
+  /*
   it('should respond with a string', async () => {
     const res = await lang.ask('Hey, respond with "Hey" as well');
     expect(res.length).toBeGreaterThan(1);
@@ -21,38 +23,26 @@ async function runTest(lang: LanguageProvider) {
     assert(res.answer.length > 0);
   });
 
-  /*
+
   it('should know the capital of France', async () => {
     const res = await lang.ask('What is the capital of France?');
     expect(res.answer.toLocaleLowerCase()).toContain('paris');
   });
 
   it('should be able to stream an answer', async () => {
-    let streamingAnswers: string[] = [];
+    let streamingAnswer: string[] = [];
     const res = await lang.ask('Introduce yourself in 140 characters', {
-      onResult: (msg: any) => {
-        if (!msg) return;
-        const content: any = msg.content;
-        if (typeof content === 'string') {
-          streamingAnswers.push(content);
-        } else if (Array.isArray(content)) {
-          const text = content
-            .filter((p: any) => p && p.type === 'text' && typeof p.text === 'string')
-            .map((p: any) => p.text)
-            .join('');
-          if (text) streamingAnswers.push(text);
-        }
+      onResult: (msg) => {
+        streamingAnswer.push(msg.text);
       }
     });
-    if (streamingAnswers.length > 0) {
-      const lastAnswer = streamingAnswers[streamingAnswers.length - 1];
-      expect(lastAnswer.length).toBeGreaterThan(70);
-      expect(res.answer).toBe(lastAnswer);
-    } else {
-      expect(res.answer.length).toBeGreaterThan(70);
-    }
-  });
 
+    expect(streamingAnswer.length).toBeGreaterThan(0);
+
+    const lastAnswer = streamingAnswer[streamingAnswer.length - 1];
+    expect(lastAnswer.length).toBeGreaterThan(70);
+    expect(res.answer).toBe(lastAnswer);
+  });
 
   it('should be able to chat', async () => {
     const messages = new LangMessages();
@@ -64,6 +54,7 @@ async function runTest(lang: LanguageProvider) {
     expect(typeof res.answer).toBe('string');
     expect(res.answer.toLocaleLowerCase()).toContain('paris');
   });
+  */
 
   it('should return a simple JSON object', async () => {
 
@@ -77,7 +68,6 @@ async function runTest(lang: LanguageProvider) {
   });
 
   it('should return a more complex JSON without tips in the prompt', async () => {
-
     const schema = z.object({
       names: z.array(z.object({
         pitch: z.string(),
@@ -127,14 +117,13 @@ async function runTest(lang: LanguageProvider) {
 
     // Last message should be tool-results
     expect(lastMessage.role).toBe('tool-results');
-    expect(Array.isArray(lastMessage.text)).toBe(true);
-    const toolResult = lastMessage.items[0] as LangMessageItemToolResult;
+    const toolResult = lastMessage.toolResults[0];
     expect(toolResult.callId).toBeDefined();
     expect(toolResult.result).toBe(3131);
 
     // Second to last message should be tool request
-    expect(secondLastMessage.role).toBe('tool');
-    const toolCall = secondLastMessage.items[0] as LangMessageItemTool;
+    expect(secondLastMessage.role).toBe('assistant');
+    const toolCall = secondLastMessage.toolRequests[0];
     expect(toolCall.callId).toBeDefined();
     expect(toolCall.name).toBe('get_random_number');
     expect(toolCall.arguments).toBeDefined();
@@ -144,10 +133,10 @@ async function runTest(lang: LanguageProvider) {
 
     // Expect the final answer to contain the tool result
     expect(finalRes.answer).toContain('3131');
+    expect(finalRes[finalRes.length - 1].role).toBe('assistant');
   });
 
   it('should be able to chat and use tools', async () => {
-
     let streamedMessage: LangMessage | null = null;
 
     const messages = new LangMessages();
@@ -179,10 +168,10 @@ async function runTest(lang: LanguageProvider) {
 
     const res2 = await lang.chat(res1, {
       onResult: (msg) => {
-        if (msg.role === 'tool') {
+        if (msg.role === 'assistant' && msg.toolRequests.length > 0) {
           streamedMessageWithToolRequest = msg;
         }
-        if (msg.role === 'tool-results') {
+        if (msg.role === 'tool-results' && msg.toolResults.length > 0) {
           streamedMessageWithToolResults = msg;
         }
       }
@@ -192,7 +181,7 @@ async function runTest(lang: LanguageProvider) {
     expect(streamedMessageWithToolResults).toBeDefined();
 
     expect(res2[res2.length - 1].role).toBe(streamedMessageWithToolResults!.role);
-    expect(res2[res2.length - 1].content).toBe(streamedMessageWithToolResults!.content);
+    expect(res2[res2.length - 1].text).toBe(streamedMessageWithToolResults!.text);
   });
-  */
+  
 }

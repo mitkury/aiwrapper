@@ -1,6 +1,5 @@
 import { LangMessages, LangMessage } from "../../messages";
 import type {
-  LangMessageContent,
   LangMessageItem,
   LangMessageItemText,
   LangMessageItemTool,
@@ -66,147 +65,28 @@ export class OpenAIResponseStreamHandler {
       case 'response.content_part.done':
         break;
       case 'response.image_generation_call.in_progress':
+        break;
       case 'response.image_generation_call.generating':
+        break;
       case 'response.image_generation_call.partial_image':
-        //this.handlePartialImage(data);
-        //this.setItem(data.item)
+        //@TODO: handle partial image
         break;
       case 'response.image_generation_call.completed':
       case 'image_generation.completed':
-        //this.addImage(data);
+        //@TODO: handle completed image
         break;
 
-      // Deltas that we care about (feel free to add more if you want to show them in-progress somewhere)
       case 'response.output_text.delta':
-        //case 'response.function_call_arguments.delta':
-        //this.applyDelta(data.item_id, data.delta);
+        this.applyTextDelta(data);
         break;
       case 'response.function_call_arguments.delta':
-        //this.applyArgsDelta(data.item_id, data.delta);
+        this.applyToolArgsDelta(data);
         break;
       case 'response.function_call_arguments.done':
-        //this.setArgs(data.item_id, data.arguments);
         break;
     }
-  }
 
-  // @TODO: NO, let's not do it. Just add id to content part so I can associate them with items
-  turnItemsIntoContent(items: OpenAIResponseItem[]): LangMessageContent {
-    // We collapse the OpenAI Responses streaming items into the LangMessage content format.
-    // The handler needs to support three cases: plain assistant text, generated images,
-    // and tool/function call requests streamed via deltas.
-
-    type TextPart = { type: "text"; text: string };
-    type ImagePart = { type: "image"; image: any; alt?: string };
-
-    const contentParts: Array<TextPart | ImagePart> = [];
-    const toolCalls: Array<{ callId: string; name: string; arguments: Record<string, any> }> = [];
-
-    const appendText = (text: string) => {
-      if (!text) return;
-      const last = contentParts.length > 0 ? contentParts[contentParts.length - 1] : undefined;
-      if (last && last.type === "text") {
-        last.text += text;
-      } else {
-        contentParts.push({ type: "text", text });
-      }
-    };
-
-    for (const item of items) {
-      if (!item || typeof item.type !== "string") continue;
-
-      switch (item.type) {
-        case "message": {
-          // Assistant text may be provided as an aggregate string or as an array of parts.
-          if (typeof item.text === "string") {
-            appendText(item.text);
-            break;
-          }
-
-          if (Array.isArray(item.content)) {
-            for (const part of item.content) {
-              if (part && typeof part === "object" && part.type === "output_text" && typeof part.text === "string") {
-                appendText(part.text);
-              }
-            }
-          }
-          break;
-        }
-
-        case "image_generation_call": {
-          // Image generation items surface either a base64 payload or a URL once complete.
-          const base64 = typeof item.result === "string" && item.result.length > 0
-            ? item.result
-            : (typeof item.b64_json === "string" && item.b64_json.length > 0 ? item.b64_json : undefined);
-          const url = typeof item.url === "string" && item.url.length > 0 ? item.url : undefined;
-
-          const format = typeof item.output_format === "string" ? item.output_format : item.format;
-          let mimeType: string | undefined;
-          if (typeof format === "string") {
-            const normalized = format.toLowerCase();
-            if (normalized === "png") mimeType = "image/png";
-            else if (normalized === "jpeg" || normalized === "jpg") mimeType = "image/jpeg";
-            else if (normalized === "webp") mimeType = "image/webp";
-          }
-
-          const alt = typeof item.revised_prompt === "string" && item.revised_prompt.length > 0
-            ? item.revised_prompt
-            : (typeof item.prompt === "string" && item.prompt.length > 0 ? item.prompt : undefined);
-
-          if (base64) {
-            contentParts.push({ type: "image", image: { kind: "base64", base64, mimeType }, alt });
-          } else if (url) {
-            contentParts.push({ type: "image", image: { kind: "url", url }, alt });
-          }
-          break;
-        }
-
-        case "function_call": {
-          // Tool calls are streamed via argument deltas; consolidate them into a request payload.
-          const name = typeof item.name === "string" ? item.name : undefined;
-          if (!name) break;
-
-          const callId = typeof item.call_id === "string" && item.call_id.length > 0
-            ? item.call_id
-            : (typeof item.id === "string" ? item.id : name);
-
-          let args: Record<string, any> = {};
-          const rawArgs = item.arguments;
-          if (typeof rawArgs === "string" && rawArgs.trim().length > 0) {
-            try {
-              args = JSON.parse(rawArgs);
-            } catch {
-              // Ignore JSON parsing errors and fall back to an empty object so callers can handle it.
-              args = {};
-            }
-          } else if (rawArgs && typeof rawArgs === "object") {
-            args = rawArgs as Record<string, any>;
-          }
-
-          toolCalls.push({ callId, name, arguments: args });
-          break;
-        }
-
-        default:
-          // Other item types (e.g. reasoning, placeholders) are not converted here.
-          break;
-      }
-    }
-
-    if (toolCalls.length > 0) {
-      return toolCalls;
-    }
-
-    if (contentParts.length === 0) {
-      return "";
-    }
-
-    const onlyText = contentParts.every(part => part.type === "text");
-    if (onlyText) {
-      return contentParts.map(part => (part as TextPart).text).join("");
-    }
-
-    return contentParts;
+    this.onResult?.(this.newMessage);
   }
 
   handleNewItem(data: any) {
@@ -269,7 +149,7 @@ export class OpenAIResponseStreamHandler {
     const itemFromResponse = data.item as OpenAIResponseItem;
 
     const messageIndex = this.itemIdToMessageItemIndex.get(itemFromResponse.id);
-    if (messageIndex === -1) {
+    if (messageIndex === undefined) {
       console.warn('Unknown message index for item:', itemFromResponse);
       return;
     }
@@ -292,7 +172,7 @@ export class OpenAIResponseStreamHandler {
   }
 
   applyTextMessage(res: MessageItem, target: LangMessageItemText) {
-    target.text += res.content.map(part => part.text).join('\n\n');
+    target.text = res.content.map(part => part.text).join('\n\n');
   }
 
   applyFunctionCall(res: any, target: LangMessageItemTool) {
@@ -310,8 +190,39 @@ export class OpenAIResponseStreamHandler {
     target.metadata = res.metadata;
   }
 
-  updateContent(item: OpenAIResponseItem) {
+  getNewMessageItem(itemId: string): LangMessageItem | undefined {
+    const contentIndex = this.itemIdToMessageItemIndex.get(itemId);
+    if (contentIndex === undefined) {
+      return undefined;
+    }
 
+    return this.newMessage.items[contentIndex];
+  }
+
+  applyTextDelta(data: any) {
+    const messageItem = this.getNewMessageItem(data.item_id) as LangMessageItemText;
+    if (messageItem === undefined) {
+      console.warn('Unknown item:', data.item_id);
+      return;
+    }
+
+    const delta = data.delta as string;
+
+    messageItem.text += delta;
+  }
+
+  applyToolArgsDelta(data: any) {
+    const messageItem = this.getNewMessageItem(data.item_id) as LangMessageItemTool;
+    if (messageItem === undefined) {
+      console.warn('Unknown item:', data.item_id);
+      return;
+    }
+
+    const delta = data.delta as string;
+    // Note: given that we keep arguments as objects, delta wouldn't work like that.
+    // and in my experiments OpenaAI didn't stream arguments like it streamed text. 
+    // Always returned {} and then the final arguments.
+    //messageItem.arguments = JSON.parse(messageItem.arguments + delta);
   }
 
   /*
@@ -385,47 +296,6 @@ export class OpenAIResponseStreamHandler {
   }
 
   // @TODO: remove this method
-  addItem(target: OpenAIResponseItem) {
-    this.items.push(target);
-
-    switch (target.type) {
-      case 'message':
-
-        if (target.role === 'assistant') {
-          // Reuse an existing trailing assistant message (possibly created by image events)
-          const last = this.messages.length > 0 ? this.messages[this.messages.length - 1] : undefined;
-          if (last && last.role === 'assistant') {
-            // Ensure it's parts to allow mixed content and set response id
-            if (!Array.isArray(last.content)) {
-              const existingText = typeof last.content === 'string' ? last.content : '';
-              (last as any).content = existingText ? [{ type: 'text', text: existingText }] : [];
-            }
-            last.meta = { ...(last.meta || {}), openaiResponseId: this.id };
-            target.targetMessage = last;
-          } else {
-            // Initialize as parts message to allow images + text together
-            this.messages.addAssistantContent([], { openaiResponseId: this.id });
-            target.targetMessage = this.messages[this.messages.length - 1];
-          }
-          this.onResult?.(target.targetMessage);
-        } else {
-          console.warn('Unknown role:', target.role, 'for item:', target);
-        }
-
-        break;
-      case 'function_call':
-
-        if (typeof target.arguments !== 'string') {
-          target.arguments = '';
-        }
-
-        break;
-      default:
-        break;
-    }
-  }
-
-  // @TODO: remove this method
   addImage(data: OpenAIResponseItem) {
     const b64image = data.b64_json || data.result;
     const imageGenerationMeta = {
@@ -454,63 +324,5 @@ export class OpenAIResponseStreamHandler {
     }
   }
 
-  // @TODO: remove this method
-  getItem(id: string): OpenAIResponseItem | undefined {
-    return this.items.find(r => r.id === id);
-  }
-
-  // @TODO: remove this method
-  applyArgsDelta(itemId: string, delta: string) {
-    const item = this.getItem(itemId);
-    if (item && item.type === 'function_call') {
-      if (typeof item.arguments !== 'string') item.arguments = '';
-      item.arguments += delta;
-    }
-  }
-
-  // @TODO: remove this method
-  setArgs(itemId: string, args: string) {
-    const item = this.getItem(itemId);
-    if (item && item.type === 'function_call') {
-      item.arguments = args;
-    }
-  }
-
-  // @TODO: remove this method; BUT see how we can use it effectively when we turn
-  // items into content. 
-  // Perhaps we should update the items but update content by appending to the text part and not
-  // by replacing the content with a new array of parts.
-  applyDelta(itemId: string, delta: any) {
-    const item = this.getItem(itemId);
-    if (item) {
-      if (typeof delta === "string") {
-        item.text += delta;
-      }
-
-      if (item.targetMessage) {
-        // Ensure parts structure to safely append text alongside images
-        if (!Array.isArray(item.targetMessage.content)) {
-          const existingText = typeof item.targetMessage.content === 'string' ? item.targetMessage.content : '';
-          item.targetMessage.content = existingText ? [{ type: 'text', text: existingText }] : [];
-        }
-
-        if (typeof delta === "string") {
-          const parts = item.targetMessage.content as any[];
-          const lastPart = parts.length > 0 ? parts[parts.length - 1] : undefined;
-          if (lastPart && lastPart.type === 'text') {
-            lastPart.text += delta;
-          } else {
-            parts.push({ type: 'text', text: delta });
-          }
-        } else {
-          // @TODO: handle other delta types
-          console.warn('Unknown delta type:', typeof delta, 'for item:', item);
-        }
-
-        // This callback is responsible for the real-time visualization of the model output.
-        this.onResult?.(item.targetMessage);
-      }
-    }
-  }
   */
 }
