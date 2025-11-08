@@ -1,6 +1,6 @@
 import { Agent } from "./agent";
 import { LangMessage, LangMessages, LanguageProvider } from "../lang/index.ts";
-import { LangMessageContent, LangMessageRole, LangTool } from "../lang/messages";
+import { LangMessageItem, LangMessageRole, LangTool } from "../lang/messages";
 
 export type ChatOutput = {
   answer: string;
@@ -12,7 +12,7 @@ export interface ChatStreamingEvent {
   data: { msg: LangMessage; idx: number };
 }
 
-export class ChatAgent extends Agent<{ role: LangMessageRole; content: LangMessageContent }[] | LangMessages | LangMessage[], LangMessages, ChatStreamingEvent> {
+export class ChatAgent extends Agent<{ role: LangMessageRole; items: LangMessageItem[] }[] | LangMessages | LangMessage[], LangMessages, ChatStreamingEvent> {
   private lang?: LanguageProvider;
   messages: LangMessages;
 
@@ -25,7 +25,7 @@ export class ChatAgent extends Agent<{ role: LangMessageRole; content: LangMessa
     });
   }
 
-  protected async runInternal(input: { role: LangMessageRole; content: LangMessageContent }[] | LangMessages | LangMessage[]): Promise<LangMessages> {
+  protected async runInternal(input: { role: LangMessageRole; items: LangMessageItem[] }[] | LangMessages | LangMessage[]): Promise<LangMessages> {
     if (input instanceof LangMessages) {
       this.messages = input;
     }
@@ -56,9 +56,10 @@ export class ChatAgent extends Agent<{ role: LangMessageRole; content: LangMessa
 
       this.messages = response;
 
-      // We continue the loop if the last message is a tool usage results.
+      // We continue the loop if the last message has tool results.
+      // If it has - it means we need to give them to the model.
       const lastMessage = this.messages[this.messages.length - 1];
-      const lastMessageHasToolResults = lastMessage && lastMessage.role === 'tool-results';
+      const lastMessageHasToolResults = lastMessage && lastMessage.toolResults.length > 0;
       if (!lastMessageHasToolResults) {
         break;
       }
