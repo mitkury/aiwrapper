@@ -1,4 +1,5 @@
-import { LangMessages, LangMessage } from "../../messages";
+import { format } from "path";
+import { LangMessages, LangMessage, LangMessageRole, LangMessageContent } from "../../messages";
 
 type OpenAIResponseItem = {
   id: string;
@@ -14,6 +15,7 @@ type OpenAIResponseItem = {
 export class OpenAIResponseStreamHandler {
   id: string;
   items: OpenAIResponseItem[];
+  itemIdToMessageItemIndex: Map<string, number>;
   messages: LangMessages;
   onResult?: (result: LangMessage) => void;
 
@@ -38,12 +40,14 @@ export class OpenAIResponseStreamHandler {
       case 'response.created':
         this.id = data.response.id;
         break;
+
       case 'response.output_item.added':
-        this.addItem(data.item);
+        this.handleNewItem(data);
         break;
       case 'response.output_item.done':
-        this.setItem(data.item);
+        this.handleItemFinished(data);
         break;
+
       case 'response.content_part.added':
         break;
       case 'response.content_part.done':
@@ -51,7 +55,8 @@ export class OpenAIResponseStreamHandler {
       case 'response.image_generation_call.in_progress':
       case 'response.image_generation_call.generating':
       case 'response.image_generation_call.partial_image':
-        this.handlePartialImage(data);
+        //this.handlePartialImage(data);
+        //this.setItem(data.item)
         break;
       case 'response.image_generation_call.completed':
       case 'image_generation.completed':
@@ -72,13 +77,153 @@ export class OpenAIResponseStreamHandler {
     }
   }
 
-  /**
-   * Examples of items that can come into this handler:
-   * "type":"response.output_item.added","sequence_number":4,"output_index":1,"item":{"id":"fc_0d1fd1ec5aba34630068edbe1df02881a28c623f7dc5d45e81","type":"function_call","status":"in_progress","arguments":"","call_id":"call_Pc4gzmrkhNIdTYrySlALhyIl","name":"get_current_weather"}
-   * "type":"response.output_item.done","sequence_number":18,"output_index":1,"item":{"id":"fc_0d1fd1ec5aba34630068edbe1df02881a28c623f7dc5d45e81","type":"function_call","status":"completed","arguments":"{\"location\":\"Boston, MA\",\"unit\":\"celsius\"}","call_id":"call_Pc4gzmrkhNIdTYrySlALhyIl","name":"get_current_weather"}
-   * "type":"response.output_item.added","sequence_number":4,"output_index":1,"item":{"id":"msg_0dfe4783196ccc2e0068edc3874d5c81a3b2beb308e6eae8f3","type":"message","status":"in_progress","content":[],"role":"assistant"}
-   * "type":"response.output_item.done","sequence_number":236,"output_index":1,"item":{"id":"msg_0dfe4783196ccc2e0068edc3874d5c81a3b2beb308e6eae8f3","type":"message","status":"completed","content":[{"type":"output_text","annotations":[],"logprobs":[],"text":"Hey!"}],"role":"assistant"}
-   */
+  // @TODO: NO, let's not do it. Just add id to content part so I can associate them with items
+  turnItemsIntoContent(items: OpenAIResponseItem[]): LangMessageContent {
+    // We collapse the OpenAI Responses streaming items into the LangMessage content format.
+    // The handler needs to support three cases: plain assistant text, generated images,
+    // and tool/function call requests streamed via deltas.
+
+    type TextPart = { type: "text"; text: string };
+    type ImagePart = { type: "image"; image: any; alt?: string };
+
+    const contentParts: Array<TextPart | ImagePart> = [];
+    const toolCalls: Array<{ callId: string; name: string; arguments: Record<string, any> }> = [];
+
+    const appendText = (text: string) => {
+      if (!text) return;
+      const last = contentParts.length > 0 ? contentParts[contentParts.length - 1] : undefined;
+      if (last && last.type === "text") {
+        last.text += text;
+      } else {
+        contentParts.push({ type: "text", text });
+      }
+    };
+
+    for (const item of items) {
+      if (!item || typeof item.type !== "string") continue;
+
+      switch (item.type) {
+        case "message": {
+          // Assistant text may be provided as an aggregate string or as an array of parts.
+          if (typeof item.text === "string") {
+            appendText(item.text);
+            break;
+          }
+
+          if (Array.isArray(item.content)) {
+            for (const part of item.content) {
+              if (part && typeof part === "object" && part.type === "output_text" && typeof part.text === "string") {
+                appendText(part.text);
+              }
+            }
+          }
+          break;
+        }
+
+        case "image_generation_call": {
+          // Image generation items surface either a base64 payload or a URL once complete.
+          const base64 = typeof item.result === "string" && item.result.length > 0
+            ? item.result
+            : (typeof item.b64_json === "string" && item.b64_json.length > 0 ? item.b64_json : undefined);
+          const url = typeof item.url === "string" && item.url.length > 0 ? item.url : undefined;
+
+          const format = typeof item.output_format === "string" ? item.output_format : item.format;
+          let mimeType: string | undefined;
+          if (typeof format === "string") {
+            const normalized = format.toLowerCase();
+            if (normalized === "png") mimeType = "image/png";
+            else if (normalized === "jpeg" || normalized === "jpg") mimeType = "image/jpeg";
+            else if (normalized === "webp") mimeType = "image/webp";
+          }
+
+          const alt = typeof item.revised_prompt === "string" && item.revised_prompt.length > 0
+            ? item.revised_prompt
+            : (typeof item.prompt === "string" && item.prompt.length > 0 ? item.prompt : undefined);
+
+          if (base64) {
+            contentParts.push({ type: "image", image: { kind: "base64", base64, mimeType }, alt });
+          } else if (url) {
+            contentParts.push({ type: "image", image: { kind: "url", url }, alt });
+          }
+          break;
+        }
+
+        case "function_call": {
+          // Tool calls are streamed via argument deltas; consolidate them into a request payload.
+          const name = typeof item.name === "string" ? item.name : undefined;
+          if (!name) break;
+
+          const callId = typeof item.call_id === "string" && item.call_id.length > 0
+            ? item.call_id
+            : (typeof item.id === "string" ? item.id : name);
+
+          let args: Record<string, any> = {};
+          const rawArgs = item.arguments;
+          if (typeof rawArgs === "string" && rawArgs.trim().length > 0) {
+            try {
+              args = JSON.parse(rawArgs);
+            } catch {
+              // Ignore JSON parsing errors and fall back to an empty object so callers can handle it.
+              args = {};
+            }
+          } else if (rawArgs && typeof rawArgs === "object") {
+            args = rawArgs as Record<string, any>;
+          }
+
+          toolCalls.push({ callId, name, arguments: args });
+          break;
+        }
+
+        default:
+          // Other item types (e.g. reasoning, placeholders) are not converted here.
+          break;
+      }
+    }
+
+    if (toolCalls.length > 0) {
+      return toolCalls;
+    }
+
+    if (contentParts.length === 0) {
+      return "";
+    }
+
+    const onlyText = contentParts.every(part => part.type === "text");
+    if (onlyText) {
+      return contentParts.map(part => (part as TextPart).text).join("");
+    }
+
+    return contentParts;
+  }
+
+  handleNewItem(data: any) {
+    const itemType = data.item.type as string;
+
+    const message = new LangMessage('assistant', []);
+    message.meta = {
+      openaiResponseId: this.id
+    }
+
+    this.messages.push(message);
+    this.itemIdToMessageItemIndex.set(data.item.id, message.items.length - 1);
+  }
+
+  updateContent(item: OpenAIResponseItem) {
+
+  }
+
+  handleItemFinished(data: any) {
+    // Replace the new item with the finished one
+    const index = this.items.findIndex(r => r.id === data.item.id);
+    if (index !== -1) {
+      this.items[index] = data.item;
+    }
+
+    const content = this.turnItemsIntoContent(this.items);
+    this.newMessage.content = content;
+  }
+
+  // @TODO: remove this method
   setItem(target: OpenAIResponseItem) {
     const item = this.getItem(target.id);
     if (!target) {
@@ -133,14 +278,21 @@ export class OpenAIResponseStreamHandler {
           }
         ], { openaiResponseId: this.id });
 
-        const msg = this.messages[this.messages.length - 1];
-        this.onResult?.(msg);
+        this.onResult?.(this.messages[this.messages.length - 1]);
         break;
+
+      case 'image_generation_call':
+        this.addImage(target);
+        this.onResult?.(item.targetMessage);
+
+        break;
+
       default:
         break;
     }
   }
 
+  // @TODO: remove this method
   addItem(target: OpenAIResponseItem) {
     this.items.push(target);
 
@@ -181,61 +333,41 @@ export class OpenAIResponseStreamHandler {
     }
   }
 
-
-  handlePartialImage(data: any) {
-    // For streaming image generation, we might want to show progress
-    // or buffer partial images until complete
-    const partialBase64 = data.partial_image_b64;
-    if (partialBase64) {
-      // Add partial image to assistant message
-      this.messages.addAssistantImage({ 
-        kind: 'base64', 
-        base64: partialBase64, 
-        mimeType: 'image/png' 
-      });
-      
-      const last = this.messages[this.messages.length - 1];
-      if (last) {
-        last.meta = { ...(last.meta || {}), openaiResponseId: this.id };
-      }
-      this.onResult?.(last);
-    }
-  }
-
+  // @TODO: remove this method
   addImage(data: OpenAIResponseItem) {
-    const b64image = data.b64_json;
-    // Extract additional image generation metadata: size, output_format, background
-    const size = data.size;
-    const format = data.output_format || data.format;
-    const background = data.background;
-    
+    const b64image = data.b64_json || data.result;
+    const imageGenerationMeta = {
+      size: data.size,
+      format: data.output_format || data.format,
+      background: data.background,
+      quality: data.quality,
+      revisedPrompt: data.revised_prompt,
+    }
+
     if (b64image) {
       // Add the completed image to the assistant message
-      this.messages.addAssistantImage({ 
-        kind: 'base64', 
-        base64: b64image, 
-        mimeType: format === 'png' ? 'image/png' : 'image/jpeg' 
+      this.messages.addAssistantImage({
+        kind: 'base64',
+        base64: b64image,
+        mimeType: imageGenerationMeta.format === 'png' ? 'image/png' : 'image/jpeg'
       });
-      
+
       // Store metadata in the message
       const last = this.messages[this.messages.length - 1];
       if (!last.meta) last.meta = {};
       last.meta.openaiResponseId = this.id;
-      last.meta.imageGeneration = {
-        size,
-        format,
-        background,
-        provider: 'openai'
-      };
-      
+      last.meta.imageGeneration = imageGenerationMeta;
+
       this.onResult?.(last);
     }
   }
 
+  // @TODO: remove this method
   getItem(id: string): OpenAIResponseItem | undefined {
     return this.items.find(r => r.id === id);
   }
 
+  // @TODO: remove this method
   applyArgsDelta(itemId: string, delta: string) {
     const item = this.getItem(itemId);
     if (item && item.type === 'function_call') {
@@ -244,6 +376,7 @@ export class OpenAIResponseStreamHandler {
     }
   }
 
+  // @TODO: remove this method
   setArgs(itemId: string, args: string) {
     const item = this.getItem(itemId);
     if (item && item.type === 'function_call') {
@@ -251,6 +384,10 @@ export class OpenAIResponseStreamHandler {
     }
   }
 
+  // @TODO: remove this method; BUT see how we can use it effectively when we turn
+  // items into content. 
+  // Perhaps we should update the items but update content by appending to the text part and not
+  // by replacing the content with a new array of parts.
   applyDelta(itemId: string, delta: any) {
     const item = this.getItem(itemId);
     if (item) {

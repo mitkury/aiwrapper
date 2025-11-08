@@ -1,5 +1,15 @@
 import extractJSON from "./json/extract-json";
 
+export type LangMessageRole = "user" | "assistant" /*| "tool" | "tool-results" | "system"*/;
+export type LangMessageContent = string | LangContentPart[] | ToolRequest[] | ToolResult[];
+export type LangMessageMeta = Record<string, any>;
+//export type LangMessageMetaValue = string | number | boolean | null | LangMessageMetaValue[];
+
+export type LangContentPart =
+  | { type: "text"; text: string }
+  | { type: "image"; image: LangContentImage; alt?: string }
+  | { type: "thinking"; text: string };
+
 /**
  * Interface for tool requests that can be sent to language models
  */
@@ -18,114 +28,6 @@ export interface ToolResult {
   result: any;
 }
 
-export type LangMessageRole = "user" | "assistant" | "tool" | "tool-results" | "system";
-export type LangMessageContent = string | LangContentPart[] | ToolRequest[] | ToolResult[];
-export type LangMessageMeta = Record<string, any>;
-//export type LangMessageMetaValue = string | number | boolean | null | LangMessageMetaValue[];
-
-export class LangMessage {
-  role: LangMessageRole;
-  content: LangMessageContent;
-  meta?: Record<string, any>;
-
-  constructor(
-    role: "user" | "assistant" | "tool" | "tool-results" | "system",
-    content: LangMessageContent = "",
-    meta?: Record<string, any>
-  ) {
-    this.role = role;
-    this.content = content;
-    this.meta = meta;
-  }
-
-  addText(text: string): this {
-    if (typeof this.content === "string") {
-      this.content = (this.content || "") + text;
-      return this;
-    }
-    if (!Array.isArray(this.content)) this.content = [] as LangContentPart[];
-    const parts = this.content as LangContentPart[];
-    const last = parts.length > 0 ? parts[parts.length - 1] : undefined;
-    if (last && (last as any).type === "text") {
-      (last as any).text += text;
-    } else {
-      parts.push({ type: "text", text });
-    }
-    return this;
-  }
-
-  addImage(image: LangContentImage, alt?: string): this {
-    if (!Array.isArray(this.content)) this.content = [] as LangContentPart[];
-    (this.content as LangContentPart[]).push({ type: "image", image, alt });
-    return this;
-  }
-
-  addToolRequest(request: ToolRequest): this {
-    this.role = "tool";
-    if (!Array.isArray(this.content)) this.content = [] as ToolRequest[];
-    (this.content as ToolRequest[]).push(request);
-    return this;
-  }
-
-  addToolResult(result: ToolResult): this {
-    this.role = "tool-results";
-    if (!Array.isArray(this.content)) this.content = [] as ToolResult[];
-    (this.content as ToolResult[]).push(result);
-    return this;
-  }
-
-  get text(): string {
-    if (typeof this.content === "string") return this.content;
-    if (this.role === "tool" && Array.isArray(this.content)) return "";
-    if (this.role === "tool-results" && Array.isArray(this.content)) return "";
-    if (Array.isArray(this.content)) {
-      return (this.content as LangContentPart[])
-        .filter(p => (p as any).type === "text")
-        .map(p => (p as any).text as string)
-        .join("\n\n");
-    }
-    return "";
-  }
-
-  get object(): any | null {
-    const text = this.text;
-    if (text && text.length > 0) return extractJSON(text);
-    return null;
-  }
-
-  get toolRequests(): ToolRequest[] {
-    if (this.role === "tool" && Array.isArray(this.content)) {
-      return this.content as ToolRequest[];
-    }
-    return [];
-  }
-
-  get toolResults(): ToolResult[] {
-    if (this.role === "tool-results" && Array.isArray(this.content)) {
-      return this.content as ToolResult[];
-    }
-    return [];
-  }
-
-  get images(): LangImageOutput[] {
-    if (!Array.isArray(this.content)) return [];
-    const parts = this.content as LangContentPart[];
-    const images: LangImageOutput[] = [];
-    for (const part of parts) {
-      if ((part as any).type === "image") {
-        const imagePart = part as { type: "image"; image: LangContentImage; alt?: string };
-        images.push({
-          url: imagePart.image.kind === "url" ? imagePart.image.url : undefined,
-          base64: imagePart.image.kind === "base64" ? imagePart.image.base64 : undefined,
-          mimeType: (imagePart.image as any).mimeType,
-          metadata: this.meta?.imageGeneration
-        });
-      }
-    }
-    return images;
-  }
-}
-
 export type LangContentImage =
   | { kind: "url"; url: string }
   | { kind: "base64"; base64: string; mimeType?: string }
@@ -141,18 +43,6 @@ export type LangImageOutput = {
   metadata?: Record<string, any>;
 };
 
-export type LangContentPart =
-  | { type: "text"; text: string }
-  | { type: "image"; image: LangContentImage; alt?: string }
-  | { type: "thinking"; text: string };
-
-export type LangToolWithHandler = {
-  name: string;
-  description: string;
-  parameters: Record<string, any>;
-  handler: (args: Record<string, any>) => any | Promise<any>;
-}
-
 /**
  * Built-in tools provided by the language model provider
  * These tools don't require handlers as they're executed by the provider
@@ -167,9 +57,90 @@ export type BuiltInLangTool = {
  */
 export type LangTool = LangToolWithHandler | BuiltInLangTool;
 
+export type LangToolWithHandler = {
+  name: string;
+  description: string;
+  parameters: Record<string, any>;
+  handler: (args: Record<string, any>) => any | Promise<any>;
+}
+
+export type LangMessageItem =
+  | LangMessageItemText
+  | LangMessageItemImage
+  | LangMessageItemTool
+  | LangMessageItemToolResult;
+
+export type LangMessageItemText = {
+  type: "text";
+  text: string;
+}
+
+export type LangMessageItemImage = {
+  type: "image";
+  url?: string;
+  base64?: string;
+  mimeType?: string;
+  width?: number;
+  height?: number;
+  metadata?: Record<string, any>;
+}
+
+export type LangMessageItemTool = {
+  type: "tool";
+  name: string;
+  callId: string;
+  arguments: Record<string, any>;
+}
+
+export type LangMessageItemToolResult = {
+  type: "tool-result";
+  name: string;
+  callId: string;
+  result: any;
+}
+
+export class LangMessage {
+  role: LangMessageRole;
+  items: LangMessageItem[];
+  meta?: Record<string, any>;
+
+  constructor(role: LangMessageRole, text: string, meta?: Record<string, any>);
+  constructor(role: LangMessageRole, items: LangMessageItem[], meta?: Record<string, any>);
+  constructor(
+    role: "user" | "assistant",
+    init: string | LangMessageItem[],
+    meta?: Record<string, any>
+  ) {
+    this.role = role;
+    this.items = Array.isArray(init) ? init : [{ type: "text", text: init }];
+    this.meta = meta;
+  }
+
+  get text(): string {
+    return this.items.filter(item => item.type === "text").map(item => item.text).join("\n\n");
+  }
+
+  get object(): any | null {
+    const text = this.text;
+    if (text && text.length > 0) return extractJSON(text);
+    return null;
+  }
+
+  get toolRequests(): LangMessageItemTool[] {
+    return this.items.filter(item => item.type === "tool").map(item => item as LangMessageItemTool);
+  }
+
+  get toolResults(): LangMessageItemToolResult[] {
+    return this.items.filter(item => item.type === "tool-result").map(item => item as LangMessageItemToolResult);
+  }
+
+  get images(): LangMessageItemImage[] {
+    return this.items.filter(item => item.type === "image").map(item => item as LangMessageItemImage);
+  }
+}
+
 export class LangMessages extends Array<LangMessage> {
   availableTools?: LangTool[];
-
   finished: boolean = false;
   instructions?: string;
 
@@ -177,9 +148,9 @@ export class LangMessages extends Array<LangMessage> {
   constructor(initialPrompt: string, opts?: { tools?: LangTool[] });
   constructor(initialMessages: LangMessage[], opts?: { tools?: LangTool[] });
   constructor(initialMessages: LangMessages, opts?: { tools?: LangTool[] });
-  constructor(initialMessages: { role: LangMessageRole; content: LangMessageContent; }[], opts?: { tools?: LangTool[] });
+  constructor(initialMessages: { role: LangMessageRole; items: LangMessageItem[]; }[], opts?: { tools?: LangTool[] });
   constructor(
-    initial?: string | { role: LangMessageRole; content: LangMessageContent; }[] | LangMessage[] | LangMessages,
+    initial?: string | { role: LangMessageRole; items: LangMessageItem[]; }[] | LangMessage[] | LangMessages,
     opts?: { tools?: LangTool[] }
   ) {
     // When extending Array, call super with the initial elements if provided
@@ -197,11 +168,11 @@ export class LangMessages extends Array<LangMessage> {
         this.availableTools = initial.availableTools;
       }
     } else if (Array.isArray(initial)) {
-      for (const m of (initial as (LangMessage | { role: LangMessageRole; content: LangMessageContent; })[])) {
+      for (const m of initial) {
         if (m instanceof LangMessage) {
           this.push(m);
         } else {
-          this.push(new LangMessage(m.role, m.content));
+          this.push(new LangMessage(m.role, m.items));
         }
       }
     }
@@ -249,86 +220,18 @@ export class LangMessages extends Array<LangMessage> {
     return lastMessageByRole.images;
   }
 
-  /**
-   * Ensure there is an assistant message with string content at the end and return it
-   */
-  ensureAssistantTextMessage(): LangMessage {
-    const last = this.length > 0 ? this[this.length - 1] : undefined;
-    if (last && last.role === "assistant") {
-      if (typeof last.content !== "string") (last as any).content = "";
-      return last;
-    }
-    const created = new LangMessage("assistant", "");
-    this.push(created);
-    return created;
-  }
-
-  /**
-   * Ensure there is an assistant message with array content at the end and return it
-   */
-  ensureAssistantPartsMessage(): LangMessage {
-    const last = this.length > 0 ? this[this.length - 1] : undefined;
-    if (last && last.role === "assistant") {
-      if (Array.isArray(last.content)) return last;
-      const parts: LangContentPart[] = [];
-      if (typeof last.content === "string" && last.content.length > 0) {
-        parts.push({ type: "text", text: last.content });
-      }
-      (last as any).content = parts;
-      return last;
-    }
-    const created = new LangMessage("assistant", [] as LangContentPart[]);
-    this.push(created);
-    return created;
-  }
-
-  /**
-   * Append text to the last assistant message (creating if needed)
-   */
-  appendToAssistantText(text: string): LangMessage {
-    const msg = this.ensureAssistantTextMessage();
-    (msg as any).content = String((msg as any).content || "") + text;
-    return msg;
-  }
-
-  /**
-   * Append or create a thinking content part in the last assistant message
-   */
-  appendToAssistantThinking(text: string): LangMessage {
-    const msg = this.ensureAssistantPartsMessage();
-    const parts = msg.content as LangContentPart[];
-    const lastPart = parts.length > 0 ? parts[parts.length - 1] : undefined;
-    if (lastPart && lastPart.type === "thinking") {
-      lastPart.text += text;
-    } else {
-      parts.push({ type: "thinking", text });
-    }
-    return msg;
-  }
-
-  addAssistantContentPart(part: LangContentPart): this {
-    const msg = this.ensureAssistantPartsMessage();
-    (msg.content as LangContentPart[]).push(part);
-    return this;
-  }
-
-  addAssistantImage(image: LangContentImage, alt?: string): this {
-    return this.addAssistantContentPart({ type: "image", image, alt });
-  }
-
   addUserMessage(content: string): this {
     this.push(new LangMessage("user", content));
     return this;
   }
 
-  addUserContent(parts: LangContentPart[]): this {
-    this.push(new LangMessage("user", parts));
+  addUserItems(items: LangMessageItem[]): this {
+    this.push(new LangMessage("user", items));
     return this;
   }
 
-  addUserImage(image: LangContentImage, alt?: string): this {
-    const parts: LangContentPart[] = [{ type: "image", image, alt }];
-    return this.addUserContent(parts);
+  addUserImage(image: LangMessageItemImage): this {
+    return this.addUserItems([image]);
   }
 
   addAssistantMessage(content: string, meta?: Record<string, any>): this {
@@ -336,38 +239,25 @@ export class LangMessages extends Array<LangMessage> {
     return this;
   }
 
-  addAssistantContent(parts: LangContentPart[], meta?: Record<string, any>): this {
-    this.push(new LangMessage("assistant", parts, meta));
-    return this;
-  }
-
-  addAssistantToolCalls(toolCalls: ToolRequest[], meta?: Record<string, any>): this {
-    this.push(new LangMessage("tool", toolCalls, meta));
-    return this;
-  }
-
-  addToolUseMessage(toolResults: ToolResult[], meta?: Record<string, any>): this {
-    this.push(new LangMessage("tool-results", toolResults, meta));
-    return this;
-  }
-
-  addSystemMessage(content: string, meta?: Record<string, any>): this {
-    this.push(new LangMessage("system", content, meta));
+  addAssistantItems(items: LangMessageItem[], meta?: Record<string, any>): this {
+    this.push(new LangMessage("assistant", items, meta));
     return this;
   }
 
   async executeRequestedTools(meta?: Record<string, any>): Promise<LangMessage | null> {
-    // Only execute if the very last message is a tool request
+    // Only execute if the very last message is an assistant message that has tool in its items
     const last = this.length > 0 ? this[this.length - 1] : undefined;
-    if (!last || last.role !== "tool" || !Array.isArray(last.content) || last.content.length === 0) {
+    if (!last || last.role !== "assistant" || last.items.length === 0) {
       return null;
     }
 
+    const toolRequests = last.toolRequests;
+
+    // Warn the user if we don't have any available tools
     if (!this.availableTools) {
-      try {
-        const names = (last.content as ToolRequest[]).map(t => t.name);
-        console.warn("Requested tool names:", names);
-      } catch { }
+      for (const toolRequest of toolRequests) {
+        console.warn("Don't have available tool named '" + toolRequest.name + "'");
+      }
       return null;
     }
 
@@ -377,7 +267,7 @@ export class LangMessages extends Array<LangMessage> {
 
     // Execute requested tools from the last message only
     const toolResults: ToolResult[] = [];
-    for (const requestedTool of (last.content as ToolRequest[])) {
+    for (const requestedTool of toolRequests) {
       const toolName = requestedTool.name as string | undefined;
       if (!toolName) continue;
 
@@ -401,8 +291,9 @@ export class LangMessages extends Array<LangMessage> {
       toolResults.push({ toolId: id, name: toolName, result });
     }
 
-    // Append execution results
-    this.addToolUseMessage(toolResults, meta);
+    // Create a new user message with the tool results
+    this.addUserItems(toolResults.map(result => ({ type: "tool-result", name: result.name, callId: result.toolId, result: result.result })));
+
     // We return the tool results message we've just added
     return this[this.length - 1];
   }
@@ -410,7 +301,7 @@ export class LangMessages extends Array<LangMessage> {
   toString(): string {
     const out: string[] = [];
     for (const msg of this) {
-      out.push(`${msg.role}: ${JSON.stringify(msg.content)}`);
+      out.push(`${msg.role}: ${JSON.stringify(msg.items, null, 2)}`);
     }
     return out.join("\n\n");
   }
