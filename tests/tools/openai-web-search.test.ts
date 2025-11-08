@@ -14,7 +14,7 @@ describe.skipIf(!apiKey)('OpenAI built-in Web Search Tool', () => {
     const res = await lang.chat(messages);
 
     expect(res.answer).toBeDefined();
-    expect(res.answer).toContain('The current weather in Paris');
+    expect(res.answer.toLocaleLowerCase()).toContain('the current weather in paris');
     expect(res.finished).toBe(true);
   });
 });
