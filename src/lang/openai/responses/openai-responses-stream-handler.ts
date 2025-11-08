@@ -1,423 +1,390 @@
-import { format } from "path";
-import { LangMessages, LangMessage, LangMessageRole, LangMessageContent } from "../../messages";
+import { LangMessage, LangMessageItem, LangMessageItemText, LangMessageItemThinking, LangMessageItemTool, LangMessages } from "../../messages";
 
-type OpenAIResponseItem = {
-  id: string;
-  type: string;
-  // We link our messages to items so we can mutate them as items are updated
-  targetMessage?: LangMessage;
-  [key: string]: any;
+type ItemState = {
+  message: LangMessage;
+  item: LangMessageItem;
+};
+
+const enum ResponseEventType {
+  ResponseCreated = "response.created",
+  OutputItemAdded = "response.output_item.added",
+  OutputItemDone = "response.output_item.done",
+  OutputTextDelta = "response.output_text.delta",
+  OutputTextDone = "response.output_text.done",
+  FunctionArgumentsDelta = "response.function_call_arguments.delta",
+  FunctionArgumentsDone = "response.function_call_arguments.done",
+  ImageGenerationCompleted = "response.image_generation_call.completed",
+  ImageCompleted = "image_generation.completed",
+  ReasoningTextDelta = "response.reasoning_text.delta",
 }
 
+const IMAGE_MIME_MAP: Record<string, string> = {
+  png: "image/png",
+  jpeg: "image/jpeg",
+  jpg: "image/jpeg",
+  webp: "image/webp",
+};
+
 /**
- * Stream response handler for the OpenAI Responses API
+ * Stream response handler for the OpenAI Responses API.
+ * Collapses streaming events into a single assistant LangMessage that contains items
+ * for text, reasoning, tool calls, and images.
  */
 export class OpenAIResponseStreamHandler {
-  id: string;
-  items: OpenAIResponseItem[];
-  itemIdToMessageItemIndex: Map<string, number>;
-  messages: LangMessages;
-  onResult?: (result: LangMessage) => void;
+  private responseId?: string;
+  private readonly messages: LangMessages;
+  private readonly onResult?: (result: LangMessage) => void;
+  private readonly itemState: Map<string, ItemState>;
+  private readonly toolArgumentBuffers: Map<string, string>;
+  private readonly pendingImageMessages: Map<string, LangMessage>;
 
   constructor(messages: LangMessages, onResult?: (result: LangMessage) => void) {
-    this.items = [];
     this.messages = messages;
     this.onResult = onResult;
+    this.itemState = new Map();
+    this.toolArgumentBuffers = new Map();
+    this.pendingImageMessages = new Map();
   }
 
   handleEvent(data: any) {
-    if (!('type' in data)) {
-      console.warn('Unknown data from server:', data);
+    if (!data || typeof data.type !== "string") {
+      console.warn("Unknown data from server:", data);
       return;
     }
 
-    if (!('type' in data)) {
-      console.warn('Unknown data from server:', data);
-      return;
-    }
-
-    switch (data.type) {
-      case 'response.created':
-        this.id = data.response.id;
+    switch (data.type as ResponseEventType) {
+      case ResponseEventType.ResponseCreated:
+        this.responseId = data.response?.id ?? data.id;
         break;
 
-      case 'response.output_item.added':
-        this.handleNewItem(data);
-        break;
-      case 'response.output_item.done':
-        this.handleItemFinished(data);
+      case ResponseEventType.OutputItemAdded:
+        this.handleOutputItemAdded(data.item);
         break;
 
-      case 'response.content_part.added':
-        break;
-      case 'response.content_part.done':
-        break;
-      case 'response.image_generation_call.in_progress':
-      case 'response.image_generation_call.generating':
-      case 'response.image_generation_call.partial_image':
-        //this.handlePartialImage(data);
-        //this.setItem(data.item)
-        break;
-      case 'response.image_generation_call.completed':
-      case 'image_generation.completed':
-        this.addImage(data);
+      case ResponseEventType.OutputItemDone:
+        this.handleOutputItemDone(data.item);
         break;
 
-      // Deltas that we care about (feel free to add more if you want to show them in-progress somewhere)
-      case 'response.output_text.delta':
-        //case 'response.function_call_arguments.delta':
-        this.applyDelta(data.item_id, data.delta);
+      case ResponseEventType.OutputTextDelta:
+        this.applyTextDelta(data.item_id, data.delta);
         break;
-      case 'response.function_call_arguments.delta':
-        this.applyArgsDelta(data.item_id, data.delta);
+
+      case ResponseEventType.OutputTextDone:
+        this.applyOutputTextDone(data.item_id, data.text ?? data.output_text);
         break;
-      case 'response.function_call_arguments.done':
-        this.setArgs(data.item_id, data.arguments);
+
+      case ResponseEventType.FunctionArgumentsDelta:
+        this.applyFunctionArgumentsDelta(data.item_id, data.delta);
+        break;
+
+      case ResponseEventType.FunctionArgumentsDone:
+        this.setFunctionArguments(data.item_id, data.arguments);
+        break;
+
+      case ResponseEventType.ImageGenerationCompleted:
+      case ResponseEventType.ImageCompleted:
+        this.handleImageCompleted(data);
+        break;
+
+      case ResponseEventType.ReasoningTextDelta:
+        this.applyReasoningDelta(data.item_id, data.delta);
+        break;
+
+      default:
         break;
     }
   }
 
-  // @TODO: NO, let's not do it. Just add id to content part so I can associate them with items
-  turnItemsIntoContent(items: OpenAIResponseItem[]): LangMessageContent {
-    // We collapse the OpenAI Responses streaming items into the LangMessage content format.
-    // The handler needs to support three cases: plain assistant text, generated images,
-    // and tool/function call requests streamed via deltas.
-
-    type TextPart = { type: "text"; text: string };
-    type ImagePart = { type: "image"; image: any; alt?: string };
-
-    const contentParts: Array<TextPart | ImagePart> = [];
-    const toolCalls: Array<{ callId: string; name: string; arguments: Record<string, any> }> = [];
-
-    const appendText = (text: string) => {
-      if (!text) return;
-      const last = contentParts.length > 0 ? contentParts[contentParts.length - 1] : undefined;
-      if (last && last.type === "text") {
-        last.text += text;
-      } else {
-        contentParts.push({ type: "text", text });
-      }
-    };
-
-    for (const item of items) {
-      if (!item || typeof item.type !== "string") continue;
-
-      switch (item.type) {
-        case "message": {
-          // Assistant text may be provided as an aggregate string or as an array of parts.
-          if (typeof item.text === "string") {
-            appendText(item.text);
-            break;
-          }
-
-          if (Array.isArray(item.content)) {
-            for (const part of item.content) {
-              if (part && typeof part === "object" && part.type === "output_text" && typeof part.text === "string") {
-                appendText(part.text);
-              }
-            }
-          }
-          break;
+  private ensureAssistantMessage(): LangMessage {
+    const meta = this.responseId ? { openaiResponseId: this.responseId } : undefined;
+    if (this.messages.length > 0) {
+      const last = this.messages[this.messages.length - 1];
+      if (last.role === "assistant") {
+        if (meta) {
+          last.meta = { ...(last.meta || {}), ...meta };
         }
-
-        case "image_generation_call": {
-          // Image generation items surface either a base64 payload or a URL once complete.
-          const base64 = typeof item.result === "string" && item.result.length > 0
-            ? item.result
-            : (typeof item.b64_json === "string" && item.b64_json.length > 0 ? item.b64_json : undefined);
-          const url = typeof item.url === "string" && item.url.length > 0 ? item.url : undefined;
-
-          const format = typeof item.output_format === "string" ? item.output_format : item.format;
-          let mimeType: string | undefined;
-          if (typeof format === "string") {
-            const normalized = format.toLowerCase();
-            if (normalized === "png") mimeType = "image/png";
-            else if (normalized === "jpeg" || normalized === "jpg") mimeType = "image/jpeg";
-            else if (normalized === "webp") mimeType = "image/webp";
-          }
-
-          const alt = typeof item.revised_prompt === "string" && item.revised_prompt.length > 0
-            ? item.revised_prompt
-            : (typeof item.prompt === "string" && item.prompt.length > 0 ? item.prompt : undefined);
-
-          if (base64) {
-            contentParts.push({ type: "image", image: { kind: "base64", base64, mimeType }, alt });
-          } else if (url) {
-            contentParts.push({ type: "image", image: { kind: "url", url }, alt });
-          }
-          break;
-        }
-
-        case "function_call": {
-          // Tool calls are streamed via argument deltas; consolidate them into a request payload.
-          const name = typeof item.name === "string" ? item.name : undefined;
-          if (!name) break;
-
-          const callId = typeof item.call_id === "string" && item.call_id.length > 0
-            ? item.call_id
-            : (typeof item.id === "string" ? item.id : name);
-
-          let args: Record<string, any> = {};
-          const rawArgs = item.arguments;
-          if (typeof rawArgs === "string" && rawArgs.trim().length > 0) {
-            try {
-              args = JSON.parse(rawArgs);
-            } catch {
-              // Ignore JSON parsing errors and fall back to an empty object so callers can handle it.
-              args = {};
-            }
-          } else if (rawArgs && typeof rawArgs === "object") {
-            args = rawArgs as Record<string, any>;
-          }
-
-          toolCalls.push({ callId, name, arguments: args });
-          break;
-        }
-
-        default:
-          // Other item types (e.g. reasoning, placeholders) are not converted here.
-          break;
+        return last;
       }
     }
-
-    if (toolCalls.length > 0) {
-      return toolCalls;
-    }
-
-    if (contentParts.length === 0) {
-      return "";
-    }
-
-    const onlyText = contentParts.every(part => part.type === "text");
-    if (onlyText) {
-      return contentParts.map(part => (part as TextPart).text).join("");
-    }
-
-    return contentParts;
-  }
-
-  handleNewItem(data: any) {
-    const itemType = data.item.type as string;
-
-    const message = new LangMessage('assistant', []);
-    message.meta = {
-      openaiResponseId: this.id
-    }
-
+    const message = new LangMessage("assistant", [], meta);
     this.messages.push(message);
-    this.itemIdToMessageItemIndex.set(data.item.id, message.items.length - 1);
+    return message;
   }
 
-  updateContent(item: OpenAIResponseItem) {
-
-  }
-
-  handleItemFinished(data: any) {
-    // Replace the new item with the finished one
-    const index = this.items.findIndex(r => r.id === data.item.id);
-    if (index !== -1) {
-      this.items[index] = data.item;
-    }
-
-    const content = this.turnItemsIntoContent(this.items);
-    this.newMessage.content = content;
-  }
-
-  // @TODO: remove this method
-  setItem(target: OpenAIResponseItem) {
-    const item = this.getItem(target.id);
-    if (!target) {
-      console.warn('Unknown item:', target);
-      return;
-    }
+  private handleOutputItemAdded(item: any) {
+    if (!item || typeof item.type !== "string") return;
+    const message = this.ensureAssistantMessage();
 
     switch (item.type) {
-      case 'message':
-        if (!item.targetMessage) {
-          console.warn('Unknown target message for item:', target);
-          return;
-        }
-        if (item.role === 'assistant') {
-          // Ensure we use parts so image and text live in one message
-          if (!Array.isArray(item.targetMessage.content)) {
-            const existingText = typeof item.targetMessage.content === 'string' ? item.targetMessage.content : '';
-            item.targetMessage.content = existingText ? [{ type: 'text', text: existingText }] : [];
-          }
-          // If we already accumulated text via deltas, do not append again on 'done'
-          const alreadyStreamedText = typeof (item as any).text === 'string' && (item as any).text.length > 0;
-          if (!alreadyStreamedText) {
-            for (const content of target.content) {
-              if (content.type === 'output_text') {
-                const parts = item.targetMessage.content as any[];
-                const lastPart = parts.length > 0 ? parts[parts.length - 1] : undefined;
-                if (lastPart && lastPart.type === 'text') {
-                  lastPart.text += String(content.text ?? '');
-                } else {
-                  parts.push({ type: 'text', text: String(content.text ?? '') });
-                }
-              }
-            }
-          }
+      case "message": {
+        const text = typeof item.text === "string" ? item.text : this.extractTextFromMessageItem(item);
+        const textItem = this.createOrGetItem<LangMessageItemText>(item.id, message, { type: "text", text: "" });
 
-          this.onResult?.(item.targetMessage);
-        } else {
-          console.warn('Unknown role:', item.role, 'for item:', item);
+        if (typeof text === "string" && text.length > 0) {
+          textItem.text = text;
+          this.emit(message);
         }
         break;
+      }
 
-      case 'function_call':
-        const argsParsed = JSON.parse(target.arguments) as Record<string, any>;
-        const callId = target.call_id;
-        const name = target.name;
-
-        this.messages.addAssistantToolCalls([
-          {
-            callId,
-            name,
-            arguments: argsParsed
-          }
-        ], { openaiResponseId: this.id });
-
-        this.onResult?.(this.messages[this.messages.length - 1]);
+      case "reasoning": {
+        const text = typeof item.text === "string" ? item.text : "";
+        const thinkingItem = this.createOrGetItem<LangMessageItemThinking>(item.id, message, { type: "thinking", text: "" });
+        if (typeof text === "string" && text.length > 0) {
+          thinkingItem.text = text;
+          this.emit(message);
+        }
         break;
+      }
 
-      case 'image_generation_call':
-        this.addImage(target);
-        this.onResult?.(item.targetMessage);
+      case "function_call": {
+        const callId = this.getCallId(item);
+        const name = typeof item.name === "string" ? item.name : item.function?.name ?? "";
+        const args = this.parseArgs(item.arguments);
 
+        const toolItem = message.upsertToolCall({ callId, name, arguments: args });
+        this.itemState.set(item.id, { message, item: toolItem });
+
+        if (typeof item.arguments === "string") {
+          this.toolArgumentBuffers.set(item.id, item.arguments);
+        }
+
+        this.emit(message);
         break;
+      }
+
+      case "image_generation_call": {
+        this.pendingImageMessages.set(item.id, message);
+        if (!message.meta) message.meta = {};
+        message.meta.openaiResponseId = this.responseId;
+        message.meta.imageGeneration = {
+          size: item.size,
+          format: item.output_format ?? item.format,
+          background: item.background,
+          quality: item.quality,
+          revisedPrompt: item.revised_prompt ?? item.prompt,
+        };
+        break;
+      }
 
       default:
         break;
     }
   }
 
-  // @TODO: remove this method
-  addItem(target: OpenAIResponseItem) {
-    this.items.push(target);
-
-    switch (target.type) {
-      case 'message':
-
-        if (target.role === 'assistant') {
-          // Reuse an existing trailing assistant message (possibly created by image events)
-          const last = this.messages.length > 0 ? this.messages[this.messages.length - 1] : undefined;
-          if (last && last.role === 'assistant') {
-            // Ensure it's parts to allow mixed content and set response id
-            if (!Array.isArray(last.content)) {
-              const existingText = typeof last.content === 'string' ? last.content : '';
-              (last as any).content = existingText ? [{ type: 'text', text: existingText }] : [];
-            }
-            last.meta = { ...(last.meta || {}), openaiResponseId: this.id };
-            target.targetMessage = last;
-          } else {
-            // Initialize as parts message to allow images + text together
-            this.messages.addAssistantContent([], { openaiResponseId: this.id });
-            target.targetMessage = this.messages[this.messages.length - 1];
-          }
-          this.onResult?.(target.targetMessage);
-        } else {
-          console.warn('Unknown role:', target.role, 'for item:', target);
-        }
-
-        break;
-      case 'function_call':
-
-        if (typeof target.arguments !== 'string') {
-          target.arguments = '';
-        }
-
-        break;
-      default:
-        break;
-    }
-  }
-
-  // @TODO: remove this method
-  addImage(data: OpenAIResponseItem) {
-    const b64image = data.b64_json || data.result;
-    const imageGenerationMeta = {
-      size: data.size,
-      format: data.output_format || data.format,
-      background: data.background,
-      quality: data.quality,
-      revisedPrompt: data.revised_prompt,
-    }
-
-    if (b64image) {
-      // Add the completed image to the assistant message
-      this.messages.addAssistantImage({
-        kind: 'base64',
-        base64: b64image,
-        mimeType: imageGenerationMeta.format === 'png' ? 'image/png' : 'image/jpeg'
-      });
-
-      // Store metadata in the message
-      const last = this.messages[this.messages.length - 1];
-      if (!last.meta) last.meta = {};
-      last.meta.openaiResponseId = this.id;
-      last.meta.imageGeneration = imageGenerationMeta;
-
-      this.onResult?.(last);
-    }
-  }
-
-  // @TODO: remove this method
-  getItem(id: string): OpenAIResponseItem | undefined {
-    return this.items.find(r => r.id === id);
-  }
-
-  // @TODO: remove this method
-  applyArgsDelta(itemId: string, delta: string) {
-    const item = this.getItem(itemId);
-    if (item && item.type === 'function_call') {
-      if (typeof item.arguments !== 'string') item.arguments = '';
-      item.arguments += delta;
-    }
-  }
-
-  // @TODO: remove this method
-  setArgs(itemId: string, args: string) {
-    const item = this.getItem(itemId);
-    if (item && item.type === 'function_call') {
-      item.arguments = args;
-    }
-  }
-
-  // @TODO: remove this method; BUT see how we can use it effectively when we turn
-  // items into content. 
-  // Perhaps we should update the items but update content by appending to the text part and not
-  // by replacing the content with a new array of parts.
-  applyDelta(itemId: string, delta: any) {
-    const item = this.getItem(itemId);
-    if (item) {
-      if (typeof delta === "string") {
-        item.text += delta;
+  private handleOutputItemDone(item: any) {
+    if (!item || typeof item.type !== "string" || typeof item.id !== "string") return;
+    const state = this.itemState.get(item.id);
+    if (!state) {
+      // If we never saw the item, attempt to convert once fully available.
+      if (item.type === "message") {
+        const message = this.ensureAssistantMessage();
+        const text = this.extractTextFromMessageItem(item);
+        const textItem = this.createOrGetItem<LangMessageItemText>(item.id, message, { type: "text", text: "" });
+        textItem.text = text ?? textItem.text;
+        this.emit(message);
+      } else if (item.type === "reasoning") {
+        const message = this.ensureAssistantMessage();
+        const text = typeof item.text === "string" ? item.text : "";
+        const thinkingItem = this.createOrGetItem<LangMessageItemThinking>(item.id, message, { type: "thinking", text: "" });
+        thinkingItem.text = text;
+        this.emit(message);
+      } else if (item.type === "function_call") {
+        const message = this.ensureAssistantMessage();
+        const callId = this.getCallId(item);
+        const name = typeof item.name === "string" ? item.name : "";
+        const args = this.parseArgs(item.arguments);
+        const toolItem = message.upsertToolCall({ callId, name, arguments: args });
+        this.itemState.set(item.id, { message, item: toolItem });
+        this.emit(message);
       }
+      return;
+    }
 
-      if (item.targetMessage) {
-        // Ensure parts structure to safely append text alongside images
-        if (!Array.isArray(item.targetMessage.content)) {
-          const existingText = typeof item.targetMessage.content === 'string' ? item.targetMessage.content : '';
-          item.targetMessage.content = existingText ? [{ type: 'text', text: existingText }] : [];
-        }
-
-        if (typeof delta === "string") {
-          const parts = item.targetMessage.content as any[];
-          const lastPart = parts.length > 0 ? parts[parts.length - 1] : undefined;
-          if (lastPart && lastPart.type === 'text') {
-            lastPart.text += delta;
-          } else {
-            parts.push({ type: 'text', text: delta });
-          }
-        } else {
-          // @TODO: handle other delta types
-          console.warn('Unknown delta type:', typeof delta, 'for item:', item);
-        }
-
-        // This callback is responsible for the real-time visualization of the model output.
-        this.onResult?.(item.targetMessage);
+    if (item.type === "message" && state.item.type === "text") {
+      const text = this.extractTextFromMessageItem(item);
+      if (typeof text === "string" && text.length > 0) {
+        state.item.text = text;
+        this.emit(state.message);
       }
     }
+
+    if (item.type === "reasoning" && state.item.type === "thinking") {
+      if (typeof item.text === "string" && item.text.length > 0) {
+        state.item.text = item.text;
+        this.emit(state.message);
+      }
+    }
+
+    if (item.type === "function_call" && state.item.type === "tool") {
+      const args = this.parseArgs(item.arguments);
+      if (args) {
+        state.item.arguments = args;
+        this.emit(state.message);
+      }
+    }
+  }
+
+  private applyTextDelta(itemId: string, delta: unknown) {
+    if (typeof itemId !== "string" || typeof delta !== "string") return;
+    const state = this.itemState.get(itemId);
+    const message = state?.message ?? this.ensureAssistantMessage();
+
+    if (state) {
+      if (state.item.type === "text") {
+        state.item.text += delta;
+        this.emit(message);
+        return;
+      }
+      if (state.item.type === "thinking") {
+        state.item.text += delta;
+        this.emit(message);
+        return;
+      }
+    }
+
+    const textItem = this.createOrGetItem<LangMessageItemText>(itemId, message, { type: "text", text: "" });
+    textItem.text += delta;
+
+    this.emit(message);
+  }
+
+  private applyOutputTextDone(itemId: string, finalText: unknown) {
+    if (typeof itemId !== "string" || typeof finalText !== "string") return;
+    const state = this.itemState.get(itemId);
+    const message = state?.message ?? this.ensureAssistantMessage();
+
+    if (state && state.item.type === "text") {
+      state.item.text = finalText;
+    } else {
+      const textItem = this.createOrGetItem<LangMessageItemText>(itemId, message, { type: "text", text: "" });
+      textItem.text = finalText;
+    }
+
+    this.emit(message);
+  }
+
+  private applyReasoningDelta(itemId: string, delta: unknown) {
+    if (typeof itemId !== "string" || typeof delta !== "string") return;
+    const state = this.itemState.get(itemId);
+    const message = state?.message ?? this.ensureAssistantMessage();
+
+    if (state && state.item.type === "thinking") {
+      state.item.text += delta;
+    } else {
+      const thinkingItem = this.createOrGetItem<LangMessageItemThinking>(itemId, message, { type: "thinking", text: "" });
+      thinkingItem.text += delta;
+    }
+
+    this.emit(message);
+  }
+
+  private applyFunctionArgumentsDelta(itemId: string, delta: unknown) {
+    if (typeof itemId !== "string" || typeof delta !== "string") return;
+    const existing = this.toolArgumentBuffers.get(itemId) ?? "";
+    const buffer = existing + delta;
+    this.toolArgumentBuffers.set(itemId, buffer);
+    this.trySetParsedArguments(itemId, buffer);
+  }
+
+  private setFunctionArguments(itemId: string, args: unknown) {
+    if (typeof itemId !== "string") return;
+    const parsed = this.parseArgs(args);
+    if (!parsed) return;
+    this.toolArgumentBuffers.set(itemId, typeof args === "string" ? args : JSON.stringify(parsed));
+
+    const state = this.itemState.get(itemId);
+    if (state && state.item.type === "tool") {
+      state.item.arguments = parsed;
+      this.emit(state.message);
+    } else {
+      const message = this.ensureAssistantMessage();
+      const callId = itemId;
+      const toolItem = message.upsertToolCall({ callId, arguments: parsed });
+      this.itemState.set(itemId, { message, item: toolItem });
+      this.emit(message);
+    }
+  }
+
+  private trySetParsedArguments(itemId: string, raw: string) {
+    const parsed = this.parseArgs(raw);
+    if (!parsed) return;
+    const state = this.itemState.get(itemId);
+    if (!state || state.item.type !== "tool") return;
+    state.item.arguments = parsed;
+    this.emit(state.message);
+  }
+
+  private handleImageCompleted(data: any) {
+    const item = data?.item ?? data;
+    const itemId = item?.id ?? data?.item_id ?? data?.id;
+    const message = (typeof itemId === "string" && this.pendingImageMessages.get(itemId)) || this.ensureAssistantMessage();
+
+    const base64 = item?.b64_json ?? item?.result ?? data?.b64_json ?? data?.result;
+    const url = item?.url ?? data?.url;
+    const format = (item?.output_format ?? item?.format ?? data?.output_format ?? data?.format)?.toLowerCase?.();
+    const mimeType = format ? IMAGE_MIME_MAP[format] ?? `image/${format}` : item?.mime_type ?? item?.mimeType;
+
+    if (typeof base64 === "string" && base64.length > 0) {
+      message.addImage({ kind: "base64", base64, mimeType });
+      this.emit(message);
+    } else if (typeof url === "string" && url.length > 0) {
+      message.addImage({ kind: "url", url });
+      this.emit(message);
+    }
+  }
+
+  private createOrGetItem<T extends LangMessageItem>(itemId: string, message: LangMessage, fallback: T): T {
+    const existing = this.itemState.get(itemId);
+    if (existing) {
+      return existing.item as T;
+    }
+
+    message.items.push(fallback);
+    this.itemState.set(itemId, { message, item: fallback });
+    return fallback;
+  }
+
+  private extractTextFromMessageItem(item: any): string | undefined {
+    if (typeof item?.text === "string") return item.text;
+    if (Array.isArray(item?.content)) {
+      const parts = item.content
+        .filter((part: any) => part && typeof part === "object" && (part.type === "output_text" || part.type === "text"))
+        .map((part: any) => part.text ?? part.output_text)
+        .filter((text: any) => typeof text === "string");
+      if (parts.length > 0) {
+        return parts.join("");
+      }
+    }
+    return undefined;
+  }
+
+  private getCallId(item: any): string {
+    if (typeof item?.call_id === "string" && item.call_id.length > 0) return item.call_id;
+    if (typeof item?.id === "string" && item.id.length > 0) return item.id;
+    if (typeof item?.function?.name === "string") return item.function.name;
+    if (typeof item?.name === "string") return item.name;
+    return "";
+  }
+
+  private parseArgs(args: unknown): Record<string, any> | undefined {
+    if (args == null) return {};
+    if (typeof args === "string") {
+      const trimmed = args.trim();
+      if (trimmed.length === 0) return {};
+      try {
+        return JSON.parse(trimmed);
+      } catch {
+        return undefined;
+      }
+    }
+    if (typeof args === "object") {
+      return args as Record<string, any>;
+    }
+    return undefined;
+  }
+
+  private emit(message: LangMessage) {
+    this.onResult?.(message);
   }
 }

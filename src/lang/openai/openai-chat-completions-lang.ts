@@ -225,45 +225,40 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
   protected transformMessagesForProvider(messages: LangMessages): any[] {
     const out: any[] = [];
     for (const msg of messages) {
-      if (msg.role === "tool") {
-        // Treat 'tool' role here as assistant tool_calls (requested by AI)
-        const contentAny = msg.content as any;
-        if (Array.isArray(contentAny)) {
-          out.push({
-            role: "assistant",
-            tool_calls: contentAny.map((call: any, index: number) => ({
-              id: call.callId || call.id || String(index),
-              type: "function",
-              function: {
-                name: call.name,
-                arguments: JSON.stringify(call.arguments || {})
-              }
-            }))
-          });
-          continue;
-        }
-      }
-      if (msg.role === "tool-results") {
-        const contentAny = msg.content as any;
-        if (Array.isArray(contentAny)) {
-          for (const tr of contentAny) {
-            out.push({
-              role: "tool",
-              tool_call_id: tr.toolId,
-              name: tr.name,
-              content: typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result)
-            });
-          }
-          continue;
-        }
-      }
       const content = (msg as any).content;
-      if (Array.isArray(content)) {
+      if (Array.isArray(content) && content.every((part: any) => part && typeof part.type === "string")) {
         const parts = this.mapContentPartsToOpenAI(content as LangContentPart[]);
-        out.push({ role: msg.role, content: parts });
-        continue;
+        if (parts.length > 0) {
+          out.push({ role: msg.role, content: parts });
+        }
+      } else if (typeof content === "string" && content.length > 0) {
+        out.push({ role: msg.role, content: [{ type: "text", text: content }] });
       }
-      out.push(msg);
+
+      if (msg.role === "assistant" && msg.toolRequests.length > 0) {
+        out.push({
+          role: "assistant",
+          tool_calls: msg.toolRequests.map((call, index) => ({
+            id: call.callId || String(index),
+            type: "function",
+            function: {
+              name: call.name,
+              arguments: JSON.stringify(call.arguments || {})
+            }
+          }))
+        });
+      }
+
+      if (msg.toolResults.length > 0) {
+        for (const tr of msg.toolResults) {
+          out.push({
+            role: "tool",
+            tool_call_id: tr.callId,
+            name: tr.name,
+            content: typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result)
+          });
+        }
+      }
     }
 
     // Add instructions as the first system message
@@ -316,30 +311,31 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
 
 
     const ensureToolMessage = (): LangMessage => {
-      const last = result.length > 0 ? result[result.length - 1] : undefined;
-      if (last && last.role === "tool" && Array.isArray(last.content)) {
-        return last;
+      return result.addAssistantToolCalls([]);
+    };
+
+    const findLastAssistantWithTools = (): LangMessage | undefined => {
+      for (let i = result.length - 1; i >= 0; i--) {
+        const msg = result[i];
+        if (msg.role === "assistant" && msg.toolRequests.length > 0) {
+          return msg;
+        }
       }
-      result.addAssistantToolCalls([]);
-      return result[result.length - 1];
+      return undefined;
     };
 
     if (data.finished) {
       // Finalize any buffered tool arguments onto the last tool message
       if (toolArgBuffers && toolArgBuffers.size > 0) {
-        let lastToolMsg: LangMessage | undefined;
-        for (let i = result.length - 1; i >= 0; i--) {
-          if (result[i].role === 'tool') { lastToolMsg = result[i]; break; }
-        }
-        if (lastToolMsg && Array.isArray(lastToolMsg.content)) {
+        const lastToolMsg = findLastAssistantWithTools();
+        if (lastToolMsg) {
           for (const [id, acc] of toolArgBuffers) {
-            const entry = (lastToolMsg.content as any[]).find((t: any) => t.callId === id || t.id === id);
-            if (entry) {
-              try {
-                entry.arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
-              } catch {
-                entry.arguments = {};
-              }
+            const toolItem = lastToolMsg.toolRequests.find(t => t.callId === id);
+            if (!toolItem) continue;
+            try {
+              toolItem.arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
+            } catch {
+              toolItem.arguments = {};
             }
           }
         }
@@ -388,32 +384,28 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
       if (delta.tool_calls) {
         (result as any)._hasPendingToolArgs = true;
         const toolMsg = ensureToolMessage();
-        const toolContent = (toolMsg.content as any[]);
 
         for (const toolCall of delta.tool_calls) {
           const id: string = toolCall.id || String(toolCall.index ?? "");
           const name: string | undefined = toolCall.function?.name;
           const argChunk: string | undefined = toolCall.function?.arguments;
 
-          // Reflect tool requests in the transcript message immediately
-          let msgEntry = toolContent.find((c: any) => c.callId === id || c.id === id);
-          if (!msgEntry) {
-            msgEntry = { callId: id, name: name || '', arguments: {} };
-            toolContent.push(msgEntry);
-          } else if (name) {
-            msgEntry.name = name;
-          }
+          const toolItem = toolMsg.upsertToolCall({
+            callId: id,
+            name: name || "",
+            arguments: {},
+          });
 
           if (!toolArgBuffers) continue;
           if (!toolArgBuffers.has(id)) {
-            toolArgBuffers.set(id, { name: name || msgEntry.name || '', buffer: '' });
+            toolArgBuffers.set(id, { name: name || toolItem.name || '', buffer: '' });
           }
           if (argChunk) {
             const acc = toolArgBuffers.get(id)!;
             acc.buffer += argChunk;
             try {
               const parsed = JSON.parse(acc.buffer);
-              msgEntry.arguments = parsed;
+              toolItem.arguments = parsed;
             } catch {
             }
           }

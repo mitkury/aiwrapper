@@ -1,4 +1,4 @@
-import { LangMessages, LangMessage, LangContentPart, LangContentImage, LangTool } from "../../messages";
+import { LangMessages, LangMessage, LangContentPart, LangContentImage, LangTool, LangMessageItemImage } from "../../messages";
 
 export type BodyPartForOpenAIResponses = {
   input?: any[];
@@ -68,20 +68,17 @@ export function transformMessagesToResponsesInput(messages: LangMessages): any {
   const input: any[] = [];
 
   for (const message of messages) {
-    switch (message.role) {
-      case 'system':
-      case 'user':
-      case 'assistant':
-        input.push(transformMessageToResponsesItem(message));
-        break;
+    const baseItem = transformMessageToResponsesItem(message);
+    if (baseItem) {
+      input.push(baseItem);
+    }
 
-      case 'tool':
-        input.push(...transformToolCallsToResponsesItems(message));
-        break;
+    if (message.role === 'assistant' && message.toolRequests.length > 0) {
+      input.push(...transformToolCallsToResponsesItems(message));
+    }
 
-      case 'tool-results':
-        input.push(...transformToolResultsToResponsesItems(message));
-        break;
+    if (message.toolResults.length > 0) {
+      input.push(...transformToolResultsToResponsesItems(message));
     }
   }
 
@@ -93,38 +90,33 @@ export function transformMessagesToResponsesInput(messages: LangMessages): any {
 */
 export function transformMessageToResponsesItem(message: LangMessage): any {
   const isAssistant = message.role === 'assistant';
-  const content = (message as any).content;
-
   const entry = {
     role: message.role,
     content: [] as any[]
   };
 
-  if (Array.isArray(content)) {
-    // Handle multi-part content (text + images)
-    for (const part of content as LangContentPart[]) {
-      if ((part as any).type === 'text') {
-        entry.content.push({
-          type: isAssistant ? 'output_text' : 'input_text',
-          text: (part as any).text
-        });
-      } else if ((part as any).type === 'image') {
-        if (isAssistant) {
-          // For assistant messages, images must be converted to output_text format
-          // (Responses API only supports output_text or refusal for assistant content)
-          entry.content.push(mapImageOutput((part as any).image));
-        } else {
-          // For user/system messages, use input_image format
-          entry.content.push(mapImageInput((part as any).image));
-        }
+  for (const item of message.items) {
+    if (item.type === 'text') {
+      entry.content.push({
+        type: isAssistant ? 'output_text' : 'input_text',
+        text: item.text
+      });
+    } else if (item.type === 'thinking') {
+      entry.content.push({
+        type: isAssistant ? 'output_text' : 'input_text',
+        text: item.text
+      });
+    } else if (item.type === 'image') {
+      if (isAssistant) {
+        entry.content.push(mapImageOutput(itemImageToContentImage(item)));
+      } else {
+        entry.content.push(mapImageInput(itemImageToContentImage(item)));
       }
     }
-  } else {
-    // Handle simple string content
-    entry.content.push({
-      type: isAssistant ? 'output_text' : 'input_text',
-      text: String(content)
-    });
+  }
+
+  if (entry.content.length === 0) {
+    return null;
   }
 
   return entry;
@@ -134,12 +126,8 @@ export function transformMessageToResponsesItem(message: LangMessage): any {
  * Transform tool call messages to function_call items
  */
 export function transformToolCallsToResponsesItems(message: LangMessage): any[] {
-  if (!Array.isArray(message.content)) {
-    return [];
-  }
-
   const items: any[] = [];
-  for (const call of (message.content as any[])) {
+  for (const call of message.toolRequests) {
     items.push({
       type: 'function_call',
       call_id: call.callId,
@@ -159,19 +147,33 @@ export function transformToolResultsToResponsesItems(message: LangMessage): any[
   const items: any[] = [];
 
   // Add function_call_output items for each tool result
-  if (Array.isArray(message.content)) {
-    for (const toolResult of (message.content as any[])) {
-      items.push({
-        type: 'function_call_output',
-        call_id: toolResult.toolId,
-        output: typeof toolResult.result === 'string'
-          ? toolResult.result
-          : JSON.stringify(toolResult.result)
-      });
-    }
+  for (const toolResult of message.toolResults) {
+    items.push({
+      type: 'function_call_output',
+      call_id: toolResult.callId,
+      output: typeof toolResult.result === 'string'
+        ? toolResult.result
+        : JSON.stringify(toolResult.result)
+    });
   }
 
   return items;
+}
+
+function itemImageToContentImage(item: LangMessageItemImage): LangContentImage {
+  if (item.base64) {
+    return { kind: "base64", base64: item.base64, mimeType: item.mimeType };
+  }
+  if (item.url) {
+    return { kind: "url", url: item.url };
+  }
+  if (item.metadata?.original?.url) {
+    return { kind: "url", url: item.metadata.original.url };
+  }
+  if (item.metadata?.original?.base64) {
+    return { kind: "base64", base64: item.metadata.original.base64, mimeType: item.metadata.original.mimeType };
+  }
+  return { kind: "base64", base64: "", mimeType: item.mimeType };
 }
 
 export function mapImageInput(image: LangContentImage): any {

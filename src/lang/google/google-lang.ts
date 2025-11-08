@@ -156,10 +156,10 @@ export class GoogleLang extends LanguageProvider {
 
   protected transformMessagesForProvider(messages: LangMessages): any[] {
     return messages.map((msg: any) => {
-      if (msg.role === 'tool-results' && Array.isArray(msg.content)) {
+      if (msg.toolResults && msg.toolResults.length > 0) {
         return {
           role: 'user',
-          parts: msg.content.map((tr: any) => ({
+          parts: msg.toolResults.map((tr: any) => ({
             functionResponse: {
               name: tr.name,
               response: typeof tr.result === 'object' && tr.result !== null ? tr.result : { result: tr.result }
