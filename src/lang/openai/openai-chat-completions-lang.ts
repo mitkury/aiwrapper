@@ -224,6 +224,8 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
 
   protected transformMessagesForProvider(messages: LangMessages): any[] {
     const out: any[] = [];
+
+    /*
     for (const msg of messages) {
       if (msg.role === "tool") {
         // Treat 'tool' role here as assistant tool_calls (requested by AI)
@@ -270,6 +272,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     if (messages.instructions) {
       out.unshift({ role: "system", content: messages.instructions });
     }
+    */
 
     return out;
   }
@@ -314,7 +317,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     toolArgBuffers?: Map<string, { name: string; buffer: string }>
   ): void {
 
-
+    /*
     const ensureToolMessage = (): LangMessage => {
       const last = result.length > 0 ? result[result.length - 1] : undefined;
       if (last && last.role === "tool" && Array.isArray(last.content)) {
@@ -421,6 +424,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
         onResult?.(toolMsg);
       }
     }
+    */
   }
 
   setReasoningEffort(effort: ReasoningEffort): OpenAIChatCompletionsLang {

@@ -84,14 +84,16 @@ export class AnthropicLang extends LanguageProvider {
       ? messages
       : new LangMessages(messages);
 
+    let instructions = messageCollection.instructions || '';
+
     if (options?.schema) {
-      const baseInstruction = messageCollection.instructions + '\n\n' || '';
-      messageCollection.instructions = baseInstruction + addInstructionAboutSchema(
+      const baseInstruction = instructions !== '' ? instructions + '\n\n' : '';
+      instructions = baseInstruction + addInstructionAboutSchema(
         options.schema
       );
     }
 
-    const { system, providerMessages, requestMaxTokens, tools } =
+    const { providerMessages, requestMaxTokens, tools } =
       this.prepareRequest(messageCollection);
 
     const result = messageCollection;
@@ -100,7 +102,7 @@ export class AnthropicLang extends LanguageProvider {
       model: this._config.model,
       messages: providerMessages,
       max_tokens: requestMaxTokens,
-      system,
+      system: instructions,
       // Always stream internally to unify the code path
       stream: true,
       ...(tools ? { tools } : {}),
@@ -137,23 +139,7 @@ export class AnthropicLang extends LanguageProvider {
   }
 
   private prepareRequest(messageCollection: LangMessages) {
-    const processedMessages: any[] = [];
-    const systemContent: string[] = [];
-
-    if (messageCollection.instructions) {
-      systemContent.push(messageCollection.instructions);
-    }
-
-    for (const message of messageCollection) {
-      if (message.role === "system") {
-        systemContent.push(message.content as string);
-      } else {
-        processedMessages.push(message);
-      }
-    }
-
-    const system = systemContent.join('\n\n');
-    const providerMessages = this.transformMessagesForProvider(processedMessages);
+    const providerMessages = this.transformMessagesForProvider(messageCollection);
 
     const modelInfo = models.id(this._config.model);
     if (!modelInfo) {
@@ -162,7 +148,7 @@ export class AnthropicLang extends LanguageProvider {
 
     const requestMaxTokens = modelInfo ? calculateModelResponseTokens(
       modelInfo,
-      processedMessages,
+      messageCollection,
       this._config.maxTokens
     ) : this._config.maxTokens || 16000;
 
@@ -175,7 +161,7 @@ export class AnthropicLang extends LanguageProvider {
       }));
     }
 
-    return { system, providerMessages, requestMaxTokens, tools };
+    return { providerMessages, requestMaxTokens, tools };
   }
 
   private handleStreamEvent(
@@ -212,7 +198,7 @@ export class AnthropicLang extends LanguageProvider {
       if (data.delta?.type === "thinking_delta" && data.delta.thinking) {
         streamState.isReceivingThinking = true;
         streamState.thinkingContent += data.delta.thinking;
-        const msg = result.appendToAssistantThinking(data.delta.thinking);
+        const msg = "" //result.appendToAssistantThinking(data.delta.thinking);
         if (msg) onResult?.(msg);
         return;
       }
@@ -229,11 +215,11 @@ export class AnthropicLang extends LanguageProvider {
       if (!toolUseId && deltaText) {
         if (streamState.isReceivingThinking) {
           streamState.thinkingContent += deltaText;
-          const msg = result.appendToAssistantThinking(deltaText);
-          if (msg) onResult?.(msg);
+          const msg = ""//result.appendToAssistantThinking(deltaText);
+          ///if (msg) onResult?.(msg);
         } else {
-          const msg = result.appendToAssistantText(deltaText);
-          onResult?.(msg);
+          const msg = "" //result.appendToAssistantText(deltaText);
+          //onResult?.(msg);
         }
       }
       return;
@@ -242,7 +228,7 @@ export class AnthropicLang extends LanguageProvider {
     if (data.type === "content_block_stop") {
       if (streamState.isReceivingThinking) {
         streamState.isReceivingThinking = false;
-        const msg = result.appendToAssistantThinking('');
+        const msg = "" //result.appendToAssistantThinking('');
         if (msg) onResult?.(msg);
       }
       return;
@@ -286,7 +272,7 @@ export class AnthropicLang extends LanguageProvider {
         name: tc.name,
         arguments: tc.arguments
       }));
-      result.addAssistantToolCalls(formattedToolCalls);
+      //result.addAssistantToolCalls(formattedToolCalls);
     } else if (result.answer) {
       if (result.length === 0 || result[result.length - 1].role !== "assistant") {
         result.push(new ConversationMessage("assistant", result.answer));
@@ -296,37 +282,43 @@ export class AnthropicLang extends LanguageProvider {
     result.finished = true;
   }
 
-  // Non-streaming response handling removed: Anthropic now always streams internally
-
   protected transformMessagesForProvider(messages: LangMessage[]): any[] {
     const out: any[] = [];
     for (const m of messages) {
-      if (m.role === 'tool') {
+      if (m.role === 'assistant' && m.toolRequests.length > 0) {
         // Tool calls from assistant
-        const contentAny = m.content as any;
-        if (Array.isArray(contentAny)) {
-          const blocks = contentAny.map(tc => ({
+
+        const toolRequests = m.toolRequests;
+        const blocks: any[] = [];
+
+        for (const toolRequest of toolRequests) {
+          blocks.push({
             type: 'tool_use',
-            id: tc.callId || tc.id,
-            name: tc.name,
-            input: tc.arguments || {}
-          }));
-          out.push({ role: 'assistant', content: blocks });
-          continue;
+            id: toolRequest.callId,
+            name: toolRequest.name,
+            input: toolRequest.arguments || {}
+          });
+
+          
         }
+        out.push({ role: 'assistant', content: blocks });
       }
-      if (m.role === 'tool-results') {
-        const contentAny = m.content as any;
-        if (Array.isArray(contentAny)) {
-          const blocks = contentAny.map(tr => ({
+      if (m.role === 'user' && m.toolResults.length > 0) {
+
+        const toolResults = m.toolResults;
+        const blocks: any[] = [];
+
+        for (const toolResult of toolResults) {
+          blocks.push({
             type: 'tool_result',
-            tool_use_id: tr.toolId,
-            content: typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result)
-          }));
-          out.push({ role: 'user', content: blocks });
-          continue;
+            tool_use_id: toolResult.callId,
+            content: toolResult.result
+          });
         }
+        out.push({ role: 'user', content: blocks });
       }
+
+      /*
       const contentAny = m.content as any;
       if (Array.isArray(contentAny)) {
         const blocks = this.mapPartsToAnthropicBlocks(contentAny as LangContentPart[]);
@@ -334,6 +326,7 @@ export class AnthropicLang extends LanguageProvider {
         continue;
       }
       out.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content });
+      */
     }
     return out;
   }

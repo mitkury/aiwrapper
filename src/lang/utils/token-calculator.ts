@@ -11,7 +11,7 @@ function estimateTokens(text: string): number {
  */
 export function calculateModelResponseTokens(
   model: Model,
-  messages: Array<{ role: string; content: string } | LangMessage>,
+  messages: Array<{ role: string; text: string } | LangMessage>,
   maxTokens?: number
 ): number {
   // Get model context
@@ -35,8 +35,8 @@ export function calculateModelResponseTokens(
   if (context.total && context.maxOutput) {
     // Estimate tokens used by messages
     const inputTokens = messages.reduce((sum, message) => {
-      if (!message.content || typeof message.content !== "string") return sum;
-      return sum + estimateTokens(message.content) + 4; // +4 tokens for message overhead
+      if (message.text.length === 0) return sum;
+      return sum + estimateTokens(message.text) + 4; // +4 tokens for message overhead
     }, 0);
     
     // Calculate remaining tokens in context window

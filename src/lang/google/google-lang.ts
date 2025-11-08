@@ -58,6 +58,7 @@ export class GoogleLang extends LanguageProvider {
     messages: LangMessage[] | LangMessages,
     options?: LangOptions,
   ): Promise<LangMessages> {
+    /*
     const messageCollection = messages instanceof LangMessages
       ? messages
       : new LangMessages(messages);
@@ -152,6 +153,9 @@ export class GoogleLang extends LanguageProvider {
     if (options?.onResult && toolsResults) options.onResult(toolsResults);
 
     return result;
+    */
+
+    throw new Error("Not implemented");
   }
 
   protected transformMessagesForProvider(messages: LangMessages): any[] {

@@ -67,7 +67,7 @@ export class CohereLang extends LanguageProvider {
     // Transform messages to Cohere's format (only user/assistant roles)
     const transformedMessages = messages.map(msg => ({
       role: msg.role === "assistant" ? "assistant" : "user",
-      content: msg.content
+      content: msg.text
     }));
 
     // Calculate max tokens if we have model info
@@ -113,8 +113,8 @@ export class CohereLang extends LanguageProvider {
       // Handle Cohere's streaming format
       if (data.type === "content-delta" && data.delta?.message?.content?.text) {
         const text = data.delta.message.content.text;
-        const msg = result.appendToAssistantText(text);
-        onResult?.(msg);
+        //const msg = result.appendToAssistantText(text);
+        //onResult?.(msg);
       }
     };
 
