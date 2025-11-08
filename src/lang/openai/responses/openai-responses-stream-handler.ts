@@ -1,4 +1,11 @@
-import { LangMessages, LangMessage, LangMessageContent, LangMessageItem, LangMessageItemText, LangMessageItemTool, LangMessageItemImage } from "../../messages";
+import { LangMessages, LangMessage } from "../../messages";
+import type {
+  LangMessageContent,
+  LangMessageItem,
+  LangMessageItemText,
+  LangMessageItemTool,
+  LangMessageItemImage
+} from "../../messages";
 import { MessageItem } from "../responses-stream-types";
 
 type OpenAIResponseItem = {
@@ -15,7 +22,7 @@ type OpenAIResponseItem = {
 export class OpenAIResponseStreamHandler {
   id: string;
   items: OpenAIResponseItem[];
-  itemIdToMessageItemIndex: Map<string, number>;
+  itemIdToMessageItemIndex: Map<string, number> = new Map();
   newMessage: LangMessage;
   messages: LangMessages;
   onResult?: (result: LangMessage) => void;
@@ -44,6 +51,7 @@ export class OpenAIResponseStreamHandler {
         this.newMessage.meta = {
           openaiResponseId: this.id
         }
+        this.messages.push(this.newMessage);
         break;
 
       case 'response.output_item.added':
@@ -204,6 +212,56 @@ export class OpenAIResponseStreamHandler {
   handleNewItem(data: any) {
     const itemType = data.item.type as string;
 
+    if (!this.newMessage) {
+      console.warn("Received item without an active assistant message:", data);
+      return;
+    }
+
+    // Create a new item for the message
+    switch (itemType) {
+      case 'message':
+        {
+          const textItem: LangMessageItemText = {
+            type: "text",
+            text: typeof data.item.text === "string" ? data.item.text : ""
+          };
+          this.newMessage.items.push(textItem);
+        }
+        break;
+      case 'function_call':
+        {
+          const toolItem: LangMessageItemTool = {
+            type: "tool",
+            name: typeof data.item.name === "string" ? data.item.name : "",
+            callId: typeof data.item.call_id === "string" ? data.item.call_id : "",
+            arguments:
+              data.item.arguments && typeof data.item.arguments === "object"
+                ? data.item.arguments
+                : {}
+          };
+          this.newMessage.items.push(toolItem);
+        }
+        break;
+      case 'image_generation_call':
+        {
+          const imageItem: LangMessageItemImage = { type: "image" };
+          if (typeof data.item.url === "string") {
+            imageItem.url = data.item.url;
+          }
+          if (typeof data.item.b64_json === "string") {
+            imageItem.base64 = data.item.b64_json;
+          }
+          if (typeof data.item.output_format === "string" || typeof data.item.format === "string") {
+            imageItem.mimeType = (data.item.output_format || data.item.format) ?? undefined;
+          }
+          this.newMessage.items.push(imageItem);
+        }
+        break;
+      default:
+        console.warn('Unknown item type:', itemType);
+        return;
+    }
+
     this.itemIdToMessageItemIndex.set(data.item.id, this.newMessage.items.length - 1);
   }
 
@@ -211,7 +269,7 @@ export class OpenAIResponseStreamHandler {
     const itemFromResponse = data.item as OpenAIResponseItem;
 
     const messageIndex = this.itemIdToMessageItemIndex.get(itemFromResponse.id);
-    if (messageIndex === undefined) {
+    if (messageIndex === -1) {
       console.warn('Unknown message index for item:', itemFromResponse);
       return;
     }

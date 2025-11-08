@@ -22,11 +22,13 @@ export function prepareBodyPartForOpenAIResponsesAPI(messages: LangMessages): Bo
     bodyPart.tool_choice = 'auto';
   }
 
-  // Here we try to find the last message with a response ID
+  // Find the last assistant message with a response ID
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].meta?.openaiResponseId) {
-      lastMessageWithResponseId = messages[i];
-      lastMessageWithResponseIdIndex = i;
+    if (messages[i].role === 'assistant') {
+      if (messages[i].meta?.openaiResponseId) {
+        lastMessageWithResponseId = messages[i];
+        lastMessageWithResponseIdIndex = i;
+      }
       break;
     }
   }
@@ -71,7 +73,7 @@ export function transformMessagesToResponsesInput(messages: LangMessages): any {
     switch (message.role) {
       case 'user':
       case 'assistant':
-        input.push(...transformMessageToResponsesItems(message));
+        input.push(transformMessageToResponsesItems(message));
         break;
     }
   }
