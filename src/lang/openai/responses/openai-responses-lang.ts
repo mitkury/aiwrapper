@@ -1,5 +1,5 @@
 import { LangOptions, LangResponseSchema, LanguageProvider } from "../../language-provider.ts";
-import { LangMessage, LangMessageContent, LangMessageRole, LangMessages } from "../../messages.ts";
+import { LangMessage, LangMessageContent, LangMessageItem, LangMessageRole, LangMessages } from "../../messages.ts";
 import { prepareBodyPartForOpenAIResponsesAPI } from "./openai-responses-messages.ts";
 import { addInstructionAboutSchema } from "../../prompt-for-json.ts";
 import { processServerEvents } from "../../../process-server-events.ts";
@@ -48,7 +48,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
     return this.chat(messages, options);
   }
 
-  async chat(messages: { role: LangMessageRole; content: LangMessageContent }[] | LangMessage[] | LangMessages, options?: LangOptions): Promise<LangMessages> {
+  async chat(messages: { role: LangMessageRole; items: LangMessageItem[] }[] | LangMessage[] | LangMessages, options?: LangOptions): Promise<LangMessages> {
     const msgCollection = messages instanceof LangMessages
       ? messages
       : new LangMessages(messages);

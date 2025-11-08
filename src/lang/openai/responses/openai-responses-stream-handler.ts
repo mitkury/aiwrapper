@@ -1,5 +1,5 @@
-import { format } from "path";
-import { LangMessages, LangMessage, LangMessageRole, LangMessageContent } from "../../messages";
+import { LangMessages, LangMessage, LangMessageContent, LangMessageItem, LangMessageItemText, LangMessageItemTool, LangMessageItemImage } from "../../messages";
+import { MessageItem } from "../responses-stream-types";
 
 type OpenAIResponseItem = {
   id: string;
@@ -16,6 +16,7 @@ export class OpenAIResponseStreamHandler {
   id: string;
   items: OpenAIResponseItem[];
   itemIdToMessageItemIndex: Map<string, number>;
+  newMessage: LangMessage;
   messages: LangMessages;
   onResult?: (result: LangMessage) => void;
 
@@ -39,6 +40,10 @@ export class OpenAIResponseStreamHandler {
     switch (data.type) {
       case 'response.created':
         this.id = data.response.id;
+        this.newMessage = new LangMessage('assistant', []);
+        this.newMessage.meta = {
+          openaiResponseId: this.id
+        }
         break;
 
       case 'response.output_item.added':
@@ -60,19 +65,19 @@ export class OpenAIResponseStreamHandler {
         break;
       case 'response.image_generation_call.completed':
       case 'image_generation.completed':
-        this.addImage(data);
+        //this.addImage(data);
         break;
 
       // Deltas that we care about (feel free to add more if you want to show them in-progress somewhere)
       case 'response.output_text.delta':
         //case 'response.function_call_arguments.delta':
-        this.applyDelta(data.item_id, data.delta);
+        //this.applyDelta(data.item_id, data.delta);
         break;
       case 'response.function_call_arguments.delta':
-        this.applyArgsDelta(data.item_id, data.delta);
+        //this.applyArgsDelta(data.item_id, data.delta);
         break;
       case 'response.function_call_arguments.done':
-        this.setArgs(data.item_id, data.arguments);
+        //this.setArgs(data.item_id, data.arguments);
         break;
     }
   }
@@ -199,30 +204,59 @@ export class OpenAIResponseStreamHandler {
   handleNewItem(data: any) {
     const itemType = data.item.type as string;
 
-    const message = new LangMessage('assistant', []);
-    message.meta = {
-      openaiResponseId: this.id
+    this.itemIdToMessageItemIndex.set(data.item.id, this.newMessage.items.length - 1);
+  }
+
+  handleItemFinished(data: any) {
+    const itemFromResponse = data.item as OpenAIResponseItem;
+
+    const messageIndex = this.itemIdToMessageItemIndex.get(itemFromResponse.id);
+    if (messageIndex === undefined) {
+      console.warn('Unknown message index for item:', itemFromResponse);
+      return;
     }
 
-    this.messages.push(message);
-    this.itemIdToMessageItemIndex.set(data.item.id, message.items.length - 1);
+    const messageItem = this.newMessage.items[messageIndex];
+
+    this.applyItemToMessage(itemFromResponse, messageItem);
+  }
+
+  applyItemToMessage(resItem: OpenAIResponseItem, messageItem: LangMessageItem) {
+    switch (resItem.type) {
+      case 'message':
+        this.applyTextMessage(resItem as MessageItem, messageItem as LangMessageItemText);
+        break;
+      case 'function_call':
+        break;
+      case 'image_generation_call':
+        break;
+    }
+  }
+
+  applyTextMessage(res: MessageItem, target: LangMessageItemText) {
+    target.text += res.content.map(part => part.text).join('\n\n');
+  }
+
+  applyFunctionCall(res: any, target: LangMessageItemTool) {
+    target.callId = res.call_id;
+    target.name = res.name;
+    target.arguments = res.arguments;
+  }
+
+  applyImageGenerationCall(res: any, target: LangMessageItemImage) {
+    target.url = res.url;
+    target.base64 = res.b64_json;
+    target.mimeType = res.output_format || res.format;
+    target.width = res.width;
+    target.height = res.height;
+    target.metadata = res.metadata;
   }
 
   updateContent(item: OpenAIResponseItem) {
 
   }
 
-  handleItemFinished(data: any) {
-    // Replace the new item with the finished one
-    const index = this.items.findIndex(r => r.id === data.item.id);
-    if (index !== -1) {
-      this.items[index] = data.item;
-    }
-
-    const content = this.turnItemsIntoContent(this.items);
-    this.newMessage.content = content;
-  }
-
+  /*
   // @TODO: remove this method
   setItem(target: OpenAIResponseItem) {
     const item = this.getItem(target.id);
@@ -420,4 +454,5 @@ export class OpenAIResponseStreamHandler {
       }
     }
   }
+  */
 }

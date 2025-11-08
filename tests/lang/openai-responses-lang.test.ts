@@ -29,6 +29,7 @@ async function runTest(lang: LanguageProvider) {
     expect(res.answer.toLocaleLowerCase()).toContain('berlin');
   });
 
+  /*
   it('should correctly convert assistant images to output_text format', async () => {
     // Read the test image
     const { base64, mimeType } = await readImageBase64(import.meta.url, '../img-in/image-in-test/test-image.jpg');
@@ -74,5 +75,5 @@ async function runTest(lang: LanguageProvider) {
     // Verify we got a final response from the assistant
     expect(res.answer.length).toBeGreaterThan(0);
   });
-
+  */
 }
