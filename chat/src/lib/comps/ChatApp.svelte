@@ -43,7 +43,8 @@
       messages = [];
 
       for (let i = 0; i < agent.messages.length; i++) {
-        messages.push(new LangMessage(agent.messages[i].role, agent.messages[i].text, agent.messages[i].meta));
+        const current = agent.messages[i];
+        messages.push(new LangMessage(current.role, current.items, current.meta));
       }
 
       if (event.type === "state" && event.state === "idle") {

@@ -9,7 +9,31 @@
   });
 
   const images = $derived.by(() => { 
-    return message.items.filter(item => item.type === 'image');
+
+    const imgs: { src: string, alt: string }[] = [];
+    for (const item of message.items) {
+      if (item.type === "image") {
+        let src = item.url;
+
+        if (!src && item.base64) {
+          src = `data:${item.mimeType};base64,${item.base64}`;
+        }
+
+        const alt = item.metadata?.revisedPrompt ?? "";
+
+        if (!src) {
+          continue;
+        }
+
+        imgs.push({
+          src,
+          alt
+        });
+      }
+    }
+
+    if (imgs.length > 0) console.log("Render images: " + imgs.length);
+    return imgs;
   });
 </script>
 
@@ -19,7 +43,7 @@
     {#if images.length > 0}
       <div class="flex flex-wrap gap-2">
         {#each images as image}
-          <img src={image.url ? image.url : `data:${image.mimeType ?? "image/png"};base64,${image.base64}`} alt={""} class="chat-image object-cover rounded-md" />
+          <img src={image.src} alt={image.alt} class="chat-image object-cover rounded-md" />
         {/each}
       </div>
     {/if}
