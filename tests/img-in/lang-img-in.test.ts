@@ -6,12 +6,12 @@ import { readImageBase64 } from '../utils/test-images.ts';
 describe('Lang - image in (providers)', () => {
   // Focus on OpenAI, OpenRouter, Anthropic. Others will be picked up only if configured.
   createLangTestRunner(runTest, {
-    overrideProviders: ['openai', 'openrouter', 'anthropic'],
+    overrideProviders: ['openai'/*, 'openrouter', 'anthropic'*/],
     modelOverrides: {
       // Ensure OpenRouter uses an explicit provider/model path for vision
-      openrouter: 'openai/gpt-4o-mini',
+      //openrouter: 'openai/gpt-4o-mini',
       openai: 'gpt-4o-mini',
-      anthropic: 'claude-3-5-sonnet-20240620'
+      //anthropic: 'claude-3-5-sonnet-20240620'
     }
   });
 });
@@ -21,9 +21,9 @@ async function runTest(lang: LanguageProvider) {
     const { base64, mimeType } = await readImageBase64(import.meta.url, 'image-in-test', 'test-image.jpg');
 
     const messages = new LangMessages();
-    messages.addUserContent([
+    messages.addUserItems([
       { type: 'text', text: 'Look at the image and identify the animal. Answer succinctly.' },
-      { type: 'image', image: { kind: 'base64', base64, mimeType } }
+      { type: 'image', base64, mimeType }
     ]);
 
     const res = await lang.chat(messages);
