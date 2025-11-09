@@ -189,12 +189,41 @@ export class OpenAIResponseStreamHandler {
   }
 
   applyImageGenerationCall(res: any, target: LangMessageItemImage) {
-    target.url = res.url;
-    target.base64 = res.b64_json;
-    target.mimeType = res.output_format || res.format;
-    target.width = res.width;
-    target.height = res.height;
-    target.metadata = res.metadata;
+    if (typeof res.url === "string") {
+      target.url = res.url;
+    }
+
+    const base64 = res.b64_json || res.base64 || res.result;
+    if (typeof base64 === "string") {
+      target.base64 = base64;
+    }
+
+    const format = res.mimeType || res.mime_type || res.output_format || res.format;
+    if (typeof format === "string") {
+      target.mimeType = format.includes("/") ? format : `image/${format}`;
+    }
+
+    if (typeof res.width === "number") {
+      target.width = res.width;
+    }
+    if (typeof res.height === "number") {
+      target.height = res.height;
+    }
+
+    if (res.metadata || res.revised_prompt || res.background || res.quality || res.size || res.status) {
+      const metadata: Record<string, any> = {
+        ...(target.metadata ?? {}),
+        ...(res.metadata ?? {}),
+      };
+
+      if (res.revised_prompt) metadata.revisedPrompt = res.revised_prompt;
+      if (res.background) metadata.background = res.background;
+      if (res.quality) metadata.quality = res.quality;
+      if (res.size) metadata.size = res.size;
+      if (res.status) metadata.status = res.status;
+
+      target.metadata = metadata;
+    }
   }
 
   getNewMessageItem(itemId: string): LangMessageItem | undefined {

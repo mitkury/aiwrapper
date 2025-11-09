@@ -27,10 +27,14 @@ async function runTest(lang: LanguageProvider) {
     const res = await lang.chat(messages);
 
     const assistantImages = res.assistantImages;
-
     assert(assistantImages && assistantImages.length > 0, 'No images generated');
 
     const image = res.assistantImages[0];
+    expect(image.base64 || image.url).toBeDefined();
+    if (image.base64) {
+      expect(image.mimeType).toBeDefined();
+      expect(image.mimeType!.startsWith('image/')).toBe(true);
+    }
     if (image.base64) {
       // Convert base64 to buffer and save
       const buffer = Buffer.from(image.base64, 'base64');
@@ -49,10 +53,9 @@ async function runTest(lang: LanguageProvider) {
     // Validate single consolidated assistant message (image + optional text)
     const last = res[res.length - 1];
     expect(last.role).toBe('assistant');
-    expect(Array.isArray(last.content)).toBe(true);
-    const parts = last.content as any[];
-    const hasImage = parts.some(p => p && p.type === 'image');
-    expect(hasImage).toBe(true);
+    const imageItem = last.items.find(item => item.type === 'image') as any;
+    expect(imageItem).toBeDefined();
+    expect(imageItem.base64 || imageItem.url).toBeDefined();
     // Ensure we didn't split into two assistant messages at the end
     const prev = res.length > 1 ? res[res.length - 2] : undefined;
     expect(prev?.role).not.toBe('assistant');
