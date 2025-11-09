@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { LanguageProvider, ChatAgent, LangMessages } from 'aiwrapper';
+import { LanguageProvider, ChatAgent, LangMessages, LangMessage } from 'aiwrapper';
 import { createLangTestRunner } from '../utils/lang-gatherer.js';
 
 describe('ChatAgent', () => {
@@ -10,10 +10,9 @@ async function runTest(lang: LanguageProvider) {
 
   it('should handle single message', async () => {
     const agent = new ChatAgent(lang);
-    const result = await agent.run([{
-      role: 'user',
-      content: 'Say "test passed" and nothing else.'
-    }]);
+    const result = await agent.run([
+      new LangMessage('user', 'Say "test passed" and nothing else.')
+    ]);
 
     expect(result).toBeDefined();
     expect(result!.answer.toLowerCase()).toContain('test passed');
@@ -36,9 +35,9 @@ async function runTest(lang: LanguageProvider) {
   it('should handle message array', async () => {
     const agent = new ChatAgent(lang);
     const result = await agent.run([
-      { role: 'user', content: 'What is 2+2?' },
-      { role: 'assistant', content: '2+2 equals 4.' },
-      { role: 'user', content: 'What is 4+4 then?' }
+      new LangMessage('user', 'What is 2+2?'),
+      new LangMessage('assistant', '2+2 equals 4.'),
+      new LangMessage('user', 'What is 4+4 then?')
     ]);
 
     expect(result).toBeDefined();
@@ -50,13 +49,13 @@ async function runTest(lang: LanguageProvider) {
     const agent = new ChatAgent(lang);
 
     // Start conversation
-    const result1 = await agent.run([{ role: 'user', content: 'My name is Alice.' }]);
+    const result1 = await agent.run([new LangMessage('user', 'My name is Alice.')]);
 
     expect(result1).toBeDefined();
     expect(result1!.answer).toContain('Alice');
 
     // Continue conversation
-    const result2 = await agent.run([{ role: 'user', content: 'What is my name?' }]);
+    const result2 = await agent.run([new LangMessage('user', 'What is my name?')]);
 
     expect(result2).toBeDefined();
     expect(result2!.answer).toContain('Alice');
@@ -76,10 +75,9 @@ async function runTest(lang: LanguageProvider) {
     // Test state changes and events
     expect(agent.state).toBe('idle');
 
-    await agent.run([{
-      role: 'user',
-      content: 'Say "Events working!" and nothing else.'
-    }]);
+    await agent.run([
+      new LangMessage('user', 'Say "Events working!" and nothing else.')
+    ]);
 
     // Should have received events
     expect(events.length).toBeGreaterThan(0);
@@ -108,10 +106,9 @@ async function runTest(lang: LanguageProvider) {
       }
     });
 
-    const result = await agent.run([{
-      role: 'user',
-      content: 'Introduce yourself in 140 characters'
-    }]);
+    const result = await agent.run([
+      new LangMessage('user', 'Introduce yourself in 140 characters')
+    ]);
 
     // Should have received streaming events
     expect(streamingEvents.length).toBeGreaterThan(0);
@@ -122,21 +119,14 @@ async function runTest(lang: LanguageProvider) {
       expect(event.data).toBeDefined();
       expect(typeof event.data.idx).toBe('number');
       expect(event.data.msg).toBeDefined();
-      expect(event.data.msg.content).toBeDefined();
+      expect(event.data.msg.text).toBeDefined();
+      expect(typeof event.data.msg.text).toBe('string');
     }
 
     // The streaming events should build up progressively
-    const answers = streamingEvents.map(e => {
-      const c: any = e.data.msg?.content;
-      if (typeof c === 'string') return c;
-      if (Array.isArray(c)) {
-        return c
-          .filter((p: any) => p && p.type === 'text' && typeof p.text === 'string')
-          .map((p: any) => p.text)
-          .join('');
-      }
-      return '';
-    }).filter((s: string) => s);
+    const answers = streamingEvents
+      .map(e => e.data.msg?.text || '')
+      .filter((s: string) => s);
 
     // Final streaming answer should match or be close to the final result
     const lastStreamingAnswer = answers[answers.length - 1];
@@ -161,10 +151,9 @@ async function runTest(lang: LanguageProvider) {
       ]
     });
 
-    const result = await agent.run([{
-      role: 'user',
-      content: 'Give me a random number using a tool'
-    }]);
+    const result = await agent.run([
+      new LangMessage('user', 'Give me a random number using a tool')
+    ]);
 
     expect(result).toBeDefined();
 
@@ -291,10 +280,9 @@ Make sure you use all 3 provided tools.`;
       }
     });
 
-    const result = await agent.run([{
-      role: 'user',
-      content: task
-    }]);
+    const result = await agent.run([
+      new LangMessage('user', task)
+    ]);
 
     unsubscribe();
 
