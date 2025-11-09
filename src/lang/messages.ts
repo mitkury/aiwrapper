@@ -235,8 +235,55 @@ export class LangMessages extends Array<LangMessage> {
     return this;
   }
 
-  addUserImage(image: LangMessageItemImage): this {
-    return this.addUserItems([image]);
+  addUserImages(image: LangContentImage): this;
+  addUserImages(images: LangContentImage[]): this;
+  addUserImages(imageOrImages: LangContentImage | LangContentImage[]): this {
+    const images = Array.isArray(imageOrImages) ? imageOrImages : [imageOrImages];
+    const items = images.map(image => this.createImageMessageItem(image));
+    return this.addUserItems(items);
+  }
+
+  private createImageMessageItem(image: LangContentImage): LangMessageItemImage {
+    switch (image.kind) {
+      case "url":
+        return { type: "image", url: image.url };
+      case "base64":
+        return { type: "image", base64: image.base64, mimeType: image.mimeType };
+      case "bytes":
+        return {
+          type: "image",
+          base64: LangMessages.encodeBytesAsBase64(image.bytes),
+          mimeType: image.mimeType
+        };
+      case "blob":
+        throw new Error("LangMessages.addUserImages does not support Blob inputs yet. Convert the Blob to base64 or a URL first.");
+      default:
+        throw new Error("Unsupported image input type.");
+    }
+  }
+
+  private static encodeBytesAsBase64(bytes: ArrayBuffer | Uint8Array): string {
+    const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+
+    const globalObject: any = typeof globalThis !== "undefined" ? globalThis : {};
+
+    if (globalObject.Buffer) {
+      return globalObject.Buffer.from(view).toString("base64");
+    }
+
+    const btoaFn: ((data: string) => string) | undefined = typeof globalObject.btoa === "function" ? globalObject.btoa.bind(globalObject) : undefined;
+
+    if (btoaFn) {
+      let binary = "";
+      const chunkSize = 0x8000;
+      for (let i = 0; i < view.length; i += chunkSize) {
+        const chunk = view.subarray(i, i + chunkSize);
+        binary += String.fromCharCode(...chunk);
+      }
+      return btoaFn(binary);
+    }
+
+    throw new Error("Unable to convert byte images to base64 in this environment. Provide base64 or URL images instead.");
   }
 
   addAssistantMessage(content: string, meta?: Record<string, any>): this {

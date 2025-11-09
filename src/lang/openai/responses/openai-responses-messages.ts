@@ -116,12 +116,20 @@ export function transformMessageToResponsesItems(message: LangMessage): any {
         });
         break;
 
-      case 'image':
+      case 'image': {
+        const mimeType = msgItem.mimeType || 'image/png';
+        const imageUrl = msgItem.url ?? (msgItem.base64 ? `data:${mimeType};base64,${msgItem.base64}` : undefined);
+
+        if (!imageUrl) {
+          throw new Error('Image item must include either url or base64 data.');
+        }
+
         entry.content.push({
           type: 'input_image',
-          image_url: msgItem.url
+          image_url: imageUrl
         });
         break;
+      }
     }
 
   }
