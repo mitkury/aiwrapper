@@ -60,6 +60,26 @@ async function runTest(lang: LanguageProvider) {
     const prev = res.length > 1 ? res[res.length - 2] : undefined;
     expect(prev?.role).not.toBe('assistant');
 
+    // Send the generated image back in a new thread and ask the model to describe it
+    const followUp = new LangMessages();
+    const followUpItems: any[] = [
+      { type: 'text', text: 'What is the main object in this image?' }
+    ];
+    if (image.base64) {
+      followUpItems.push({ type: 'image', base64: image.base64, mimeType: image.mimeType ?? 'image/png' });
+    } else if (image.url) {
+      followUpItems.push({ type: 'image', url: image.url });
+    } else {
+      throw new Error('Generated image is missing both base64 and URL representations.');
+    }
+    followUp.addUserItems(followUpItems);
+
+    const followUpRes = await lang.chat(followUp);
+    const followUpAnswer = followUpRes.answer.trim().toLowerCase();
+    expect(followUpAnswer.length).toBeGreaterThan(0);
+    const mentionsMug = followUpAnswer.includes('mug') || followUpAnswer.includes('cup');
+    expect(mentionsMug).toBe(true);
+
   });
 }
 
