@@ -278,6 +278,12 @@ Anything related to testing - "tests: description"
 Anything related to documentation - "docs: description"
 Anything related to the build pipelines and dev convinience - "dev: description"
 
+### Testing
+To run a specific test suite against a single provider, set the `PROVIDERS` env variable and execute Vitest in non-interactive mode. Example:
+`PROVIDERS=openai npx vitest run tests/agents/chat-agent.test.ts`
+This runs the `chat-agent` suite using only the OpenAI provider. Make sure you use `vitest run` (or keep the `--run` flag) so the test run completes once and doesn't wait for file changes.
+Before running `npx vitest run ...`, rebuild the package if you've changed the source by executing `npm run build`. You can skip the manual build when using `npm test`, since the `pretest` script already runs the build step for you. For common subsets, there are helper scripts (for example, `npm run test:lang` runs only the Lang suites and already performs a build).
+
 ## Publishing Steps
 When publishing, follow these steps in order:
 1. Build and test: `npm run build && npm test`
@@ -294,7 +300,7 @@ When publishing, follow these steps in order:
   "type": "module",
   "name": "aiwrapper",
   "description": "A Universal AI Wrapper for JavaScript & TypeScript",
-  "version": "2.0.0",
+  "version": "2.1.3",
   "author": "Dmitry Kury (https://dkury.com)",
   "license": "MIT",
   "repository": {
@@ -333,9 +339,10 @@ When publishing, follow these steps in order:
     "serve": "npx serve .",
     "pretest": "npm run build",
     "test": "vitest run",
-    "test:basic-lang": "npm run build && vitest run tests/basic-lang/*.test.ts",
+    "test:lang": "npm run build && vitest run tests/lang/*.test.ts",
     "test:agents": "npm run build && vitest run tests/agents/*.test.ts",
     "test:img-in": "npm run build && vitest run tests/img-in/*.test.ts",
+    "test:img-out": "npm run build && vitest run tests/img-out/*.test.ts",
     "test:reasoning": "npm run build && vitest run tests/reasoning/*.test.ts"
   },
   "dependencies": {
