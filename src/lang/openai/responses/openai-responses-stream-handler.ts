@@ -165,8 +165,10 @@ export class OpenAIResponseStreamHandler {
         this.applyTextMessage(resItem as MessageItem, messageItem as LangMessageItemText);
         break;
       case 'function_call':
+        this.applyFunctionCall(resItem as MessageItem, messageItem as LangMessageItemTool);
         break;
       case 'image_generation_call':
+        this.applyImageGenerationCall(resItem as MessageItem, messageItem as LangMessageItemImage);
         break;
     }
   }
@@ -178,7 +180,12 @@ export class OpenAIResponseStreamHandler {
   applyFunctionCall(res: any, target: LangMessageItemTool) {
     target.callId = res.call_id;
     target.name = res.name;
-    target.arguments = res.arguments;
+    try {
+      target.arguments = JSON.parse(res.arguments);
+    } catch (error) {
+      console.error('Error parsing arguments for function call:', error);
+      target.arguments = {};
+    }
   }
 
   applyImageGenerationCall(res: any, target: LangMessageItemImage) {
