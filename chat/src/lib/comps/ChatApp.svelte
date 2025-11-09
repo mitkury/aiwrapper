@@ -32,6 +32,8 @@
     return agentIsRunning || messages[messages.length - 1].role === "user";
   });
 
+  let tryAgain = $state(false);
+
   onMount(() => { 
     const sub = agent.subscribe((event) => {
       if (event.type === "state") {
@@ -41,7 +43,7 @@
       messages = [];
 
       for (let i = 0; i < agent.messages.length; i++) {
-        messages.push(new LangMessage(agent.messages[i].role, agent.messages[i].content, agent.messages[i].meta));
+        messages.push(new LangMessage(agent.messages[i].role, agent.messages[i].text, agent.messages[i].meta));
       }
 
       if (event.type === "state" && event.state === "idle") {
@@ -50,6 +52,10 @@
     });
 
     loadMessages();
+
+    if (agent.state === "idle" && waitForResponse) {
+      tryAgain = true;
+    }
 
     return () => sub();
   });
@@ -79,6 +85,11 @@
     mode = "chat";
 
     saveMessages();
+  }
+
+  function handleTryAgain() {
+    tryAgain = false;
+    agent.run();
   }
 
   function setMode(nextMode: Mode) {
@@ -126,6 +137,14 @@
     </div>
     <div class="flex-1 overflow-y-auto py-4 sm:py-6">
       <ChatMessages messages={messages} mode={mode} />
+      {#if tryAgain}
+        <button
+          onclick={handleTryAgain}
+          class="bg-neutral-900 text-white rounded px-4 py-2 font-medium hover:bg-neutral-800"
+        >
+          Try Again
+        </button>
+      {/if}
     </div>
 
     <div class="py-3 border-neutral-200 sticky bottom-0 bg-white">
