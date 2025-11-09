@@ -80,6 +80,14 @@ async function runTest(lang: LanguageProvider) {
     const mentionsMug = followUpAnswer.includes('mug') || followUpAnswer.includes('cup');
     expect(mentionsMug).toBe(true);
 
+    // Continue the original thread to ensure replying after image generation works
+    res.addUserMessage('Thanks for the image!');
+    const continuation = await lang.chat(res);
+    const continuationAnswer = continuation.answer.trim();
+    expect(continuationAnswer.length).toBeGreaterThan(0);
+    const continuationLast = continuation[continuation.length - 1];
+    expect(continuationLast.role).toBe('assistant');
+
   });
 }
 
