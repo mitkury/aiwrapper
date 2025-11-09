@@ -124,10 +124,28 @@ export function transformMessageToResponsesItems(message: LangMessage): any {
           throw new Error('Image item must include either url or base64 data.');
         }
 
-        entry.content.push({
-          type: 'input_image',
-          image_url: imageUrl
-        });
+        if (isAssistant) {
+          const revisedPrompt = "\n\nPrompt used to generate the image: " + msgItem.metadata.revisedPrompt;
+
+          // We do this becase at the moment (nov 2025) OpenAI doesn't allow to send back images
+          // from the assistant role. So the only way it works is if we have a working response id
+          // and don't send the list of all messages but just reference messages where the assistant
+          // has the generated image.
+          // @TODO: reference a URL if we can so the assistant can decide to use a tool to see it if 
+          // it needs to.
+          let text = `<revised>I generated an image but no longer have a reference to it.${revisedPrompt}</revised>`;
+
+          entry.content.push({
+            type: 'output_text',
+            text
+          })
+        } else {
+          entry.content.push({
+            type: 'input_image',
+            image_url: imageUrl
+          });
+        }
+
         break;
       }
     }
@@ -183,8 +201,8 @@ export function transformToolResultsToResponsesItems(message: LangMessage): any 
       type: 'function_call_output',
       call_id: toolResult.callId,
       output: typeof toolResult.result === 'string'
-      ? toolResult.result
-      : JSON.stringify(toolResult.result)
+        ? toolResult.result
+        : JSON.stringify(toolResult.result)
     });
   }
   return items;
