@@ -340,7 +340,7 @@ export class AnthropicLang extends LanguageProvider {
         const src = this.imageInputToAnthropicSource(p.image);
         return { type: 'image', source: src } as any;
       }
-      if (p.type === 'thinking') {
+      if (p.type === 'reasoning') {
         return { type: 'thinking', thinking: p.text } as any;
       }
       // Fallback for unknown parts
