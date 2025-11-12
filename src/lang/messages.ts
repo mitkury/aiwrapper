@@ -126,6 +126,10 @@ export class LangMessage {
     return this.items.filter(item => item.type === "text").map(item => item.text).join("\n\n");
   }
 
+  get reasoning(): string {
+    return this.items.filter(item => item.type === "reasoning").map(item => item.text).join("\n\n");
+  }
+
   get object(): any | null {
     const text = this.text;
     if (text && text.length > 0) return extractJSON(text);
