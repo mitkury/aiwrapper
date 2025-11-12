@@ -1,11 +1,18 @@
 <script lang="ts">
-  import { Lang, LangMessage, ChatAgent, LanguageProvider, type LangTool, LangMessages } from "aiwrapper";
+  import { Lang, LangMessage, ChatAgent, type LangTool, LangMessages } from "aiwrapper";
 	import ChatInput from "./ChatInput.svelte";
 	import ChatMessages from "./ChatMessages.svelte";
 	import SecretsSetup from "./SecretsSetup.svelte";
 	import Button from "./Button.svelte";
 	import { onMount } from "svelte";
   import { getSecrets } from "$lib/secretsContext.svelte";
+  import {
+    clearStoredMessages,
+    ensurePersistentStorage,
+    loadStoredMessages,
+    saveStoredMessages,
+    type StoredMessage
+  } from "$lib/storage/messages-store";
 
   const tools: LangTool[] = $state([
     { name: "web_search" },
@@ -40,23 +47,14 @@
         agentIsRunning = event.state === "running";
       }
 
-      messages = [];
-
-      for (let i = 0; i < agent.messages.length; i++) {
-        const current = agent.messages[i];
-        messages.push(new LangMessage(current.role, current.items, current.meta));
-      }
+      syncMessagesFromAgent();
 
       if (event.type === "state" && event.state === "idle") {
-        saveMessages();
+        void persistMessages();
       }
     });
 
-    loadMessages();
-
-    if (agent.state === "idle" && waitForResponse) {
-      tryAgain = true;
-    }
+    void initializeStorage();
 
     return () => sub();
   });
@@ -77,7 +75,7 @@
     await agent.run();
   }
 
-  function handleClear() {
+  async function handleClear() {
     console.log("handleClear");
     agent.messages.splice(0, agent.messages.length);
     agent.messages.availableTools = tools;
@@ -85,7 +83,7 @@
     agentIsRunning = false;
     mode = "chat";
 
-    saveMessages();
+    await clearStoredMessages();
   }
 
   function handleTryAgain() {
@@ -97,18 +95,64 @@
     mode = nextMode;
   }
 
-  function saveMessages() {
-    const messagesJson = JSON.stringify(agent.messages);
-    localStorage.setItem("messages", messagesJson);
+  function syncMessagesFromAgent() {
+    messages = [];
+
+    for (let i = 0; i < agent.messages.length; i++) {
+      const current = agent.messages[i];
+      messages.push(new LangMessage(current.role, current.items, current.meta));
+    }
   }
 
-  function loadMessages() {
-    const messagesJson = localStorage.getItem("messages");
-    if (messagesJson) {
-      const loadedMessages = JSON.parse(messagesJson) as LangMessage[];
-      agent.messages = new LangMessages(loadedMessages);
-      agent.messages.availableTools = tools;
-      messages = [...agent.messages];
+  function cloneValue<T>(value: T): T {
+    if (value === undefined || value === null) {
+      return value;
+    }
+
+    const cloner = (globalThis as typeof globalThis & { structuredClone?: typeof structuredClone }).structuredClone;
+    if (typeof cloner === "function") {
+      try {
+        return cloner(value);
+      } catch (error) {
+        console.warn("Structured clone failed, falling back to JSON clone", error);
+      }
+    }
+
+    return JSON.parse(JSON.stringify(value)) as T;
+  }
+
+  async function persistMessages() {
+    const storedMessages = agent.messages.map(
+      (message): StoredMessage => ({
+        role: message.role,
+        items: cloneValue(message.items),
+        meta: message.meta ? cloneValue(message.meta) : undefined
+      })
+    );
+
+    const success = await saveStoredMessages(storedMessages);
+    if (!success) {
+      console.warn("Messages were not saved to IndexedDB");
+    }
+  }
+
+  async function hydrateMessagesFromStorage() {
+    const storedMessages = await loadStoredMessages();
+    if (!storedMessages || storedMessages.length === 0) {
+      return;
+    }
+
+    agent.messages = new LangMessages(storedMessages);
+    agent.messages.availableTools = tools;
+    syncMessagesFromAgent();
+  }
+
+  async function initializeStorage() {
+    await ensurePersistentStorage();
+    await hydrateMessagesFromStorage();
+
+    if (agent.state === "idle" && waitForResponse) {
+      tryAgain = true;
     }
   }
 </script>

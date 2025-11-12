@@ -29,6 +29,8 @@
 		"vite": "^7.1.10"
 	},
 	"dependencies": {
-		"@markpage/svelte": "^0.1.1"
+		"@markpage/svelte": "^0.1.1",
+		"idb-keyval": "^6.2.1",
+		"lucide-svelte": "^0.553.0"
 	}
 }
