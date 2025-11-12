@@ -23,6 +23,7 @@ export class OpenAIResponseStreamHandler {
   id: string;
   items: OpenAIResponseItem[];
   itemIdToMessageItemIndex: Map<string, number> = new Map();
+  itemIdToSummaryIndex: Map<string, number> = new Map();
   newMessage: LangMessage;
   messages: LangMessages;
   onResult?: (result: LangMessage) => void;
@@ -291,6 +292,18 @@ export class OpenAIResponseStreamHandler {
     }
 
     const delta = data.delta as string;
+    
+    // Check if summary_index exists and has increased
+    if (typeof data.summary_index === 'number') {
+      const previousIndex = this.itemIdToSummaryIndex.get(data.item_id);
+      if (previousIndex !== undefined && data.summary_index > previousIndex) {
+        // summary_index increased, add separator before the delta
+        thinkingItem.text += '\n\n';
+      }
+      // Update the stored summary_index
+      this.itemIdToSummaryIndex.set(data.item_id, data.summary_index);
+    }
+    
     thinkingItem.text += delta;
   }
 
