@@ -35,8 +35,6 @@ export class OpenAIResponseStreamHandler {
   }
 
   handleEvent(data: any) {
-    console.log(data);
-
     if (!('type' in data)) {
       console.warn('Unknown data from server:', data);
       return;

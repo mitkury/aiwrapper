@@ -88,7 +88,6 @@
   }
 
   async function handleClear() {
-    console.log("handleClear");
     agent.messages.splice(0, agent.messages.length);
     agent.messages.availableTools = tools;
     messages = [];
