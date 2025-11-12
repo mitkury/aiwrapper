@@ -2,6 +2,7 @@
 	import { Markdown } from "@markpage/svelte";
 	import { type LangMessage } from "aiwrapper";
 	import { Image as ImageIcon } from "lucide-svelte";
+	import ChatThinking from "./ChatThinking.svelte";
 
   const { message }: { message: LangMessage } = $props();
 
@@ -31,10 +32,16 @@
 
     return imgs;
   });
+
+  const thinking = $derived.by(() => {
+    const thinkingItems = message.items.filter(item => item.type === 'reasoning');
+    return thinkingItems.map(item => item.text).join("\n\n");
+  });
 </script>
 
 <div class="flex justify-start">
   <div class="chat-message max-w-[75%] text-neutral-800">
+    <ChatThinking thinking={thinking} />
     <Markdown source={text} />
     {#if images.length > 0}
       <div class="flex flex-wrap gap-2">

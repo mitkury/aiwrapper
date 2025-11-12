@@ -4,6 +4,7 @@
 	import ChatMessages from "./ChatMessages.svelte";
 	import SecretsSetup from "./SecretsSetup.svelte";
 	import Button from "./Button.svelte";
+	import ErrorDisplay from "./ErrorDisplay.svelte";
 	import { onMount } from "svelte";
   import { getSecrets } from "$lib/secretsContext.svelte";
   import {
@@ -25,6 +26,8 @@
   let messages: LangMessage[] = $state([]);
   type Mode = "chat" | "inspect" | "json";
   let mode: Mode = $state("chat");
+  let error: Error | unknown | undefined = $state(undefined);
+
   const modeOptions: { id: Mode; label: string }[] = [
     { id: "chat", label: "Chat" },
     { id: "inspect", label: "Inspect" },
@@ -47,6 +50,10 @@
         agentIsRunning = event.state === "running";
       }
 
+      if (event.type === "error") {
+        error = event.error;
+      }
+
       syncMessagesFromAgent();
 
       if (event.type === "state" && event.state === "idle") {
@@ -64,15 +71,20 @@
   $effect(() => {
     const key = secrets?.values.OPENAI_API_SECRET;
     if (key) {
-      agent.setLanguageProvider(Lang.openai({ apiKey: key, model: "gpt-4o" }));
+      agent.setLanguageProvider(Lang.openai({ apiKey: key, model: "gpt-5", reasoningEffort: "high", showReasoningSummary: true }));
     }
   });
 
   async function handleSubmit(message: string) {
+    error = undefined; // Clear any previous error
     agent.messages.addUserMessage(message);
     
-    // We run the agent with the latest message from the user
-    await agent.run();
+    try {
+      await agent.run();
+    } catch (err) {
+      console.error("Error running agent", err);
+      error = err;
+    }
   }
 
   async function handleClear() {
@@ -82,13 +94,24 @@
     messages = [];
     agentIsRunning = false;
     mode = "chat";
+    error = undefined;
 
     await clearStoredMessages();
   }
 
-  function handleTryAgain() {
+  async function handleTryAgain() {
     tryAgain = false;
-    agent.run();
+    error = undefined; // Clear error when retrying
+    try {
+      await agent.run();
+    } catch (err) {
+      console.error("Error running agent", err);
+      error = err;
+    }
+  }
+
+  function handleDismissError() {
+    error = undefined;
   }
 
   function setMode(nextMode: Mode) {
@@ -182,6 +205,11 @@
     </div>
     <div class="flex-1 overflow-y-auto py-4 sm:py-6">
       <ChatMessages messages={messages} mode={mode} />
+      {#if error}
+        <div class="mt-4">
+          <ErrorDisplay error={error} onDismiss={handleDismissError} />
+        </div>
+      {/if}
       {#if tryAgain}
         <button
           onclick={handleTryAgain}
