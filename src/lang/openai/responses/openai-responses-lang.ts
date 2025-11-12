@@ -5,6 +5,7 @@ import { addInstructionAboutSchema } from "../../prompt-for-json.ts";
 import { processServerEvents } from "../../../process-server-events.ts";
 import { OpenAIResponseStreamHandler } from "./openai-responses-stream-handler.ts";
 import { isZodSchema, validateAgainstSchema, zodToJsonSchema } from "../../schema/schema-utils.ts";
+import { models } from 'aimodels';
 import {
   httpRequestWithRetry as fetch,
   HttpResponseWithRetries,
@@ -101,11 +102,17 @@ export class OpenAIResponsesLang extends LanguageProvider {
       ...options?.providerSpecificBody,
     };
 
-    // Add reasoning parameters (defaults to medium effort)
-    body.reasoning = {
-      effort: this.reasoningEffort,
-      ...(this.showReasoningSummary ? { summary: "auto" } : {})
-    };
+    const modelInfo = models.id(this.model);
+
+    // We have to check, if we try to use reasoning on a model that doesn't support it
+    // OpenAI will return an error.
+    if (modelInfo?.canReason()) {
+      // Add reasoning parameters (defaults to medium effort)
+      body.reasoning = {
+        effort: this.reasoningEffort,
+        ...(this.showReasoningSummary ? { summary: "auto" } : {})
+      };
+    }
 
     return body;
   }
@@ -135,7 +142,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
               break;
             }
           }
-          
+
           if (lastMessageWithResponseId) {
             delete lastMessageWithResponseId.meta.openaiResponseId;
             // Build new body that contains all messages (with the response id removed)
