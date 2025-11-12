@@ -1,11 +1,4 @@
-import { OpenAIResponsesLang } from "./responses/openai-responses-lang.ts";
-
-export type OpenAILangOptions = {
-  apiKey: string;
-  model?: string;
-  systemPrompt?: string;
-  maxTokens?: number;
-};
+import { OpenAIResponsesLang, OpenAILangOptions } from "./responses/openai-responses-lang.ts";
 
 export type OpenAILangConfig = {
   apiKey: string;
@@ -22,6 +15,6 @@ export type OpenAIChatMessage = {
 export class OpenAILang extends OpenAIResponsesLang {
   constructor(options: OpenAILangOptions) {
     const modelName = options.model || "gpt-5-mini";
-    super({ apiKey: options.apiKey, model: modelName, systemPrompt: options.systemPrompt });
+    super({ ...options, model: modelName });
   }
 }

@@ -3,7 +3,8 @@ import type {
   LangMessageItem,
   LangMessageItemText,
   LangMessageItemTool,
-  LangMessageItemImage
+  LangMessageItemImage,
+  LangMessageItemReasoning
 } from "../../messages";
 import { MessageItem } from "../responses-stream-types";
 
@@ -33,6 +34,8 @@ export class OpenAIResponseStreamHandler {
   }
 
   handleEvent(data: any) {
+    console.log(data);
+
     if (!('type' in data)) {
       console.warn('Unknown data from server:', data);
       return;
@@ -83,6 +86,15 @@ export class OpenAIResponseStreamHandler {
         this.applyToolArgsDelta(data);
         break;
       case 'response.function_call_arguments.done':
+        break;
+      case 'response.reasoning_summary_part.added':
+        break;
+      case 'response.reasoning_summary_text.delta':
+        this.applyReasoningSummaryTextDelta(data);
+        break;
+      case 'response.reasoning_summary_text.done':
+        break;
+      case 'response.reasoning_summary_part.done':
         break;
     }
 
@@ -135,6 +147,16 @@ export class OpenAIResponseStreamHandler {
             imageItem.mimeType = (data.item.output_format || data.item.format) ?? undefined;
           }
           this.newMessage.items.push(imageItem);
+        }
+        break;
+      case 'reasoning':
+        {
+          // Create a thinking item immediately when reasoning starts
+          const reasoningItem: LangMessageItemReasoning = {
+            type: "reasoning",
+            text: ""
+          };
+          this.newMessage.items.push(reasoningItem);
         }
         break;
       default:
@@ -261,104 +283,15 @@ export class OpenAIResponseStreamHandler {
     //messageItem.arguments = JSON.parse(messageItem.arguments + delta);
   }
 
-  /*
-  // @TODO: remove this method
-  setItem(target: OpenAIResponseItem) {
-    const item = this.getItem(target.id);
-    if (!target) {
-      console.warn('Unknown item:', target);
+  applyReasoningSummaryTextDelta(data: any) {
+    const thinkingItem = this.getNewMessageItem(data.item_id) as LangMessageItemReasoning;
+    if (thinkingItem === undefined) {
+      console.warn('Unknown reasoning item:', data.item_id);
       return;
     }
 
-    switch (item.type) {
-      case 'message':
-        if (!item.targetMessage) {
-          console.warn('Unknown target message for item:', target);
-          return;
-        }
-        if (item.role === 'assistant') {
-          // Ensure we use parts so image and text live in one message
-          if (!Array.isArray(item.targetMessage.content)) {
-            const existingText = typeof item.targetMessage.content === 'string' ? item.targetMessage.content : '';
-            item.targetMessage.content = existingText ? [{ type: 'text', text: existingText }] : [];
-          }
-          // If we already accumulated text via deltas, do not append again on 'done'
-          const alreadyStreamedText = typeof (item as any).text === 'string' && (item as any).text.length > 0;
-          if (!alreadyStreamedText) {
-            for (const content of target.content) {
-              if (content.type === 'output_text') {
-                const parts = item.targetMessage.content as any[];
-                const lastPart = parts.length > 0 ? parts[parts.length - 1] : undefined;
-                if (lastPart && lastPart.type === 'text') {
-                  lastPart.text += String(content.text ?? '');
-                } else {
-                  parts.push({ type: 'text', text: String(content.text ?? '') });
-                }
-              }
-            }
-          }
-
-          this.onResult?.(item.targetMessage);
-        } else {
-          console.warn('Unknown role:', item.role, 'for item:', item);
-        }
-        break;
-
-      case 'function_call':
-        const argsParsed = JSON.parse(target.arguments) as Record<string, any>;
-        const callId = target.call_id;
-        const name = target.name;
-
-        this.messages.addAssistantToolCalls([
-          {
-            callId,
-            name,
-            arguments: argsParsed
-          }
-        ], { openaiResponseId: this.id });
-
-        this.onResult?.(this.messages[this.messages.length - 1]);
-        break;
-
-      case 'image_generation_call':
-        this.addImage(target);
-        this.onResult?.(item.targetMessage);
-
-        break;
-
-      default:
-        break;
-    }
+    const delta = data.delta as string;
+    thinkingItem.text += delta;
   }
 
-  // @TODO: remove this method
-  addImage(data: OpenAIResponseItem) {
-    const b64image = data.b64_json || data.result;
-    const imageGenerationMeta = {
-      size: data.size,
-      format: data.output_format || data.format,
-      background: data.background,
-      quality: data.quality,
-      revisedPrompt: data.revised_prompt,
-    }
-
-    if (b64image) {
-      // Add the completed image to the assistant message
-      this.messages.addAssistantImage({
-        kind: 'base64',
-        base64: b64image,
-        mimeType: imageGenerationMeta.format === 'png' ? 'image/png' : 'image/jpeg'
-      });
-
-      // Store metadata in the message
-      const last = this.messages[this.messages.length - 1];
-      if (!last.meta) last.meta = {};
-      last.meta.openaiResponseId = this.id;
-      last.meta.imageGeneration = imageGenerationMeta;
-
-      this.onResult?.(last);
-    }
-  }
-
-  */
 }

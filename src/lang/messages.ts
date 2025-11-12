@@ -8,7 +8,7 @@ export type LangMessageMeta = Record<string, any>;
 export type LangContentPart =
   | { type: "text"; text: string }
   | { type: "image"; image: LangContentImage; alt?: string }
-  | { type: "thinking"; text: string };
+  | { type: "reasoning"; text: string };
 
 /**
  * Interface for tool requests that can be sent to language models
@@ -66,12 +66,18 @@ export type LangToolWithHandler = {
 
 export type LangMessageItem =
   | LangMessageItemText
+  | LangMessageItemReasoning
   | LangMessageItemImage
   | LangMessageItemTool
   | LangMessageItemToolResult;
 
 export type LangMessageItemText = {
   type: "text";
+  text: string;
+}
+
+export type LangMessageItemReasoning = {
+  type: "reasoning";
   text: string;
 }
 

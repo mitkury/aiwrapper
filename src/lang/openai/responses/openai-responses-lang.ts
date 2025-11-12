@@ -22,10 +22,12 @@ export type OpenAIBuiltInTool =
   | { name: "code_interpreter" }
   | { name: "computer_use" };
 
-export type OpenAIResponsesOptions = {
+export type OpenAILangOptions = {
   apiKey: string;
   model?: string;
   systemPrompt?: string;
+  reasoningEffort?: "low" | "medium" | "high";
+  showReasoningSummary?: boolean;
 };
 
 export class OpenAIResponsesLang extends LanguageProvider {
@@ -33,12 +35,16 @@ export class OpenAIResponsesLang extends LanguageProvider {
   private model: string;
   private apiKey: string;
   private baseURL = "https://api.openai.com/v1";
+  private reasoningEffort: "low" | "medium" | "high";
+  private showReasoningSummary?: boolean;
 
-  constructor(options: OpenAIResponsesOptions) {
+  constructor(options: OpenAILangOptions) {
     super("OpenAI Responses");
 
     this.model = options.model;
     this.apiKey = options.apiKey;
+    this.reasoningEffort = options.reasoningEffort ?? "medium";
+    this.showReasoningSummary = options.showReasoningSummary;
   }
 
   async ask(prompt: string, options?: LangOptions): Promise<LangMessages> {
@@ -86,7 +92,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
     const structuredOutput = this.buildStructuredOutput(options?.schema);
     const bodyPart = prepareBodyPartForOpenAIResponsesAPI(msgCollection);
 
-    return {
+    const body: Record<string, unknown> = {
       model: this.model,
       ...{ stream: true },
       ...bodyPart,
@@ -94,6 +100,14 @@ export class OpenAIResponsesLang extends LanguageProvider {
       ...structuredOutput,
       ...options?.providerSpecificBody,
     };
+
+    // Add reasoning parameters (defaults to medium effort)
+    body.reasoning = {
+      effort: this.reasoningEffort,
+      ...(this.showReasoningSummary ? { summary: "auto" } : {})
+    };
+
+    return body;
   }
 
   private async sendToApi(msgCollection: LangMessages, options?: LangOptions): Promise<void> {
