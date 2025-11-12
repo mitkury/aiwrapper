@@ -45,7 +45,9 @@ export class OpenAIResponsesLang extends LanguageProvider {
     this.model = options.model;
     this.apiKey = options.apiKey;
     this.reasoningEffort = options.reasoningEffort ?? "medium";
-    this.showReasoningSummary = options.showReasoningSummary;
+    // @TODO: OpenAI throws an error for unproved orgs when they're requesting reasoning summary.
+    // need to handle this differently. Perhaps, set to false by default or catch the error and re-run the request without summary.
+    this.showReasoningSummary = options.showReasoningSummary !== undefined ? options.showReasoningSummary : true;
   }
 
   async ask(prompt: string, options?: LangOptions): Promise<LangMessages> {
