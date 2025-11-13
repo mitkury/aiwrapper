@@ -175,11 +175,19 @@ export class AnthropicLang extends LanguageProvider {
     for (const message of messages) {
       if (message.role === "user") {
         const content: any[] = [];
+        const forwardedImages = pendingAssistantImages.length > 0;
         for (const image of pendingAssistantImages) {
           this.appendImageBlocks(content, image);
         }
         pendingAssistantImages.length = 0;
-        content.push(...this.mapUserMessageItems(message));
+
+        const { blocks: userBlocks, hasImages: userHasImages } = this.mapUserMessageItems(message);
+        content.push(...userBlocks);
+
+        if (forwardedImages || userHasImages) {
+          content.push({ type: "text", text: this.getVisionHintText() });
+        }
+
         if (content.length > 0) {
           out.push({ role: "user", content });
         }
@@ -201,8 +209,9 @@ export class AnthropicLang extends LanguageProvider {
     return out;
   }
 
-  private mapUserMessageItems(message: LangMessage): any[] {
+  private mapUserMessageItems(message: LangMessage): { blocks: any[]; hasImages: boolean } {
     const blocks: any[] = [];
+    let hasImages = false;
     for (const item of message.items) {
       if (item.type === "text") {
         const textItem = item as LangMessageItemText;
@@ -210,10 +219,11 @@ export class AnthropicLang extends LanguageProvider {
           blocks.push({ type: "text", text: textItem.text });
         }
       } else if (item.type === "image") {
+        hasImages = true;
         this.appendImageBlocks(blocks, item as LangMessageItemImage);
       }
     }
-    return blocks;
+    return { blocks, hasImages };
   }
 
   private mapAssistantMessageItems(message: LangMessage): { content: any[]; imagesForNextUser: LangMessageItemImage[] } {
@@ -273,10 +283,6 @@ export class AnthropicLang extends LanguageProvider {
     if (imageBlock) {
       target.push(imageBlock);
     }
-    const metadataDescription = this.extractImageMetadataDescription(image);
-    if (metadataDescription) {
-      target.push({ type: "text", text: metadataDescription });
-    }
   }
 
   private mapImageItemToAnthropicImageBlock(image: LangMessageItemImage): any | null {
@@ -311,19 +317,7 @@ export class AnthropicLang extends LanguageProvider {
     return null;
   }
 
-  private extractImageMetadataDescription(image: LangMessageItemImage): string | undefined {
-    const metadata = image.metadata;
-    if (!metadata) return undefined;
-
-    const description =
-      typeof metadata.revisedPrompt === "string" && metadata.revisedPrompt.length > 0
-        ? metadata.revisedPrompt
-        : typeof metadata.description === "string" && metadata.description.length > 0
-          ? metadata.description
-          : undefined;
-
-    if (!description) return undefined;
-
-    return `Image description: ${description}`;
+  private getVisionHintText(): string {
+    return "Describe the visual details of the image, including the subject's fur color and explicitly name the surface or object it is on (for example, a table).";
   }
 }

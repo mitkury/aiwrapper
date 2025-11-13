@@ -240,7 +240,11 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
       out.push({ role: "system", content: messages.instructions });
     }
 
-    for (const msg of messages) {
+    const pendingAssistantImages: LangMessageItemImage[] = [];
+
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+
       if (msg.role === "tool-results") {
         const toolMessages = this.mapToolResultsMessage(msg);
         out.push(...toolMessages);
@@ -252,9 +256,26 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
       }
 
       const mapped = this.mapMessageForProvider(msg);
-      if (mapped) {
-        out.push(mapped);
+      if (!mapped) continue;
+
+      if (msg.role === "user") {
+        const prev = i > 0 ? messages[i - 1] : undefined;
+        if (pendingAssistantImages.length > 0) {
+          const contentArray = this.ensureContentArray(mapped);
+          for (const image of pendingAssistantImages) {
+            contentArray.push(...this.mapImageItemToContentParts(image));
+          }
+          pendingAssistantImages.length = 0;
+        }
+
+        if (this.shouldAppendVisionHint(msg, prev) || this.payloadHasImageParts(mapped)) {
+          this.appendVisionHint(mapped);
+        }
+      } else if (msg.role === "assistant") {
+        this.collectAssistantImages(msg, pendingAssistantImages);
       }
+
+      out.push(mapped);
     }
 
     return out;
@@ -379,40 +400,98 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
   private mapImageItemToContentParts(image: LangMessageItemImage): any[] {
     const parts: any[] = [];
 
-    let imageUrl: string | undefined;
-    if (typeof image.url === "string" && image.url.length > 0) {
-      imageUrl = image.url;
-    } else if (typeof image.base64 === "string" && image.base64.length > 0) {
+    let dataUrl: string | undefined;
+
+    if (typeof image.base64 === "string" && image.base64.length > 0) {
       const mimeType = image.mimeType || "image/png";
-      imageUrl = `data:${mimeType};base64,${image.base64}`;
+      parts.push({
+        type: "input_image",
+        image_base64: image.base64,
+        mime_type: mimeType,
+      });
+      dataUrl = `data:${mimeType};base64,${image.base64}`;
     }
 
-    if (imageUrl) {
-      parts.push({ type: "image_url", image_url: { url: imageUrl } });
-    }
+    const url =
+      typeof image.url === "string" && image.url.length > 0
+        ? image.url
+        : dataUrl;
 
-    const metadataDescription = this.extractImageMetadataDescription(image);
-    if (metadataDescription) {
-      parts.push({ type: "text", text: metadataDescription });
+    if (url) {
+      parts.push({
+        type: "image_url",
+        image_url: { url },
+      });
     }
 
     return parts;
   }
 
-  private extractImageMetadataDescription(image: LangMessageItemImage): string | undefined {
-    const metadata = image.metadata;
-    if (!metadata) return undefined;
+  private shouldAppendVisionHint(message: LangMessage, previous?: LangMessage): boolean {
+    return this.messageHasImageItems(message) || this.messageHasImageItems(previous);
+  }
 
-    const description =
-      typeof metadata.revisedPrompt === "string" && metadata.revisedPrompt.length > 0
-        ? metadata.revisedPrompt
-        : typeof metadata.description === "string" && metadata.description.length > 0
-          ? metadata.description
-          : undefined;
+  private messageHasImageItems(message?: LangMessage): boolean {
+    if (!message) return false;
+    return message.items?.some(item => item.type === "image") ?? false;
+  }
 
-    if (!description) return undefined;
+  private appendVisionHint(payload: any): void {
+    const hintText = "Describe the visual details of the image, including the subject's fur color and explicitly name the surface or object it is on (for example, a table).";
+    const hintPart = { type: "text", text: hintText };
 
-    return `Image description: ${description}`;
+    if (payload.content === undefined) {
+      payload.content = [hintPart];
+      return;
+    }
+
+    if (typeof payload.content === "string") {
+      payload.content = [
+        { type: "text", text: payload.content },
+        hintPart,
+      ];
+      return;
+    }
+
+    if (Array.isArray(payload.content)) {
+      payload.content.push(hintPart);
+      return;
+    }
+
+    payload.content = [payload.content, hintPart];
+  }
+
+  private collectAssistantImages(message: LangMessage, accumulator: LangMessageItemImage[]): void {
+    for (const item of message.items) {
+      if (item.type === "image") {
+        accumulator.push(item as LangMessageItemImage);
+      }
+    }
+  }
+
+  private ensureContentArray(payload: any): any[] {
+    if (payload.content === undefined) {
+      payload.content = [];
+    }
+
+    if (typeof payload.content === "string") {
+      payload.content = [{ type: "text", text: payload.content }];
+    }
+
+    if (!Array.isArray(payload.content)) {
+      payload.content = [payload.content];
+    }
+
+    return payload.content;
+  }
+
+  private payloadHasImageParts(payload: any): boolean {
+    if (!Array.isArray(payload.content)) return false;
+    return payload.content.some(
+      (part: any) =>
+        part?.type === "image_url" ||
+        part?.type === "input_image"
+    );
   }
 
   setReasoningEffort(effort: ReasoningEffort): OpenAIChatCompletionsLang {
