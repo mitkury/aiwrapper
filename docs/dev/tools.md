@@ -13,22 +13,20 @@ import { Lang, LangMessages } from 'aiwrapper';
 
 const openai = Lang.openai({ apiKey: process.env.OPENAI_API_KEY, model: 'gpt-4o-mini' });
 
-const messages = new LangMessages([
-  { role: 'user', content: 'Please add 2 and 3 using a tool.' }
-], {
-  tools: [
-    {
-      name: 'add',
-      description: 'Add two numbers',
-      parameters: {
-        type: 'object',
-        properties: { a: { type: 'number' }, b: { type: 'number' } },
-        required: ['a', 'b']
-      },
-      handler: ({ a, b }: any) => a + b
-    }
-  ]
-});
+const messages = new LangMessages();
+messages.addUserMessage('Please add 2 and 3 using a tool.');
+messages.availableTools = [
+  {
+    name: 'add',
+    description: 'Add two numbers',
+    parameters: {
+      type: 'object',
+      properties: { a: { type: 'number' }, b: { type: 'number' } },
+      required: ['a', 'b']
+    },
+    handler: ({ a, b }: any) => a + b
+  }
+];
 
 // Tools are automatically executed when the model requests them
 const result = await openai.chat(messages);
@@ -45,13 +43,18 @@ console.log(followUp.answer);
 
 #### Checking tool execution
 ```ts
-// Check which tools were called
-const requested = result.toolsRequested; // Array of ToolRequest objects
+// Check which tools were called from the last assistant message
+const lastAssistantMsg = result.find(m => m.role === 'assistant');
+if (lastAssistantMsg) {
+  const toolRequests = lastAssistantMsg.toolRequests; // Array of LangMessageItemTool objects
+  console.log(toolRequests);
+}
 
 // Check tool results in the message history
 const toolResultsMsg = result.find(m => m.role === 'tool-results');
 if (toolResultsMsg) {
-  console.log(toolResultsMsg.content); // Array of ToolResult objects
+  const toolResults = toolResultsMsg.toolResults; // Array of LangMessageItemToolResult objects
+  console.log(toolResults);
 }
 ```
 

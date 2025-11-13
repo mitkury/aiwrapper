@@ -139,7 +139,7 @@ console.log(finalResult.answer);
 import { LangMessages } from "aiwrapper";
 
 const messages = new LangMessages();
-messages.addSystemMessage("You are a helpful assistant.");
+messages.instructions = "You are a helpful assistant.";
 messages.addUserMessage("Tell me about TypeScript.");
 
 const chatResult = await lang.chat(messages);
@@ -300,7 +300,7 @@ When publishing, follow these steps in order:
   "type": "module",
   "name": "aiwrapper",
   "description": "A Universal AI Wrapper for JavaScript & TypeScript",
-  "version": "2.1.3",
+  "version": "3.0.0-alpha.6",
   "author": "Dmitry Kury (https://dkury.com)",
   "license": "MIT",
   "repository": {
