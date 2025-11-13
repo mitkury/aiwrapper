@@ -326,9 +326,9 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
         }
       } else if (item.type === "image") {
         const imageItem = item as LangMessageItemImage;
-        const mapped = this.mapImageItemToContent(imageItem);
-        if (mapped) {
-          parts.push(mapped);
+        const imageParts = this.mapImageItemToContentParts(imageItem);
+        if (imageParts.length > 0) {
+          parts.push(...imageParts);
         }
       } else if (item.type === "reasoning") {
         // Skip reasoning items when sending context back to providers
@@ -376,18 +376,43 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     return toolMessages;
   }
 
-  private mapImageItemToContent(image: LangMessageItemImage): any | null {
+  private mapImageItemToContentParts(image: LangMessageItemImage): any[] {
+    const parts: any[] = [];
+
+    let imageUrl: string | undefined;
     if (typeof image.url === "string" && image.url.length > 0) {
-      return { type: "image_url", image_url: { url: image.url } };
-    }
-
-    if (typeof image.base64 === "string" && image.base64.length > 0) {
+      imageUrl = image.url;
+    } else if (typeof image.base64 === "string" && image.base64.length > 0) {
       const mimeType = image.mimeType || "image/png";
-      const dataUrl = `data:${mimeType};base64,${image.base64}`;
-      return { type: "image_url", image_url: { url: dataUrl } };
+      imageUrl = `data:${mimeType};base64,${image.base64}`;
     }
 
-    return null;
+    if (imageUrl) {
+      parts.push({ type: "image_url", image_url: { url: imageUrl } });
+    }
+
+    const metadataDescription = this.extractImageMetadataDescription(image);
+    if (metadataDescription) {
+      parts.push({ type: "text", text: metadataDescription });
+    }
+
+    return parts;
+  }
+
+  private extractImageMetadataDescription(image: LangMessageItemImage): string | undefined {
+    const metadata = image.metadata;
+    if (!metadata) return undefined;
+
+    const description =
+      typeof metadata.revisedPrompt === "string" && metadata.revisedPrompt.length > 0
+        ? metadata.revisedPrompt
+        : typeof metadata.description === "string" && metadata.description.length > 0
+          ? metadata.description
+          : undefined;
+
+    if (!description) return undefined;
+
+    return `Image description: ${description}`;
   }
 
   setReasoningEffort(effort: ReasoningEffort): OpenAIChatCompletionsLang {

@@ -174,13 +174,12 @@ export class AnthropicLang extends LanguageProvider {
     const pendingAssistantImages: LangMessageItemImage[] = [];
     for (const message of messages) {
       if (message.role === "user") {
-        const content = [
-          ...pendingAssistantImages
-            .map((image) => this.mapImageItemToAnthropicBlock(image))
-            .filter((block): block is Record<string, any> => Boolean(block)),
-          ...this.mapUserMessageItems(message),
-        ];
+        const content: any[] = [];
+        for (const image of pendingAssistantImages) {
+          this.appendImageBlocks(content, image);
+        }
         pendingAssistantImages.length = 0;
+        content.push(...this.mapUserMessageItems(message));
         if (content.length > 0) {
           out.push({ role: "user", content });
         }
@@ -211,10 +210,7 @@ export class AnthropicLang extends LanguageProvider {
           blocks.push({ type: "text", text: textItem.text });
         }
       } else if (item.type === "image") {
-        const imageBlock = this.mapImageItemToAnthropicBlock(item as LangMessageItemImage);
-        if (imageBlock) {
-          blocks.push(imageBlock);
-        }
+        this.appendImageBlocks(blocks, item as LangMessageItemImage);
       }
     }
     return blocks;
@@ -272,7 +268,18 @@ export class AnthropicLang extends LanguageProvider {
     return blocks;
   }
 
-  private mapImageItemToAnthropicBlock(image: LangMessageItemImage): any | null {
+  private appendImageBlocks(target: any[], image: LangMessageItemImage): void {
+    const imageBlock = this.mapImageItemToAnthropicImageBlock(image);
+    if (imageBlock) {
+      target.push(imageBlock);
+    }
+    const metadataDescription = this.extractImageMetadataDescription(image);
+    if (metadataDescription) {
+      target.push({ type: "text", text: metadataDescription });
+    }
+  }
+
+  private mapImageItemToAnthropicImageBlock(image: LangMessageItemImage): any | null {
     if (typeof image.base64 === "string" && image.base64.length > 0) {
       const mediaType = image.mimeType || "image/png";
       return {
@@ -302,5 +309,21 @@ export class AnthropicLang extends LanguageProvider {
     }
 
     return null;
+  }
+
+  private extractImageMetadataDescription(image: LangMessageItemImage): string | undefined {
+    const metadata = image.metadata;
+    if (!metadata) return undefined;
+
+    const description =
+      typeof metadata.revisedPrompt === "string" && metadata.revisedPrompt.length > 0
+        ? metadata.revisedPrompt
+        : typeof metadata.description === "string" && metadata.description.length > 0
+          ? metadata.description
+          : undefined;
+
+    if (!description) return undefined;
+
+    return `Image description: ${description}`;
   }
 }
