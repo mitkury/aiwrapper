@@ -47,57 +47,38 @@ export class OpenAIResponseStreamHandler {
 
     switch (data.type) {
       case 'response.created':
-        this.id = data.response.id;
-        this.newMessage = new LangMessage('assistant', []);
-        this.newMessage.meta = {
-          openaiResponseId: this.id
-        }
-        this.messages.push(this.newMessage);
+        this.handleNewResponse(data);
         break;
-
       case 'response.output_item.added':
         this.handleNewItem(data);
         break;
       case 'response.output_item.done':
         this.handleItemFinished(data);
         break;
-
-      case 'response.content_part.added':
-        break;
-      case 'response.content_part.done':
-        break;
-      case 'response.image_generation_call.in_progress':
-        break;
-      case 'response.image_generation_call.generating':
-        break;
       case 'response.image_generation_call.partial_image':
         //@TODO: handle partial image
         break;
-      case 'response.image_generation_call.completed':
-      case 'image_generation.completed':
-        //@TODO: handle completed image
-        break;
-
       case 'response.output_text.delta':
         this.applyTextDelta(data);
         break;
       case 'response.function_call_arguments.delta':
         this.applyToolArgsDelta(data);
         break;
-      case 'response.function_call_arguments.done':
-        break;
-      case 'response.reasoning_summary_part.added':
-        break;
       case 'response.reasoning_summary_text.delta':
         this.applyReasoningSummaryTextDelta(data);
-        break;
-      case 'response.reasoning_summary_text.done':
-        break;
-      case 'response.reasoning_summary_part.done':
         break;
     }
 
     this.onResult?.(this.newMessage);
+  }
+
+  handleNewResponse(data: any) {
+    this.id = data.response.id;
+    this.newMessage = new LangMessage('assistant', []);
+    this.newMessage.meta = {
+      openaiResponseId: this.id
+    }
+    this.messages.push(this.newMessage);
   }
 
   handleNewItem(data: any) {

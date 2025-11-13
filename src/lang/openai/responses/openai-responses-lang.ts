@@ -37,7 +37,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
   private apiKey: string;
   private baseURL = "https://api.openai.com/v1";
   private reasoningEffort: "low" | "medium" | "high";
-  private showReasoningSummary?: boolean;
+  private showReasoningSummary: boolean;
 
   constructor(options: OpenAILangOptions) {
     super("OpenAI Responses");
