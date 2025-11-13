@@ -6,7 +6,7 @@ import { readImageBase64 } from '../utils/test-images.ts';
 describe('Lang - image in (providers)', () => {
   // Focus on OpenAI, OpenRouter, Anthropic. Others will be picked up only if configured.
   createLangTestRunner(runTest, {
-    overrideProviders: ['openai'/*, 'openrouter', 'anthropic'*/],
+    overrideProviders: ['openai', 'openrouter', 'anthropic'],
     modelOverrides: {
       // Ensure OpenRouter uses an explicit provider/model path for vision
       //openrouter: 'openai/gpt-4o-mini',
