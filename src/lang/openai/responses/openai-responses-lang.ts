@@ -1,7 +1,6 @@
 import { LangOptions, LangResponseSchema, LanguageProvider } from "../../language-provider.ts";
-import { LangMessage, LangMessageContent, LangMessageItem, LangMessageRole, LangMessages } from "../../messages.ts";
+import { LangMessage, LangMessageItem, LangMessageRole, LangMessages } from "../../messages.ts";
 import { prepareBodyPartForOpenAIResponsesAPI } from "./openai-responses-messages.ts";
-import { addInstructionAboutSchema } from "../../prompt-for-json.ts";
 import { processServerEvents } from "../../../process-server-events.ts";
 import { OpenAIResponseStreamHandler } from "./openai-responses-stream-handler.ts";
 import { isZodSchema, validateAgainstSchema, zodToJsonSchema } from "../../schema/schema-utils.ts";
