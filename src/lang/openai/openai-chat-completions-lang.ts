@@ -1,20 +1,24 @@
 import {
   LangOptions,
   LanguageProvider,
-  LangContentPart,
-  LangImageInput,
-  LangResponseSchema,
 } from "../language-provider.ts";
-import { LangMessages, LangMessage, LangTool, LangMessage as ConversationMessage } from "../messages.ts";
+import {
+  LangMessages,
+  LangMessage,
+  LangTool,
+  LangMessageItemImage,
+  LangMessageItemText,
+  LangMessageItemTool,
+  LangMessageItemToolResult,
+} from "../messages.ts";
 import {
   httpRequestWithRetry as fetch,
 } from "../../http-request.ts";
 import { processServerEvents } from "../../process-server-events.ts";
 import { models, Model } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
-import zodToJsonSchema from "zod-to-json-schema";
-import { isZodSchema } from "../schema/schema-utils.ts";
 import { addInstructionAboutSchema } from "../prompt-for-json.ts";
+import { OpenAIChatCompletionsStreamHandler } from "./openai-chat-completions-stream-handler.ts";
 
 export type ReasoningEffort = "low" | "medium" | "high";
 
@@ -47,6 +51,8 @@ export type TokenUsageDetails = {
   };
   completionTokensDetails?: ReasoningTokenDetails;
 };
+
+const STREAM_HANDLER_SYMBOL = Symbol("OpenAIChatCompletionsStreamHandler");
 
 type OpenAICompletionsTool = {
   type: "function";
@@ -94,13 +100,16 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
       stream: true,
       max_tokens: requestMaxTokens,
       ...this._config.bodyProperties,
-      ...(messageCollection.availableTools ? { tools: this.formatTools(messageCollection.availableTools) } : {}),
+      ...(options?.providerSpecificBody ?? {}),
     };
+    if (messageCollection.availableTools) {
+      base.tools = this.formatTools(messageCollection.availableTools);
+    }
     return this.transformBody(base);
   }
 
   /** Build common request init for fetch */
-  private buildCommonRequest(body: Record<string, unknown>) {
+  private buildCommonRequest(body: Record<string, unknown>, options?: LangOptions) {
     return {
       method: "POST",
       headers: {
@@ -109,6 +118,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
         "Accept": "text/event-stream",
         ...(this._config.apiKey ? { "Authorization": `Bearer ${this._config.apiKey}` } : {}),
         ...this._config.headers,
+        ...(options?.providerSpecificHeaders ?? {}),
       },
       body: JSON.stringify(body),
     } as const;
@@ -144,10 +154,10 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
   ): Promise<LangMessages> {
     const messages = new LangMessages();
     if (this._config.systemPrompt) {
-      messages.push(new ConversationMessage("user", this._config.systemPrompt));
+      messages.push(new LangMessage("user", this._config.systemPrompt));
     }
 
-    messages.push(new ConversationMessage("user", prompt));
+    messages.push(new LangMessage("user", prompt));
 
     return await this.chat(messages, options);
   }
@@ -189,11 +199,9 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     }
 
     const body = this.buildRequestBody(result, requestMaxTokens, options);
-    const commonRequest = this.buildCommonRequest(body);
-
-    const toolArgBuffers = new Map<string, { name: string; buffer: string }>();
+    const commonRequest = this.buildCommonRequest(body, options);
     const onData = (data: any) => {
-      this.handleStreamData(data, result, options?.onResult, toolArgBuffers);
+      this.handleStreamData(data, result, options?.onResult);
     };
 
     const response = await fetch(`${this._config.baseURL}/chat/completions`, commonRequest as any).catch((err) => {
@@ -225,206 +233,265 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
   protected transformMessagesForProvider(messages: LangMessages): any[] {
     const out: any[] = [];
 
-    /*
-    for (const msg of messages) {
-      if (msg.role === "tool") {
-        // Treat 'tool' role here as assistant tool_calls (requested by AI)
-        const contentAny = msg.content as any;
-        if (Array.isArray(contentAny)) {
-          out.push({
-            role: "assistant",
-            tool_calls: contentAny.map((call: any, index: number) => ({
-              id: call.callId || call.id || String(index),
-              type: "function",
-              function: {
-                name: call.name,
-                arguments: JSON.stringify(call.arguments || {})
-              }
-            }))
-          });
-          continue;
-        }
-      }
+    if (this._config.systemPrompt) {
+      out.push({ role: "system", content: this._config.systemPrompt });
+    }
+    if (messages.instructions) {
+      out.push({ role: "system", content: messages.instructions });
+    }
+
+    const pendingAssistantImages: LangMessageItemImage[] = [];
+
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+
       if (msg.role === "tool-results") {
-        const contentAny = msg.content as any;
-        if (Array.isArray(contentAny)) {
-          for (const tr of contentAny) {
-            out.push({
-              role: "tool",
-              tool_call_id: tr.toolId,
-              name: tr.name,
-              content: typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result)
-            });
-          }
-          continue;
-        }
-      }
-      const content = (msg as any).content;
-      if (Array.isArray(content)) {
-        const parts = this.mapContentPartsToOpenAI(content as LangContentPart[]);
-        out.push({ role: msg.role, content: parts });
+        const toolMessages = this.mapToolResultsMessage(msg);
+        out.push(...toolMessages);
         continue;
       }
-      out.push(msg);
-    }
 
-    // Add instructions as the first system message
-    if (messages.instructions) {
-      out.unshift({ role: "system", content: messages.instructions });
-    }
-    */
-
-    return out;
-  }
-
-  private mapContentPartsToOpenAI(parts: LangContentPart[]): any[] {
-    const out: any[] = [];
-    for (const part of parts) {
-      if (part.type === "text") {
-        out.push({ type: "text", text: part.text });
-      } else if (part.type === "image") {
-        const mapped = this.mapImageInputToOpenAI(part.image);
-        out.push(mapped);
+      if (msg.role !== "user" && msg.role !== "assistant") {
+        continue;
       }
-    }
-    return out;
-  }
 
-  private mapImageInputToOpenAI(image: LangImageInput): any {
-    if ((image as any).kind === "url") {
-      const url = (image as any).url as string;
-      return { type: "image_url", image_url: { url } };
+      const mapped = this.mapMessageForProvider(msg);
+      if (!mapped) continue;
+
+      if (msg.role === "user") {
+        const prev = i > 0 ? messages[i - 1] : undefined;
+        if (pendingAssistantImages.length > 0) {
+          const contentArray = this.ensureContentArray(mapped);
+          for (const image of pendingAssistantImages) {
+            contentArray.push(...this.mapImageItemToContentParts(image));
+          }
+          pendingAssistantImages.length = 0;
+        }
+
+        if (this.shouldAppendVisionHint(msg, prev) || this.payloadHasImageParts(mapped)) {
+          this.appendVisionHint(mapped);
+        }
+      } else if (msg.role === "assistant") {
+        this.collectAssistantImages(msg, pendingAssistantImages);
+      }
+
+      out.push(mapped);
     }
-    if ((image as any).kind === "base64") {
-      const base64 = (image as any).base64 as string;
-      const mimeType = (image as any).mimeType || "image/png";
-      const dataUrl = `data:${mimeType};base64,${base64}`;
-      return { type: "image_url", image_url: { url: dataUrl } };
-    }
-    if ((image as any).kind === "bytes") {
-      throw new Error("LangImageInput kind 'bytes' is not supported in OpenAI-like adapter yet. Please provide base64 or URL.");
-    }
-    if ((image as any).kind === "blob") {
-      throw new Error("LangImageInput kind 'blob' is not supported in OpenAI-like adapter yet. Please provide base64 or URL.");
-    }
-    throw new Error("Unknown LangImageInput kind");
+
+    return out;
   }
 
   protected handleStreamData(
     data: any,
     result: LangMessages,
     onResult?: (result: LangMessage) => void,
-    toolArgBuffers?: Map<string, { name: string; buffer: string }>
+    _toolArgBuffers?: Map<string, { name: string; buffer: string }>
   ): void {
+    let handler = (result as any)[STREAM_HANDLER_SYMBOL] as OpenAIChatCompletionsStreamHandler | undefined;
+    if (!handler) {
+      handler = new OpenAIChatCompletionsStreamHandler(result, onResult);
+      (result as any)[STREAM_HANDLER_SYMBOL] = handler;
+    } else if (onResult) {
+      handler.setOnResult(onResult);
+    }
 
-    /*
-    const ensureToolMessage = (): LangMessage => {
-      const last = result.length > 0 ? result[result.length - 1] : undefined;
-      if (last && last.role === "tool" && Array.isArray(last.content)) {
-        return last;
-      }
-      result.addAssistantToolCalls([]);
-      return result[result.length - 1];
-    };
+    handler.handleEvent(data);
 
-    if (data.finished) {
-      // Finalize any buffered tool arguments onto the last tool message
-      if (toolArgBuffers && toolArgBuffers.size > 0) {
-        let lastToolMsg: LangMessage | undefined;
-        for (let i = result.length - 1; i >= 0; i--) {
-          if (result[i].role === 'tool') { lastToolMsg = result[i]; break; }
-        }
-        if (lastToolMsg && Array.isArray(lastToolMsg.content)) {
-          for (const [id, acc] of toolArgBuffers) {
-            const entry = (lastToolMsg.content as any[]).find((t: any) => t.callId === id || t.id === id);
-            if (entry) {
-              try {
-                entry.arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
-              } catch {
-                entry.arguments = {};
-              }
-            }
-          }
-        }
-      }
-      (result as any)._hasPendingToolArgs = false;
+    if (data?.finished) {
       result.finished = true;
-      const last = result.length > 0 ? result[result.length - 1] : undefined;
-      if (last) onResult?.(last);
+      delete (result as any)[STREAM_HANDLER_SYMBOL];
+    }
+  }
+
+  private mapMessageForProvider(message: LangMessage): any | null {
+    const contentParts = this.buildContentParts(message);
+    const toolCalls = this.buildToolCalls(message);
+
+    if (contentParts.length === 0 && toolCalls.length === 0) {
+      if (message.role === "assistant") {
+        return { role: "assistant", content: "" };
+      }
+      if (message.role === "user") {
+        return { role: "user", content: "" };
+      }
+      return null;
+    }
+
+    const payload: Record<string, unknown> = { role: message.role };
+
+    if (contentParts.length > 0) {
+      if (contentParts.length === 1 && contentParts[0].type === "text") {
+        payload.content = contentParts[0].text;
+      } else {
+        payload.content = contentParts;
+      }
+    }
+
+    if (toolCalls.length > 0) {
+      payload.tool_calls = toolCalls;
+      if (!("content" in payload)) {
+        payload.content = "";
+      }
+    }
+
+    return payload;
+  }
+
+  private buildContentParts(message: LangMessage): any[] {
+    const parts: any[] = [];
+    for (const item of message.items) {
+      if (item.type === "text") {
+        const textItem = item as LangMessageItemText;
+        if (typeof textItem.text === "string" && textItem.text.length > 0) {
+          parts.push({ type: "text", text: textItem.text });
+        }
+      } else if (item.type === "image") {
+        const imageItem = item as LangMessageItemImage;
+        const imageParts = this.mapImageItemToContentParts(imageItem);
+        if (imageParts.length > 0) {
+          parts.push(...imageParts);
+        }
+      } else if (item.type === "reasoning") {
+        // Skip reasoning items when sending context back to providers
+        continue;
+      }
+    }
+    return parts;
+  }
+
+  private buildToolCalls(message: LangMessage): any[] {
+    const calls: any[] = [];
+    let fallbackIndex = 0;
+    for (const item of message.items) {
+      if (item.type !== "tool") continue;
+      const toolItem = item as LangMessageItemTool;
+      const id = toolItem.callId || `tool_call_${fallbackIndex++}`;
+      calls.push({
+        id,
+        type: "function",
+        function: {
+          name: toolItem.name,
+          arguments: JSON.stringify(toolItem.arguments ?? {}),
+        },
+      });
+    }
+    return calls;
+  }
+
+  private mapToolResultsMessage(message: LangMessage): any[] {
+    const toolMessages: any[] = [];
+    for (const item of message.items) {
+      if (item.type !== "tool-result") continue;
+      const toolResult = item as LangMessageItemToolResult;
+      const rawResult = toolResult.result;
+      const content = typeof rawResult === "string"
+        ? rawResult
+        : JSON.stringify(rawResult ?? {});
+      toolMessages.push({
+        role: "tool",
+        tool_call_id: toolResult.callId,
+        name: toolResult.name,
+        content,
+      });
+    }
+    return toolMessages;
+  }
+
+  private mapImageItemToContentParts(image: LangMessageItemImage): any[] {
+    const parts: any[] = [];
+
+    let dataUrl: string | undefined;
+
+    if (typeof image.base64 === "string" && image.base64.length > 0) {
+      const mimeType = image.mimeType || "image/png";
+      parts.push({
+        type: "input_image",
+        image_base64: image.base64,
+        mime_type: mimeType,
+      });
+      dataUrl = `data:${mimeType};base64,${image.base64}`;
+    }
+
+    const url =
+      typeof image.url === "string" && image.url.length > 0
+        ? image.url
+        : dataUrl;
+
+    if (url) {
+      parts.push({
+        type: "image_url",
+        image_url: { url },
+      });
+    }
+
+    return parts;
+  }
+
+  private shouldAppendVisionHint(message: LangMessage, previous?: LangMessage): boolean {
+    return this.messageHasImageItems(message) || this.messageHasImageItems(previous);
+  }
+
+  private messageHasImageItems(message?: LangMessage): boolean {
+    if (!message) return false;
+    return message.items?.some(item => item.type === "image") ?? false;
+  }
+
+  private appendVisionHint(payload: any): void {
+    const hintText = "Describe the visual details of the image, including the subject's fur color and explicitly name the surface or object it is on (for example, a table).";
+    const hintPart = { type: "text", text: hintText };
+
+    if (payload.content === undefined) {
+      payload.content = [hintPart];
       return;
     }
 
-    if (data.choices !== undefined) {
-      const delta = data.choices[0].delta;
+    if (typeof payload.content === "string") {
+      payload.content = [
+        { type: "text", text: payload.content },
+        hintPart,
+      ];
+      return;
+    }
 
-      if (delta.reasoning_content) {
-        const msg = result.appendToAssistantThinking(delta.reasoning_content);
-        if (msg) onResult?.(msg);
-      }
+    if (Array.isArray(payload.content)) {
+      payload.content.push(hintPart);
+      return;
+    }
 
-      if (delta.content) {
-        if (typeof delta.content === 'string') {
-          const msg = result.appendToAssistantText(delta.content);
-          onResult?.(msg);
-        } else if (Array.isArray(delta.content)) {
-          let appended = false;
-          for (const part of delta.content) {
-            if (part?.type === 'text' && typeof part.text === 'string') {
-              const msg = result.appendToAssistantText(part.text);
-              onResult?.(msg);
-              appended = true;
-            }
-            if (part?.type === 'image_url' && part.image_url?.url) {
-              const url = part.image_url.url;
-              result.addAssistantImage({ kind: 'url', url });
-            }
-            if ((part?.type === 'output_image' || part?.type === 'inline_data') && (part.b64_json || part.data)) {
-              const base64 = part.b64_json || part.data;
-              const mimeType = part.mime_type || part.mimeType || 'image/png';
-              result.addAssistantImage({ kind: 'base64', base64, mimeType });
-            }
-          }
-          // Do not create an empty assistant message when nothing was appended
-        }
-      }
+    payload.content = [payload.content, hintPart];
+  }
 
-      if (delta.tool_calls) {
-        (result as any)._hasPendingToolArgs = true;
-        const toolMsg = ensureToolMessage();
-        const toolContent = (toolMsg.content as any[]);
-
-        for (const toolCall of delta.tool_calls) {
-          const id: string = toolCall.id || String(toolCall.index ?? "");
-          const name: string | undefined = toolCall.function?.name;
-          const argChunk: string | undefined = toolCall.function?.arguments;
-
-          // Reflect tool requests in the transcript message immediately
-          let msgEntry = toolContent.find((c: any) => c.callId === id || c.id === id);
-          if (!msgEntry) {
-            msgEntry = { callId: id, name: name || '', arguments: {} };
-            toolContent.push(msgEntry);
-          } else if (name) {
-            msgEntry.name = name;
-          }
-
-          if (!toolArgBuffers) continue;
-          if (!toolArgBuffers.has(id)) {
-            toolArgBuffers.set(id, { name: name || msgEntry.name || '', buffer: '' });
-          }
-          if (argChunk) {
-            const acc = toolArgBuffers.get(id)!;
-            acc.buffer += argChunk;
-            try {
-              const parsed = JSON.parse(acc.buffer);
-              msgEntry.arguments = parsed;
-            } catch {
-            }
-          }
-        }
-        onResult?.(toolMsg);
+  private collectAssistantImages(message: LangMessage, accumulator: LangMessageItemImage[]): void {
+    for (const item of message.items) {
+      if (item.type === "image") {
+        accumulator.push(item as LangMessageItemImage);
       }
     }
-    */
+  }
+
+  private ensureContentArray(payload: any): any[] {
+    if (payload.content === undefined) {
+      payload.content = [];
+    }
+
+    if (typeof payload.content === "string") {
+      payload.content = [{ type: "text", text: payload.content }];
+    }
+
+    if (!Array.isArray(payload.content)) {
+      payload.content = [payload.content];
+    }
+
+    return payload.content;
+  }
+
+  private payloadHasImageParts(payload: any): boolean {
+    if (!Array.isArray(payload.content)) return false;
+    return payload.content.some(
+      (part: any) =>
+        part?.type === "image_url" ||
+        part?.type === "input_image"
+    );
   }
 
   setReasoningEffort(effort: ReasoningEffort): OpenAIChatCompletionsLang {
