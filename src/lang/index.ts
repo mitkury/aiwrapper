@@ -23,6 +23,9 @@ export type { LangImageInput, LangContentPart, LangImageOutput } from "./languag
 // Utils
 export * from "./utils/index.ts";
 
+// OpenAI-specific utilities
+export { applyDiff_v4a } from "./openai/utils/index.ts";
+
 // Img API
 export { Img } from "../img/img.ts";
 

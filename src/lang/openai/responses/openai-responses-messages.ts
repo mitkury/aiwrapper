@@ -192,18 +192,42 @@ export function transformMessageToResponsesItems(message: LangMessage): any {
 }
 
 /**
- * Transform tool results message to function_call_output items
+ * Transform tool results message to function_call_output or apply_patch_call_output items
  */
 export function transformToolResultsToResponsesItems(message: LangMessage): any {
   const items: any[] = [];
   for (const toolResult of message.toolResults) {
-    items.push({
-      type: 'function_call_output',
-      call_id: toolResult.callId,
-      output: typeof toolResult.result === 'string'
-        ? toolResult.result
-        : JSON.stringify(toolResult.result)
-    });
+    // apply_patch tool requires apply_patch_call_output format
+    if (toolResult.name === 'apply_patch') {
+      const result = toolResult.result;
+      // If result is an object with status and output, use it directly
+      // Otherwise, wrap it in the expected format
+      if (result && typeof result === 'object' && 'status' in result) {
+        items.push({
+          type: 'apply_patch_call_output',
+          call_id: toolResult.callId,
+          status: result.status,
+          output: result.output || ''
+        });
+      } else {
+        // Default to completed if no status provided
+        items.push({
+          type: 'apply_patch_call_output',
+          call_id: toolResult.callId,
+          status: 'completed',
+          output: typeof result === 'string' ? result : JSON.stringify(result || {})
+        });
+      }
+    } else {
+      // Regular function calls use function_call_output
+      items.push({
+        type: 'function_call_output',
+        call_id: toolResult.callId,
+        output: typeof toolResult.result === 'string'
+          ? toolResult.result
+          : JSON.stringify(toolResult.result)
+      });
+    }
   }
   return items;
 }

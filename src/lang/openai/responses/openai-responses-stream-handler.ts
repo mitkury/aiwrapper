@@ -114,6 +114,20 @@ export class OpenAIResponseStreamHandler {
           this.newMessage.items.push(toolItem);
         }
         break;
+      case 'apply_patch_call':
+        {
+          const toolItem: LangMessageItemTool = {
+            type: "tool",
+            name: "apply_patch",
+            callId: typeof data.item.call_id === "string" ? data.item.call_id : "",
+            arguments: {
+              operation: data.item.operation || {},
+              status: data.item.status || "in_progress"
+            }
+          };
+          this.newMessage.items.push(toolItem);
+        }
+        break;
       case 'image_generation_call':
         {
           const imageItem: LangMessageItemImage = { type: "image" };
@@ -169,6 +183,9 @@ export class OpenAIResponseStreamHandler {
       case 'function_call':
         this.applyFunctionCall(resItem as MessageItem, messageItem as LangMessageItemTool);
         break;
+      case 'apply_patch_call':
+        this.applyPatchCall(resItem as any, messageItem as LangMessageItemTool);
+        break;
       case 'image_generation_call':
         this.applyImageGenerationCall(resItem as MessageItem, messageItem as LangMessageItemImage);
         break;
@@ -188,6 +205,15 @@ export class OpenAIResponseStreamHandler {
       console.error('Error parsing arguments for function call:', error);
       target.arguments = {};
     }
+  }
+
+  applyPatchCall(res: any, target: LangMessageItemTool) {
+    target.callId = res.call_id;
+    target.name = "apply_patch";
+    target.arguments = {
+      operation: res.operation || {},
+      status: res.status || "completed"
+    };
   }
 
   applyImageGenerationCall(res: any, target: LangMessageItemImage) {

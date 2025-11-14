@@ -1,0 +1,16 @@
+{
+  type: "response.output_item.added",
+  sequence_number: 93,
+  output_index: 1,
+  item: {
+    id: "apc_066b392337ffe854006917368d0acc81a19297c3b9adffe6b5",
+    type: "apply_patch_call",
+    status: "in_progress",
+    call_id: "call_FMn7J8pZ5JHkqR1xLY2bIifY",
+    operation: {
+      type: "create_file",
+      diff: "",
+      path: "docs/report.md",
+    },
+  },
+}
