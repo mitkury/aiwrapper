@@ -300,7 +300,7 @@ When publishing, follow these steps in order:
   "type": "module",
   "name": "aiwrapper",
   "description": "A Universal AI Wrapper for JavaScript & TypeScript",
-  "version": "3.0.0-alpha.6",
+  "version": "3.0.0-beta.0",
   "author": "Dmitry Kury (https://dkury.com)",
   "license": "MIT",
   "repository": {
@@ -346,7 +346,7 @@ When publishing, follow these steps in order:
     "test:reasoning": "npm run build && vitest run tests/reasoning/*.test.ts"
   },
   "dependencies": {
-    "aimodels": "^0.4.15",
+    "aimodels": "^0.5.1",
     "ajv": "^8.17.1",
     "jsonic": "^2.16.0",
     "zod": "^3.24.4",

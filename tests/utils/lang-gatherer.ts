@@ -126,7 +126,7 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
   if (process.env.ANTHROPIC_API_KEY && shouldIncludeProvider('anthropic')) {
     langs.push(Lang.anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY as string,
-      model: modelOverrides.anthropic || 'claude-3-5-haiku-latest'
+      model: modelOverrides.anthropic || 'claude-3-7-sonnet-20250219'
     }));
   }
 
