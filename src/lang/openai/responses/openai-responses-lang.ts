@@ -119,6 +119,22 @@ export class OpenAIResponsesLang extends LanguageProvider {
   }
 
   private async sendToApi(msgCollection: LangMessages, options?: LangOptions): Promise<void> {
+    // If apply_patch is used as a tool, require that the user provides a handler for it.
+    // This keeps the provider behavior (built-in apply_patch tool) while still allowing
+    // users to supply a local patch harness.
+    if (msgCollection.availableTools) {
+      const tools = msgCollection.availableTools;
+      const usesApplyPatch = tools.some(t => t.name === 'apply_patch');
+      if (usesApplyPatch) {
+        const hasHandler = tools.some((t: any) => t.name === 'apply_patch' && 'handler' in t);
+        if (!hasHandler) {
+          throw new Error(
+            'The apply_patch tool requires a handler. Please provide a handler function when defining the tool.',
+          );
+        }
+      }
+    }
+
     const body = this.buildRequestBody(msgCollection, options);
 
     const req = {

@@ -323,20 +323,26 @@ export function mapImageOutput(image: LangContentImage): any {
 
 export function transformToolsForProvider(tools: LangTool[]): any[] {
   return tools.map(tool => {
-    // Check if this is a custom function tool (has a handler)
-    if ('handler' in tool) {
-      // Custom function tool - transform to OpenAI function format
+    // apply_patch is always a provider built-in tool, even if we have a local handler
+    if (tool.name === 'apply_patch') {
       return {
-        type: "function",
+        type: 'apply_patch',
+      };
+    }
+
+    // Custom function tools (with handlers) are sent as functions
+    if ('handler' in tool) {
+      return {
+        type: 'function',
         name: tool.name,
         description: tool.description,
-        parameters: tool.parameters
+        parameters: tool.parameters,
       };
-    } else {
-      // Built-in tool (e.g "web_search")
-      return {
-        type: tool.name
-      }
     }
+
+    // Other built-in tools (e.g. web_search, image_generation, etc.)
+    return {
+      type: tool.name,
+    };
   });
 }
