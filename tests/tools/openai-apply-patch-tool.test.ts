@@ -12,22 +12,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const testDir = path.join(__dirname, 'apply-patch-test');
 
-describe.skipIf(!apiKey)('OpenAI built-in tools', () => {
-  /*
-  it('should use web_search tool', async () => {
-    const lang = Lang.openai({ apiKey: apiKey as string, model: 'gpt-4o' });
-
-    const messages = new LangMessages('What is the current weather in Paris in celsius? If you find the information, start with "The current weather in Paris" and if not - "I couldn\'t find the information"', {
-      tools: [{ name: 'web_search' }]
-    });
-
-    const res = await lang.chat(messages);
-
-    expect(res.answer).toBeDefined();
-    expect(res.answer.toLocaleLowerCase()).toContain('the current weather in paris');
-    expect(res.finished).toBe(true);
-  });
-  */
+describe.skipIf(!apiKey)('OpenAI Apply Patch Tool', () => {
 
   it('should use apply_patch tool', async () => {
     // Clean up test directory before starting
