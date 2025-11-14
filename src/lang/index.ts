@@ -1,5 +1,6 @@
 import { Lang } from "./lang.ts";
 import { MockOpenAILikeLang } from "./mock/mock-openai-like-lang.ts";
+import { MockResponseStreamLang } from "./mock/mock-response-stream-lang.ts";
 import { LangVecs } from "./lang-vecs.ts";
 import { 
   LanguageProvider, 
@@ -11,10 +12,19 @@ import {
 import { LangMessage, LangMessages, LangToolWithHandler, ToolRequest, ToolResult, LangTool } from "./messages.ts";
 
 // Export classes
-export { Lang, LangVecs, LanguageProvider, LangResult, LangMessage, LangMessages, z, MockOpenAILikeLang };
+export { Lang, LangVecs, LanguageProvider, LangResult, LangMessage, LangMessages, z, MockOpenAILikeLang, MockResponseStreamLang };
 
 // Export types
-export type { LangOptions, LangToolWithHandler, ToolRequest, ToolResult, LangTool, LangResponseSchema };
+export type { 
+  LangOptions, 
+  LangToolWithHandler, 
+  ToolRequest, 
+  ToolResult, 
+  LangTool, 
+  LangResponseSchema 
+};
+export type { MockOpenAILikeOptions } from "./mock/mock-openai-like-lang.ts";
+export type { MockResponseStreamOptions } from "./mock/mock-response-stream-lang.ts";
 
 // Re-export image and content part types
 export type { LangImageInput, LangContentPart, LangImageOutput } from "./language-provider.ts";

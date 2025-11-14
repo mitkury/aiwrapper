@@ -294,7 +294,7 @@ When publishing, follow these steps in order:
   "type": "module",
   "name": "aiwrapper",
   "description": "A Universal AI Wrapper for JavaScript & TypeScript",
-  "version": "2.0.0",
+  "version": "2.1.3",
   "author": "Dmitry Kury (https://dkury.com)",
   "license": "MIT",
   "repository": {
@@ -333,9 +333,10 @@ When publishing, follow these steps in order:
     "serve": "npx serve .",
     "pretest": "npm run build",
     "test": "vitest run",
-    "test:basic-lang": "npm run build && vitest run tests/basic-lang/*.test.ts",
+    "test:lang": "npm run build && vitest run tests/lang/*.test.ts",
     "test:agents": "npm run build && vitest run tests/agents/*.test.ts",
     "test:img-in": "npm run build && vitest run tests/img-in/*.test.ts",
+    "test:img-out": "npm run build && vitest run tests/img-out/*.test.ts",
     "test:reasoning": "npm run build && vitest run tests/reasoning/*.test.ts"
   },
   "dependencies": {

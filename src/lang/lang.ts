@@ -11,6 +11,7 @@ import { OpenRouterLang, OpenRouterLangOptions } from "./openrouter/openrouter-l
 import { MistralLang, MistralLangOptions } from "./mistral/mistral-lang.ts";
 import { OpenAIChatCompletionsLang } from "./openai/openai-chat-completions-lang.ts";
 import { MockOpenAILikeLang, MockOpenAILikeOptions } from "./mock/mock-openai-like-lang.ts";
+import { MockResponseStreamLang, MockResponseStreamOptions } from "./mock/mock-response-stream-lang.ts";
 
 /**
  * Lang is a factory class for using language models from different providers. 
@@ -91,6 +92,11 @@ export abstract class Lang {
   /** Create a Mock OpenAI-like provider (no network) */
   static mockOpenAI(options: MockOpenAILikeOptions = {}): MockOpenAILikeLang {
     return new MockOpenAILikeLang(options);
+  }
+  
+  /** Create a lightweight streaming mock provider */
+  static mockResponseStream(options: MockResponseStreamOptions = {}): MockResponseStreamLang {
+    return new MockResponseStreamLang(options);
   }
 
   // Dynamic provider access
