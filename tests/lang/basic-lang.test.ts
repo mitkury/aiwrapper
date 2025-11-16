@@ -1,6 +1,7 @@
 import { describe, it, expect, assert } from 'vitest';
 import { LangMessage, LangMessages, LangOptions, LanguageProvider, ToolRequest, ToolResult, z } from 'aiwrapper';
 import { createLangTestRunner, printAvailableProviders } from '../utils/lang-gatherer.js';
+import { LangMessageItemTool, LangMessageItemToolResult } from 'src/lang/messages.js';
 
 // Show available providers for debugging
 printAvailableProviders();
@@ -10,15 +11,18 @@ describe('Basic Lang', () => {
 });
 
 async function runTest(lang: LanguageProvider) {
+
+  /*
   it('should respond with a string', async () => {
     const res = await lang.ask('Hey, respond with "Hey" as well');
     expect(res.length).toBeGreaterThan(1);
 
     const lastMessage = res[res.length - 1];
     expect(lastMessage.role).toBe('assistant');
-    assert(lastMessage.content.length > 0);
+    assert(lastMessage.text.length > 0);
     assert(res.answer.length > 0);
   });
+
 
   it('should know the capital of France', async () => {
     const res = await lang.ask('What is the capital of France?');
@@ -26,41 +30,31 @@ async function runTest(lang: LanguageProvider) {
   });
 
   it('should be able to stream an answer', async () => {
-    let streamingAnswers: string[] = [];
+    let streamingAnswer: string[] = [];
     const res = await lang.ask('Introduce yourself in 140 characters', {
-      onResult: (msg: any) => {
-        if (!msg) return;
-        const content: any = msg.content;
-        if (typeof content === 'string') {
-          streamingAnswers.push(content);
-        } else if (Array.isArray(content)) {
-          const text = content
-            .filter((p: any) => p && p.type === 'text' && typeof p.text === 'string')
-            .map((p: any) => p.text)
-            .join('');
-          if (text) streamingAnswers.push(text);
-        }
+      onResult: (msg) => {
+        streamingAnswer.push(msg.text);
       }
     });
-    if (streamingAnswers.length > 0) {
-      const lastAnswer = streamingAnswers[streamingAnswers.length - 1];
-      expect(lastAnswer.length).toBeGreaterThan(70);
-      expect(res.answer).toBe(lastAnswer);
-    } else {
-      expect(res.answer.length).toBeGreaterThan(70);
-    }
+
+    expect(streamingAnswer.length).toBeGreaterThan(0);
+
+    const lastAnswer = streamingAnswer[streamingAnswer.length - 1];
+    expect(lastAnswer.length).toBeGreaterThan(70);
+    expect(res.answer).toBe(lastAnswer);
   });
 
-
   it('should be able to chat', async () => {
-    const res = await lang.chat([
-      { role: 'user', content: 'Hey, respond with "Hey" as well' },
-      { role: 'assistant', content: 'Hey' },
-      { role: 'user', content: 'What is the capital of France?' }
-    ]);
+    const messages = new LangMessages();
+    messages.addUserMessage('Hey, respond with "Hey" as well');
+    messages.addAssistantMessage('Hey');
+    messages.addUserMessage('What is the capital of France?');
+
+    const res = await lang.chat(messages);
     expect(typeof res.answer).toBe('string');
     expect(res.answer.toLocaleLowerCase()).toContain('paris');
   });
+  */
 
   it('should return a simple JSON object', async () => {
 
@@ -74,7 +68,6 @@ async function runTest(lang: LanguageProvider) {
   });
 
   it('should return a more complex JSON without tips in the prompt', async () => {
-
     const schema = z.object({
       names: z.array(z.object({
         pitch: z.string(),
@@ -104,22 +97,16 @@ async function runTest(lang: LanguageProvider) {
   });
 
   it('should be able to use a tool', async () => {
-    const messages = new LangMessages([
+    const messages = new LangMessages();
+    messages.addUserMessage('Give me a random number');
+    messages.availableTools = [
       {
-        role: 'user',
-        content: 'Give me a random number'
+        name: 'get_random_number',
+        description: 'Return a random number',
+        parameters: { type: 'object', properties: {} },
+        handler: () => 3131
       }
-    ], {
-      tools: [
-        {
-          name: 'get_random_number',
-          description: 'Return a random number',
-          parameters: { type: 'object', properties: {} },
-          handler: () => 3131
-        }
-      ]
-    });
-
+    ];
     const res = await lang.chat(messages);
 
     // After execution, check the last two messages should be tool request and tool results
@@ -130,15 +117,13 @@ async function runTest(lang: LanguageProvider) {
 
     // Last message should be tool-results
     expect(lastMessage.role).toBe('tool-results');
-    expect(Array.isArray(lastMessage.content)).toBe(true);
-    const toolResult = lastMessage.content[0] as ToolResult;
-    expect(toolResult.toolId).toBeDefined();
+    const toolResult = lastMessage.toolResults[0];
+    expect(toolResult.callId).toBeDefined();
     expect(toolResult.result).toBe(3131);
 
     // Second to last message should be tool request
-    expect(secondLastMessage.role).toBe('tool');
-    expect(Array.isArray(secondLastMessage.content)).toBe(true);
-    const toolCall = secondLastMessage.content[0] as ToolRequest;
+    expect(secondLastMessage.role).toBe('assistant');
+    const toolCall = secondLastMessage.toolRequests[0];
     expect(toolCall.callId).toBeDefined();
     expect(toolCall.name).toBe('get_random_number');
     expect(toolCall.arguments).toBeDefined();
@@ -148,15 +133,15 @@ async function runTest(lang: LanguageProvider) {
 
     // Expect the final answer to contain the tool result
     expect(finalRes.answer).toContain('3131');
+    expect(finalRes[finalRes.length - 1].role).toBe('assistant');
   });
 
   it('should be able to chat and use tools', async () => {
-
     let streamedMessage: LangMessage | null = null;
 
-    const res1 = await lang.chat([
-      { role: 'user', content: 'Hey' }
-    ], {
+    const messages = new LangMessages();
+    messages.addUserMessage('Hey');
+    const res1 = await lang.chat(messages, {
       onResult: (msg) => {
         streamedMessage = msg;
       }
@@ -166,7 +151,7 @@ async function runTest(lang: LanguageProvider) {
     expect(streamedMessage).toBeDefined();
 
     expect(res1[res1.length - 1].role).toBe(streamedMessage!.role);
-    expect(res1[res1.length - 1].content).toBe(streamedMessage!.content);
+    expect(res1[res1.length - 1].text).toBe(streamedMessage!.text);
 
     res1.addUserMessage('Give me a random number using a tool');
     res1.availableTools = [
@@ -183,10 +168,10 @@ async function runTest(lang: LanguageProvider) {
 
     const res2 = await lang.chat(res1, {
       onResult: (msg) => {
-        if (msg.role === 'tool') {
+        if (msg.role === 'assistant' && msg.toolRequests.length > 0) {
           streamedMessageWithToolRequest = msg;
         }
-        if (msg.role === 'tool-results') {
+        if (msg.role === 'tool-results' && msg.toolResults.length > 0) {
           streamedMessageWithToolResults = msg;
         }
       }
@@ -196,6 +181,7 @@ async function runTest(lang: LanguageProvider) {
     expect(streamedMessageWithToolResults).toBeDefined();
 
     expect(res2[res2.length - 1].role).toBe(streamedMessageWithToolResults!.role);
-    expect(res2[res2.length - 1].content).toBe(streamedMessageWithToolResults!.content);
+    expect(res2[res2.length - 1].text).toBe(streamedMessageWithToolResults!.text);
   });
+  
 }

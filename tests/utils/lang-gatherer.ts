@@ -63,13 +63,36 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
   } = options;
 
   // Determine which providers to use
-  // If overrideProviders is explicitly provided and non-empty, use only those
-  // Otherwise, if providers is provided, use those
-  // Otherwise, if env/CLI filters exist, use those
-  // Otherwise, use all available providers
-  const activeProviders = (overrideProviders !== undefined && overrideProviders.length > 0)
-    ? overrideProviders 
-    : (providers ?? (providerFilters.length > 0 ? providerFilters : undefined));
+  // PROVIDERS env var is the final authority - if set, it filters everything
+  let activeProviders: SupportedProvider[] | undefined;
+  
+  if (providerFilters.length > 0) {
+    // PROVIDERS env var is set - it's the final authority
+    const envProvidersLower = providerFilters.map(p => p.toLowerCase());
+    
+    if (overrideProviders !== undefined && overrideProviders.length > 0) {
+      // Intersect overrideProviders with PROVIDERS env var
+      // Only include providers that are in both lists (case-insensitive)
+      activeProviders = overrideProviders.filter(p => 
+        envProvidersLower.includes(p.toLowerCase())
+      ) as SupportedProvider[];
+      // If intersection is empty, return empty array (test will be skipped)
+      if (activeProviders.length === 0) {
+        return [];
+      }
+    } else {
+      // No overrideProviders, use PROVIDERS env var directly
+      activeProviders = providerFilters as SupportedProvider[];
+    }
+  } else {
+    // No PROVIDERS env var - use normal precedence
+    // If overrideProviders is explicitly provided and non-empty, use only those
+    // Otherwise, if providers is provided, use those
+    // Otherwise, use all available providers
+    activeProviders = (overrideProviders !== undefined && overrideProviders.length > 0)
+      ? overrideProviders 
+      : (providers ?? undefined);
+  }
 
   const langs: LanguageProvider[] = [];
 
@@ -103,7 +126,7 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
   if (process.env.ANTHROPIC_API_KEY && shouldIncludeProvider('anthropic')) {
     langs.push(Lang.anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY as string,
-      model: modelOverrides.anthropic || 'claude-3-5-haiku-latest'
+      model: modelOverrides.anthropic || 'claude-3-7-sonnet-20250219'
     }));
   }
 
@@ -156,6 +179,14 @@ export function createLangTestRunner(
   options: LangGathererOptions = {}
 ) {
   const namedLangs = gatherLangsWithNames(options);
+
+  // If no providers match after filtering, skip the entire test suite
+  if (namedLangs.length === 0) {
+    describe.skip('No matching providers (filtered by PROVIDERS env var)', () => {
+      // Empty test suite - will be skipped
+    });
+    return;
+  }
 
   for (const { name, lang } of namedLangs) {
     describe(name, () => {

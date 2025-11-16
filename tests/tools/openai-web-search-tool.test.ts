@@ -1,9 +1,11 @@
-import { describe, it, expect, assert } from 'vitest';
-import { Lang, LangMessages, ToolResult } from 'aiwrapper';
+import { describe, it, expect } from 'vitest';
+import { Lang, LangMessages } from 'aiwrapper';
 
 const apiKey = process.env.OPENAI_API_KEY;
 
-describe.skipIf(!apiKey)('OpenAI built-in Web Search Tool', () => {
+
+
+describe.skipIf(!apiKey)('OpenAI Web Search Tool', () => {
   it('should use web_search tool', async () => {
     const lang = Lang.openai({ apiKey: apiKey as string, model: 'gpt-4o' });
 
@@ -14,7 +16,7 @@ describe.skipIf(!apiKey)('OpenAI built-in Web Search Tool', () => {
     const res = await lang.chat(messages);
 
     expect(res.answer).toBeDefined();
-    expect(res.answer).toContain('The current weather in Paris');
+    expect(res.answer.toLocaleLowerCase()).toContain('the current weather in paris');
     expect(res.finished).toBe(true);
   });
 });

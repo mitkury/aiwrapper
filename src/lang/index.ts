@@ -2,27 +2,21 @@ import { Lang } from "./lang.ts";
 import { MockOpenAILikeLang } from "./mock/mock-openai-like-lang.ts";
 import { MockResponseStreamLang } from "./mock/mock-response-stream-lang.ts";
 import { LangVecs } from "./lang-vecs.ts";
-import { 
-  LanguageProvider, 
-  LangResult, 
-  LangOptions, 
+import {
+  LanguageProvider,
+  LangResult,
+  LangOptions,
   LangResponseSchema,
   z
 } from "./language-provider.ts";
-import { LangMessage, LangMessages, LangToolWithHandler, ToolRequest, ToolResult, LangTool } from "./messages.ts";
-
 // Export classes
-export { Lang, LangVecs, LanguageProvider, LangResult, LangMessage, LangMessages, z, MockOpenAILikeLang, MockResponseStreamLang };
+export { Lang, LangVecs, LanguageProvider, LangResult, z, MockOpenAILikeLang, MockResponseStreamLang };
+
+export * from "./messages.ts";
 
 // Export types
-export type { 
-  LangOptions, 
-  LangToolWithHandler, 
-  ToolRequest, 
-  ToolResult, 
-  LangTool, 
-  LangResponseSchema 
-};
+export type { LangOptions, LangResponseSchema };
+export type { LangToolWithHandler, ToolRequest, ToolResult, LangTool } from "./messages.ts";
 export type { MockOpenAILikeOptions } from "./mock/mock-openai-like-lang.ts";
 export type { MockResponseStreamOptions } from "./mock/mock-response-stream-lang.ts";
 
@@ -31,6 +25,9 @@ export type { LangImageInput, LangContentPart, LangImageOutput } from "./languag
 
 // Utils
 export * from "./utils/index.ts";
+
+// OpenAI-specific utilities
+export { applyDiff_v4a } from "./openai/utils/index.ts";
 
 // Img API
 export { Img } from "../img/img.ts";

@@ -1,0 +1,39 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_0665d265570606fe00690e0b4c8f3c81a08065e8927b02c36a","object":"response","created_at":1762528076,"status":"in_progress","background":false,"error":null,"incomplete_details":null,"instructions":null,"max_output_tokens":null,"max_tool_calls":null,"model":"gpt-4o-2024-08-06","output":[],"parallel_tool_calls":true,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":null,"reasoning":{"effort":null,"summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tools":[{"type":"function","description":"Get current temperature for a given location.","name":"get_weather","parameters":{"type":"object","properties":{"location":{"type":"string","description":"City and country e.g. Bogotá, Colombia"}},"required":["location"],"additionalProperties":false},"strict":true}],"top_logprobs":0,"top_p":1.0,"truncation":"disabled","usage":null,"user":null,"metadata":{}}}
+
+event: response.in_progress
+data: {"type":"response.in_progress","sequence_number":1,"response":{"id":"resp_0665d265570606fe00690e0b4c8f3c81a08065e8927b02c36a","object":"response","created_at":1762528076,"status":"in_progress","background":false,"error":null,"incomplete_details":null,"instructions":null,"max_output_tokens":null,"max_tool_calls":null,"model":"gpt-4o-2024-08-06","output":[],"parallel_tool_calls":true,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":null,"reasoning":{"effort":null,"summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tools":[{"type":"function","description":"Get current temperature for a given location.","name":"get_weather","parameters":{"type":"object","properties":{"location":{"type":"string","description":"City and country e.g. Bogotá, Colombia"}},"required":["location"],"additionalProperties":false},"strict":true}],"top_logprobs":0,"top_p":1.0,"truncation":"disabled","usage":null,"user":null,"metadata":{}}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"id":"fc_0665d265570606fe00690e0b4da2c881a0a9a2d9b41f1dab0e","type":"function_call","status":"in_progress","arguments":"","call_id":"call_Q7wHDN8AUKNMw1tQmfaU67V6","name":"get_weather"}}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":3,"item_id":"fc_0665d265570606fe00690e0b4da2c881a0a9a2d9b41f1dab0e","output_index":0,"delta":"{\"","obfuscation":"x3EkilPMefkMp9"}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":4,"item_id":"fc_0665d265570606fe00690e0b4da2c881a0a9a2d9b41f1dab0e","output_index":0,"delta":"location","obfuscation":"YnlpyfwS"}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":5,"item_id":"fc_0665d265570606fe00690e0b4da2c881a0a9a2d9b41f1dab0e","output_index":0,"delta":"\":\"","obfuscation":"de2spMrtIjPhw"}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":6,"item_id":"fc_0665d265570606fe00690e0b4da2c881a0a9a2d9b41f1dab0e","output_index":0,"delta":"Paris","obfuscation":"NnNoWzaWAf1"}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":7,"item_id":"fc_0665d265570606fe00690e0b4da2c881a0a9a2d9b41f1dab0e","output_index":0,"delta":",","obfuscation":"8ROwBKubysaGYWs"}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":8,"item_id":"fc_0665d265570606fe00690e0b4da2c881a0a9a2d9b41f1dab0e","output_index":0,"delta":" France","obfuscation":"FEc1G9co2"}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":9,"item_id":"fc_0665d265570606fe00690e0b4da2c881a0a9a2d9b41f1dab0e","output_index":0,"delta":"\"}","obfuscation":"ijBWomTdJKVpTa"}
+
+event: response.function_call_arguments.done
+data: {"type":"response.function_call_arguments.done","sequence_number":10,"item_id":"fc_0665d265570606fe00690e0b4da2c881a0a9a2d9b41f1dab0e","output_index":0,"arguments":"{\"location\":\"Paris, France\"}"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":11,"output_index":0,"item":{"id":"fc_0665d265570606fe00690e0b4da2c881a0a9a2d9b41f1dab0e","type":"function_call","status":"completed","arguments":"{\"location\":\"Paris, France\"}","call_id":"call_Q7wHDN8AUKNMw1tQmfaU67V6","name":"get_weather"}}
+
+event: response.completed
+data: {"type":"response.completed","sequence_number":12,"response":{"id":"resp_0665d265570606fe00690e0b4c8f3c81a08065e8927b02c36a","object":"response","created_at":1762528076,"status":"completed","background":false,"error":null,"incomplete_details":null,"instructions":null,"max_output_tokens":null,"max_tool_calls":null,"model":"gpt-4o-2024-08-06","output":[{"id":"fc_0665d265570606fe00690e0b4da2c881a0a9a2d9b41f1dab0e","type":"function_call","status":"completed","arguments":"{\"location\":\"Paris, France\"}","call_id":"call_Q7wHDN8AUKNMw1tQmfaU67V6","name":"get_weather"}],"parallel_tool_calls":true,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":null,"reasoning":{"effort":null,"summary":null},"safety_identifier":null,"service_tier":"default","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tools":[{"type":"function","description":"Get current temperature for a given location.","name":"get_weather","parameters":{"type":"object","properties":{"location":{"type":"string","description":"City and country e.g. Bogotá, Colombia"}},"required":["location"],"additionalProperties":false},"strict":true}],"top_logprobs":0,"top_p":1.0,"truncation":"disabled","usage":{"input_tokens":58,"input_tokens_details":{"cached_tokens":0},"output_tokens":17,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":75},"user":null,"metadata":{}}}
+

@@ -4,7 +4,7 @@ import {
 } from "../language-provider.ts";
 import { 
   LangMessage, 
-  LangMessageContent, 
+  LangMessageItem,
   LangMessageRole, 
   LangMessages 
 } from "../messages.ts";
@@ -75,7 +75,7 @@ export class MockResponseStreamLang extends LanguageProvider {
   }
 
   async chat(
-    messages: { role: LangMessageRole; content: LangMessageContent }[] | LangMessage[] | LangMessages,
+    messages: { role: LangMessageRole; items: LangMessageItem[]; }[] | LangMessage[] | LangMessages,
     options?: LangOptions,
   ): Promise<LangMessages> {
     const messageCollection = messages instanceof LangMessages

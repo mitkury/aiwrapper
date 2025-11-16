@@ -58,7 +58,6 @@ export class MockOpenAILikeLang extends OpenAIChatCompletionsLang {
 
     const result = messageCollection;
     const onResult = options?.onResult;
-    const toolArgBuffers = new Map<string, { name: string; buffer: string }>();
 
     // If mockToolCalls provided, emit tool_calls deltas instead of plain content
     if (this.mockConfig.mockToolCalls && this.mockConfig.mockToolCalls.length > 0) {
@@ -67,15 +66,15 @@ export class MockOpenAILikeLang extends OpenAIChatCompletionsLang {
         const id = call.id || `call_${index++}`;
         // Emit name first chunk (OpenAI may send name separately)
         const nameDelta = { choices: [{ delta: { tool_calls: [{ id, function: { name: call.name } }] } }] } as any;
-        (this as any).handleStreamData(nameDelta, result, messageCollection, onResult, toolArgBuffers);
+        this.handleStreamData(nameDelta, result, onResult);
         // Emit argument chunks
         for (const chunk of call.argumentsChunks) {
           const delta = { choices: [{ delta: { tool_calls: [{ id, function: { arguments: chunk } }] } }] } as any;
-          (this as any).handleStreamData(delta, result, messageCollection, onResult, toolArgBuffers);
+          this.handleStreamData(delta, result, onResult);
         }
       }
       // Finished
-      (this as any).handleStreamData({ finished: true }, result, messageCollection, onResult, toolArgBuffers);
+      this.handleStreamData({ finished: true }, result, onResult);
       // Consume mockToolCalls so subsequent chats produce a normal answer
       this.mockConfig.mockToolCalls = [];
       return result;
@@ -105,11 +104,11 @@ export class MockOpenAILikeLang extends OpenAIChatCompletionsLang {
         ]
       } as any;
       // Use parent handler to process deltas
-      (this as any).handleStreamData(deltaPayload, result, messageCollection, onResult, toolArgBuffers);
+      this.handleStreamData(deltaPayload, result, onResult);
     }
 
     // Emit finished signal similar to SSE end
-    (this as any).handleStreamData({ finished: true }, result, messageCollection, onResult, toolArgBuffers);
+    this.handleStreamData({ finished: true }, result, onResult);
 
     return result;
   }

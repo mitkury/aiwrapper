@@ -8,20 +8,21 @@ describe('ChatAgent', () => {
 });
 
 async function runTest(lang: LanguageProvider) {
-  it('should handle single message', async () => {
+  it('should identify a cat in the image', async () => {
     const { base64, mimeType } = await readImageBase64(import.meta.url, 'image-in-test', 'test-image.jpg');
 
     const messages = new LangMessages();
-    messages.addUserContent([
+    messages.addUserItems([
       { type: 'text', text: 'Look at the image and identify the animal. Answer succinctly.' },
-      { type: 'image', image: { kind: 'base64', base64, mimeType } }
+      { type: 'image', base64, mimeType }
     ]);
 
     const agent = new ChatAgent(lang);
     const result = await agent.run(messages);
     expect(result).toBeDefined();
-    expect(result!.answer.toLowerCase()).toContain('cat');
-
+    const norm = result!.answer.trim().toLowerCase();
+    expect(norm.length).toBeGreaterThan(0);
+    expect(norm).toContain('cat');
 
   });
 }

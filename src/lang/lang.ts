@@ -1,5 +1,6 @@
 import { models, AIModels, ModelCollection } from 'aimodels';
-import { OpenAILang, OpenAILangOptions } from "./openai/openai-lang.ts";
+import { OpenAILang } from "./openai/openai-lang.ts";
+import { OpenAILangOptions } from "./openai/responses/openai-responses-lang.ts";
 import { AnthropicLang, AnthropicLangOptions  } from "./anthropic/anthropic-lang.ts";
 import { OllamaLang, OllamaLangOptions } from "./ollama/ollama-lang.ts";
 import { GroqLang, GroqLangOptions } from "./groq/groq-lang.ts";

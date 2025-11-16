@@ -8,23 +8,22 @@ import {
   LanguageProvider,
 } from "../language-provider.ts";
 import { models } from 'aimodels';
-import { LangContentPart, LangImageInput } from "../language-provider.ts";
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
-import { LangMessages, LangToolWithHandler, LangMessage as ConversationMessage } from "../messages.ts";
+import {
+  LangMessageItemImage,
+  LangMessageItemText,
+  LangMessageItemTool,
+  LangMessageItemToolResult,
+  LangMessages,
+  LangTool,
+} from "../messages.ts";
 import { addInstructionAboutSchema } from "../prompt-for-json.ts";
+import { AnthropicStreamHandler } from "./anthropic-stream-handler.ts";
 
 type AnthropicTool = {
   name: string;
   description: string;
   input_schema: Record<string, any>;
-};
-
-type StreamState = {
-  isReceivingThinking: boolean;
-  thinkingContent: string;
-  toolCalls: Array<{ id: string; name: string; arguments: any }>;
-  pendingToolInputs: Map<string, { name: string; buffer: string }>;
-  indexToToolId: Map<number, string>;
 };
 
 export type AnthropicLangOptions = {
@@ -47,7 +46,7 @@ export class AnthropicLang extends LanguageProvider {
   _config: AnthropicLangConfig;
 
   constructor(options: AnthropicLangOptions) {
-    const modelName = options.model || "claude-3-sonnet-20240229";
+    const modelName = options.model || "claude-3-7-sonnet-20250219";
     super(modelName);
 
     const modelInfo = models.id(modelName);
@@ -70,9 +69,9 @@ export class AnthropicLang extends LanguageProvider {
   ): Promise<LangMessages> {
     const messages = new LangMessages();
     if (this._config.systemPrompt) {
-      messages.push(new ConversationMessage("user", this._config.systemPrompt));
+      messages.instructions = this._config.systemPrompt;
     }
-    messages.push(new ConversationMessage("user", prompt));
+    messages.addUserMessage(prompt);
     return await this.chat(messages, options);
   }
 
@@ -84,14 +83,19 @@ export class AnthropicLang extends LanguageProvider {
       ? messages
       : new LangMessages(messages);
 
+    let instructions = messageCollection.instructions || '';
+    if (!instructions && this._config.systemPrompt) {
+      instructions = this._config.systemPrompt;
+    }
+
     if (options?.schema) {
-      const baseInstruction = messageCollection.instructions + '\n\n' || '';
-      messageCollection.instructions = baseInstruction + addInstructionAboutSchema(
+      const baseInstruction = instructions !== '' ? instructions + '\n\n' : '';
+      instructions = baseInstruction + addInstructionAboutSchema(
         options.schema
       );
     }
 
-    const { system, providerMessages, requestMaxTokens, tools } =
+    const { providerMessages, requestMaxTokens, tools } =
       this.prepareRequest(messageCollection);
 
     const result = messageCollection;
@@ -100,7 +104,7 @@ export class AnthropicLang extends LanguageProvider {
       model: this._config.model,
       messages: providerMessages,
       max_tokens: requestMaxTokens,
-      system,
+      system: instructions,
       // Always stream internally to unify the code path
       stream: true,
       ...(tools ? { tools } : {}),
@@ -117,17 +121,13 @@ export class AnthropicLang extends LanguageProvider {
       body: JSON.stringify(requestBody),
     } as any).catch((err) => { throw new Error(err); });
 
-    const streamState: StreamState = {
-      isReceivingThinking: false,
-      thinkingContent: "",
-      toolCalls: [],
-      pendingToolInputs: new Map(),
-      indexToToolId: new Map(),
-    };
+    const streamHandler = new AnthropicStreamHandler(result, options?.onResult);
 
-    await processServerEvents(response, (data: any) =>
-      this.handleStreamEvent(data, result, options?.onResult, streamState)
-    );
+    await processServerEvents(response, (data: any) => {
+      streamHandler.handleEvent(data);
+    });
+
+    result.finished = true;
 
     // Automatically execute tools if the assistant requested them
     const toolResults = await result.executeRequestedTools();
@@ -137,23 +137,7 @@ export class AnthropicLang extends LanguageProvider {
   }
 
   private prepareRequest(messageCollection: LangMessages) {
-    const processedMessages: any[] = [];
-    const systemContent: string[] = [];
-
-    if (messageCollection.instructions) {
-      systemContent.push(messageCollection.instructions);
-    }
-
-    for (const message of messageCollection) {
-      if (message.role === "system") {
-        systemContent.push(message.content as string);
-      } else {
-        processedMessages.push(message);
-      }
-    }
-
-    const system = systemContent.join('\n\n');
-    const providerMessages = this.transformMessagesForProvider(processedMessages);
+    const providerMessages = this.transformMessagesForProvider(messageCollection);
 
     const modelInfo = models.id(this._config.model);
     if (!modelInfo) {
@@ -162,220 +146,178 @@ export class AnthropicLang extends LanguageProvider {
 
     const requestMaxTokens = modelInfo ? calculateModelResponseTokens(
       modelInfo,
-      processedMessages,
+      messageCollection,
       this._config.maxTokens
     ) : this._config.maxTokens || 16000;
 
     let tools: AnthropicTool[] | undefined;
     if (messageCollection.availableTools?.length) {
-      tools = messageCollection.availableTools.map((t) => ({
-        name: t.name,
-        description: t.description || "",
-        input_schema: t.parameters,
-      }));
+      const structuredTools = messageCollection.availableTools.filter(
+        (tool): tool is LangTool & { description?: string; parameters: Record<string, any> } =>
+          typeof (tool as any).parameters === "object" && (tool as any).parameters !== null
+      );
+      if (structuredTools.length > 0) {
+        tools = structuredTools.map((tool) => ({
+          name: tool.name,
+          description: (tool as any).description || "",
+          input_schema: (tool as any).parameters,
+        }));
+      }
     }
 
-    return { system, providerMessages, requestMaxTokens, tools };
+    return { providerMessages, requestMaxTokens, tools };
   }
 
-  private handleStreamEvent(
-    data: any,
-    result: LangMessages,
-    onResult?: (result: LangMessage) => void,
-    streamState?: StreamState
-  ): void {
-    if (!streamState) return;
 
-
-    if (data.type === "message_stop") {
-      this.finalizeStreamingResponse(result, streamState);
-      const last = result.length > 0 ? result[result.length - 1] : undefined;
-      if (last) onResult?.(last);
-      return;
-    }
-
-    if (data.type === "content_block_start") {
-      if (data.content_block?.type === "tool_use") {
-        const id = data.content_block.id;
-        const name = data.content_block.name || '';
-        const index = data.index;
-        streamState.indexToToolId.set(index, id);
-        streamState.pendingToolInputs.set(id, { name, buffer: '' });
-        streamState.toolCalls.push({ id, name, arguments: {} });
-      } else if (data.content_block?.type === "thinking") {
-        streamState.isReceivingThinking = true;
-      }
-      return;
-    }
-
-    if (data.type === "content_block_delta") {
-      if (data.delta?.type === "thinking_delta" && data.delta.thinking) {
-        streamState.isReceivingThinking = true;
-        streamState.thinkingContent += data.delta.thinking;
-        const msg = result.appendToAssistantThinking(data.delta.thinking);
-        if (msg) onResult?.(msg);
-        return;
-      }
-
-      // Get tool ID from index (Anthropic uses index in content_block_delta)
-      const index = data.index;
-      const toolUseId = index !== undefined ? streamState.indexToToolId.get(index) : undefined;
-      if (toolUseId && streamState.pendingToolInputs.has(toolUseId)) {
-        this.handleToolDelta(data.delta, toolUseId, streamState);
-        return;
-      }
-
-      const deltaText = data.delta.text || "";
-      if (!toolUseId && deltaText) {
-        if (streamState.isReceivingThinking) {
-          streamState.thinkingContent += deltaText;
-          const msg = result.appendToAssistantThinking(deltaText);
-          if (msg) onResult?.(msg);
-        } else {
-          const msg = result.appendToAssistantText(deltaText);
-          onResult?.(msg);
-        }
-      }
-      return;
-    }
-
-    if (data.type === "content_block_stop") {
-      if (streamState.isReceivingThinking) {
-        streamState.isReceivingThinking = false;
-        const msg = result.appendToAssistantThinking('');
-        if (msg) onResult?.(msg);
-      }
-      return;
-    }
-  }
-
-  private handleToolDelta(delta: any, toolUseId: string, streamState: StreamState): void {
-    const acc = streamState.pendingToolInputs.get(toolUseId)!;
-    const argChunk = delta.partial_json || delta.input_json_delta || delta.text;
-
-    if (typeof argChunk === 'string') {
-      acc.buffer += argChunk;
-      try {
-        const parsed = JSON.parse(acc.buffer);
-        const entry = streamState.toolCalls.find((t) => t.id === toolUseId);
-        if (entry) entry.arguments = parsed;
-      } catch { }
-    }
-  }
-
-  private finalizeStreamingResponse(result: LangMessages, streamState: StreamState): void {
-    // Finalize tool arguments from buffered inputs
-    for (const [id, acc] of streamState.pendingToolInputs) {
-      const entry = streamState.toolCalls.find((t) => t.id === id);
-      if (entry) {
-        try {
-          entry.arguments = acc.buffer ? JSON.parse(acc.buffer) : {};
-        } catch { }
-      }
-    }
-
-    // Add messages in the correct order
-    if (streamState.toolCalls.length > 0) {
-      // Only add assistant message if it's not already there (streaming already added it)
-      if (result.answer && (result.length === 0 || result[result.length - 1].role !== "assistant")) {
-        result.push(new ConversationMessage("assistant", result.answer));
-      }
-      const formattedToolCalls = streamState.toolCalls.map(tc => ({
-        callId: tc.id,
-        id: tc.id,
-        name: tc.name,
-        arguments: tc.arguments
-      }));
-      result.addAssistantToolCalls(formattedToolCalls);
-    } else if (result.answer) {
-      if (result.length === 0 || result[result.length - 1].role !== "assistant") {
-        result.push(new ConversationMessage("assistant", result.answer));
-      }
-    }
-
-    result.finished = true;
-  }
-
-  // Non-streaming response handling removed: Anthropic now always streams internally
-
-  protected transformMessagesForProvider(messages: LangMessage[]): any[] {
+  protected transformMessagesForProvider(messages: LangMessages): any[] {
     const out: any[] = [];
-    for (const m of messages) {
-      if (m.role === 'tool') {
-        // Tool calls from assistant
-        const contentAny = m.content as any;
-        if (Array.isArray(contentAny)) {
-          const blocks = contentAny.map(tc => ({
-            type: 'tool_use',
-            id: tc.callId || tc.id,
-            name: tc.name,
-            input: tc.arguments || {}
-          }));
-          out.push({ role: 'assistant', content: blocks });
-          continue;
+    const pendingAssistantImages: LangMessageItemImage[] = [];
+    for (const message of messages) {
+      if (message.role === "user") {
+        const content: any[] = [];
+        const forwardedImages = pendingAssistantImages.length > 0;
+        for (const image of pendingAssistantImages) {
+          this.appendImageBlocks(content, image);
+        }
+        pendingAssistantImages.length = 0;
+
+        const { blocks: userBlocks, hasImages: userHasImages } = this.mapUserMessageItems(message);
+        content.push(...userBlocks);
+
+        if (forwardedImages || userHasImages) {
+          content.push({ type: "text", text: this.getVisionHintText() });
+        }
+
+        if (content.length > 0) {
+          out.push({ role: "user", content });
+        }
+      } else if (message.role === "assistant") {
+        const { content, imagesForNextUser } = this.mapAssistantMessageItems(message);
+        if (content.length > 0) {
+          out.push({ role: "assistant", content });
+        }
+        if (imagesForNextUser.length > 0) {
+          pendingAssistantImages.push(...imagesForNextUser);
+        }
+      } else if (message.role === "tool-results") {
+        const content = this.mapToolResultItems(message);
+        if (content.length > 0) {
+          out.push({ role: "user", content });
         }
       }
-      if (m.role === 'tool-results') {
-        const contentAny = m.content as any;
-        if (Array.isArray(contentAny)) {
-          const blocks = contentAny.map(tr => ({
-            type: 'tool_result',
-            tool_use_id: tr.toolId,
-            content: typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result)
-          }));
-          out.push({ role: 'user', content: blocks });
-          continue;
-        }
-      }
-      const contentAny = m.content as any;
-      if (Array.isArray(contentAny)) {
-        const blocks = this.mapPartsToAnthropicBlocks(contentAny as LangContentPart[]);
-        out.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: blocks });
-        continue;
-      }
-      out.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content });
     }
     return out;
   }
 
-  private mapPartsToAnthropicBlocks(parts: LangContentPart[]): any[] {
-    return parts.map(p => {
-      if (p.type === 'text') {
-        return { type: 'text', text: p.text };
+  private mapUserMessageItems(message: LangMessage): { blocks: any[]; hasImages: boolean } {
+    const blocks: any[] = [];
+    let hasImages = false;
+    for (const item of message.items) {
+      if (item.type === "text") {
+        const textItem = item as LangMessageItemText;
+        if (textItem.text.length > 0) {
+          blocks.push({ type: "text", text: textItem.text });
+        }
+      } else if (item.type === "image") {
+        hasImages = true;
+        this.appendImageBlocks(blocks, item as LangMessageItemImage);
       }
-      if (p.type === 'image') {
-        const src = this.imageInputToAnthropicSource(p.image);
-        return { type: 'image', source: src } as any;
-      }
-      if (p.type === 'thinking') {
-        return { type: 'thinking', thinking: p.text } as any;
-      }
-      // Fallback for unknown parts
-      return { type: 'text', text: JSON.stringify(p) };
-    });
+    }
+    return { blocks, hasImages };
   }
 
-  private imageInputToAnthropicSource(image: LangImageInput): any {
-    const kind: any = (image as any).kind;
-    if (kind === 'base64') {
-      const base64 = (image as any).base64 as string;
-      const media_type = (image as any).mimeType || 'image/png';
-      return { type: 'base64', media_type, data: base64 };
+  private mapAssistantMessageItems(message: LangMessage): { content: any[]; imagesForNextUser: LangMessageItemImage[] } {
+    const blocks: any[] = [];
+    const imagesForNextUser: LangMessageItemImage[] = [];
+    for (const item of message.items) {
+      switch (item.type) {
+        case "text": {
+          const textItem = item as LangMessageItemText;
+          if (textItem.text.length > 0) {
+            blocks.push({ type: "text", text: textItem.text });
+          }
+          break;
+        }
+        case "image": {
+          imagesForNextUser.push(item as LangMessageItemImage);
+          break;
+        }
+        case "tool": {
+          const toolItem = item as LangMessageItemTool;
+          blocks.push({
+            type: "tool_use",
+            id: toolItem.callId,
+            name: toolItem.name,
+            input: toolItem.arguments ?? {},
+          });
+          break;
+        }
+        case "reasoning":
+          // Skip reasoning blocks when sending context back to Anthropic
+          break;
+      }
     }
-    if (kind === 'url') {
-      const url = (image as any).url as string;
-      if (url.startsWith('data:')) {
-        const match = url.match(/^data:([^;]+);base64,(.*)$/);
-        if (!match) throw new Error('Invalid data URL for Anthropic image');
+    return { content: blocks, imagesForNextUser };
+  }
+
+  private mapToolResultItems(message: LangMessage): any[] {
+    const blocks: any[] = [];
+    for (const item of message.items) {
+      if (item.type !== "tool-result") continue;
+      const resultItem = item as LangMessageItemToolResult;
+      let content: any = resultItem.result;
+      if (typeof content !== "string") {
+        content = JSON.stringify(content ?? {});
+      }
+      blocks.push({
+        type: "tool_result",
+        tool_use_id: resultItem.callId,
+        content,
+      });
+    }
+    return blocks;
+  }
+
+  private appendImageBlocks(target: any[], image: LangMessageItemImage): void {
+    const imageBlock = this.mapImageItemToAnthropicImageBlock(image);
+    if (imageBlock) {
+      target.push(imageBlock);
+    }
+  }
+
+  private mapImageItemToAnthropicImageBlock(image: LangMessageItemImage): any | null {
+    if (typeof image.base64 === "string" && image.base64.length > 0) {
+      const mediaType = image.mimeType || "image/png";
+      return {
+        type: "image",
+        source: { type: "base64", media_type: mediaType, data: image.base64 },
+      };
+    }
+
+    if (typeof image.url === "string" && image.url.length > 0) {
+      if (image.url.startsWith("data:")) {
+        const match = image.url.match(/^data:([^;]+);base64,(.*)$/);
+        if (!match) {
+          console.warn("Invalid data URL for Anthropic image.");
+          return null;
+        }
         const media_type = match[1];
         const data = match[2];
-        return { type: 'base64', media_type, data };
+        return {
+          type: "image",
+          source: { type: "base64", media_type, data },
+        };
       }
-      return { type: 'url', url };
+      return {
+        type: "image",
+        source: { type: "url", url: image.url },
+      };
     }
-    if (kind === 'bytes' || kind === 'blob') {
-      throw new Error("Anthropic image input requires base64. Convert bytes/blob to base64 first.");
-    }
-    throw new Error('Unknown image input kind for Anthropic');
+
+    return null;
+  }
+
+  private getVisionHintText(): string {
+    return "Describe the visual details of the image, including the subject's fur color and explicitly name the surface or object it is on (for example, a table).";
   }
 }

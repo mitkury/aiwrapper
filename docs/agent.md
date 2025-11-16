@@ -37,16 +37,15 @@ Agents let you build conversational AI, task automation, and monitoring systems.
 The `ChatAgent` is a conversational agent with memory and tool support.
 
 ```typescript
-import { Lang, ChatAgent } from 'aiwrapper';
+import { Lang, ChatAgent, LangMessage } from 'aiwrapper';
 
 const lang = Lang.openai({ apiKey: "YOUR_KEY" });
 const agent = new ChatAgent(lang);
 
 // Simple usage - run with input
-const result = await agent.run({
-  role: 'user',
-  content: 'What is 2+2?'
-});
+const result = await agent.run([
+  new LangMessage('user', 'What is 2+2?')
+]);
 
 console.log(result.answer); // "4"
 console.log(result); // Full conversation history (LangMessages)
@@ -55,15 +54,17 @@ console.log(result); // Full conversation history (LangMessages)
 ### Conversation Flow
 
 ```typescript
+import { LangMessage } from 'aiwrapper';
+
 // Start conversation
-agent.input({ role: 'user', content: 'My name is Alice.' });
-const result1 = await agent.run();
+const result1 = await agent.run([
+  new LangMessage('user', 'My name is Alice.')
+]);
 
 // Continue conversation
-const result2 = await agent.run({
-  role: 'user',
-  content: 'What is my name?'
-});
+const result2 = await agent.run([
+  new LangMessage('user', 'What is my name?')
+]);
 
 console.log(result2.answer); // "Alice"
 
@@ -74,6 +75,8 @@ const history = agent.getMessages();
 ### Event Subscription
 
 ```typescript
+import { LangMessage } from 'aiwrapper';
+
 const agent = new ChatAgent(lang);
 
 const unsubscribe = agent.subscribe(event => {
@@ -91,7 +94,7 @@ const unsubscribe = agent.subscribe(event => {
   }
 });
 
-await agent.run({ role: 'user', content: 'Hello!' });
+await agent.run([new LangMessage('user', 'Hello!')]);
 
 unsubscribe();
 ```
@@ -99,6 +102,8 @@ unsubscribe();
 ### Tools
 
 ```typescript
+import { LangMessage } from 'aiwrapper';
+
 const agent = new ChatAgent(lang, {
   tools: [
     {
@@ -117,10 +122,9 @@ const agent = new ChatAgent(lang, {
   ]
 });
 
-const result = await agent.run({
-  role: 'user',
-  content: 'What is the weather in Boston?'
-});
+const result = await agent.run([
+  new LangMessage('user', 'What is the weather in Boston?')
+]);
 
 // Agent automatically calls tool and incorporates result
 ```

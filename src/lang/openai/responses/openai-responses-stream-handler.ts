@@ -1,4 +1,12 @@
 import { LangMessages, LangMessage } from "../../messages";
+import type {
+  LangMessageItem,
+  LangMessageItemText,
+  LangMessageItemTool,
+  LangMessageItemImage,
+  LangMessageItemReasoning
+} from "../../messages";
+import { MessageItem } from "../responses-stream-types";
 
 type OpenAIResponseItem = {
   id: string;
@@ -14,6 +22,9 @@ type OpenAIResponseItem = {
 export class OpenAIResponseStreamHandler {
   id: string;
   items: OpenAIResponseItem[];
+  itemIdToMessageItemIndex: Map<string, number> = new Map();
+  itemIdToSummaryIndex: Map<string, number> = new Map();
+  newMessage: LangMessage;
   messages: LangMessages;
   onResult?: (result: LangMessage) => void;
 
@@ -36,251 +47,269 @@ export class OpenAIResponseStreamHandler {
 
     switch (data.type) {
       case 'response.created':
-        this.id = data.response.id;
+        this.handleNewResponse(data);
         break;
       case 'response.output_item.added':
-        this.addItem(data.item);
+        this.handleNewItem(data);
         break;
       case 'response.output_item.done':
-        this.setItem(data.item);
+        this.handleItemFinished(data);
         break;
-      case 'response.content_part.added':
-        break;
-      case 'response.content_part.done':
-        break;
-      case 'response.image_generation_call.in_progress':
-      case 'response.image_generation_call.generating':
       case 'response.image_generation_call.partial_image':
-        this.handlePartialImage(data);
+        //@TODO: handle partial image
         break;
-      case 'response.image_generation_call.completed':
-      case 'image_generation.completed':
-        this.addImage(data);
-        break;
-
-      // Deltas that we care about (feel free to add more if you want to show them in-progress somewhere)
       case 'response.output_text.delta':
-        //case 'response.function_call_arguments.delta':
-        this.applyDelta(data.item_id, data.delta);
+        this.applyTextDelta(data);
         break;
       case 'response.function_call_arguments.delta':
-        this.applyArgsDelta(data.item_id, data.delta);
+        this.applyToolArgsDelta(data);
         break;
-      case 'response.function_call_arguments.done':
-        this.setArgs(data.item_id, data.arguments);
+      case 'response.reasoning_summary_text.delta':
+        this.applyReasoningSummaryTextDelta(data);
         break;
     }
+
+    this.onResult?.(this.newMessage);
   }
 
-  /**
-   * Examples of items that can come into this handler:
-   * "type":"response.output_item.added","sequence_number":4,"output_index":1,"item":{"id":"fc_0d1fd1ec5aba34630068edbe1df02881a28c623f7dc5d45e81","type":"function_call","status":"in_progress","arguments":"","call_id":"call_Pc4gzmrkhNIdTYrySlALhyIl","name":"get_current_weather"}
-   * "type":"response.output_item.done","sequence_number":18,"output_index":1,"item":{"id":"fc_0d1fd1ec5aba34630068edbe1df02881a28c623f7dc5d45e81","type":"function_call","status":"completed","arguments":"{\"location\":\"Boston, MA\",\"unit\":\"celsius\"}","call_id":"call_Pc4gzmrkhNIdTYrySlALhyIl","name":"get_current_weather"}
-   * "type":"response.output_item.added","sequence_number":4,"output_index":1,"item":{"id":"msg_0dfe4783196ccc2e0068edc3874d5c81a3b2beb308e6eae8f3","type":"message","status":"in_progress","content":[],"role":"assistant"}
-   * "type":"response.output_item.done","sequence_number":236,"output_index":1,"item":{"id":"msg_0dfe4783196ccc2e0068edc3874d5c81a3b2beb308e6eae8f3","type":"message","status":"completed","content":[{"type":"output_text","annotations":[],"logprobs":[],"text":"Hey!"}],"role":"assistant"}
-   */
-  setItem(target: OpenAIResponseItem) {
-    const item = this.getItem(target.id);
-    if (!target) {
-      console.warn('Unknown item:', target);
+  handleNewResponse(data: any) {
+    this.id = data.response.id;
+    this.newMessage = new LangMessage('assistant', []);
+    this.newMessage.meta = {
+      openaiResponseId: this.id
+    }
+    this.messages.push(this.newMessage);
+  }
+
+  handleNewItem(data: any) {
+    const itemType = data.item.type as string;
+
+    if (!this.newMessage) {
+      console.warn("Received item without an active assistant message:", data);
       return;
     }
 
-    switch (item.type) {
+    // Create a new item for the message
+    switch (itemType) {
       case 'message':
-        if (!item.targetMessage) {
-          console.warn('Unknown target message for item:', target);
-          return;
+        {
+          const textItem: LangMessageItemText = {
+            type: "text",
+            text: typeof data.item.text === "string" ? data.item.text : ""
+          };
+          this.newMessage.items.push(textItem);
         }
-        if (item.role === 'assistant') {
-          // Ensure we use parts so image and text live in one message
-          if (!Array.isArray(item.targetMessage.content)) {
-            const existingText = typeof item.targetMessage.content === 'string' ? item.targetMessage.content : '';
-            item.targetMessage.content = existingText ? [{ type: 'text', text: existingText }] : [];
-          }
-          // If we already accumulated text via deltas, do not append again on 'done'
-          const alreadyStreamedText = typeof (item as any).text === 'string' && (item as any).text.length > 0;
-          if (!alreadyStreamedText) {
-            for (const content of target.content) {
-              if (content.type === 'output_text') {
-                const parts = item.targetMessage.content as any[];
-                const lastPart = parts.length > 0 ? parts[parts.length - 1] : undefined;
-                if (lastPart && lastPart.type === 'text') {
-                  lastPart.text += String(content.text ?? '');
-                } else {
-                  parts.push({ type: 'text', text: String(content.text ?? '') });
-                }
-              }
-            }
-          }
-
-          this.onResult?.(item.targetMessage);
-        } else {
-          console.warn('Unknown role:', item.role, 'for item:', item);
-        }
-        break;
-
-      case 'function_call':
-        const argsParsed = JSON.parse(target.arguments) as Record<string, any>;
-        const callId = target.call_id;
-        const name = target.name;
-
-        this.messages.addAssistantToolCalls([
-          {
-            callId,
-            name,
-            arguments: argsParsed
-          }
-        ], { openaiResponseId: this.id });
-
-        const msg = this.messages[this.messages.length - 1];
-        this.onResult?.(msg);
-        break;
-      default:
-        break;
-    }
-  }
-
-  addItem(target: OpenAIResponseItem) {
-    this.items.push(target);
-
-    switch (target.type) {
-      case 'message':
-
-        if (target.role === 'assistant') {
-          // Reuse an existing trailing assistant message (possibly created by image events)
-          const last = this.messages.length > 0 ? this.messages[this.messages.length - 1] : undefined;
-          if (last && last.role === 'assistant') {
-            // Ensure it's parts to allow mixed content and set response id
-            if (!Array.isArray(last.content)) {
-              const existingText = typeof last.content === 'string' ? last.content : '';
-              (last as any).content = existingText ? [{ type: 'text', text: existingText }] : [];
-            }
-            last.meta = { ...(last.meta || {}), openaiResponseId: this.id };
-            target.targetMessage = last;
-          } else {
-            // Initialize as parts message to allow images + text together
-            this.messages.addAssistantContent([], { openaiResponseId: this.id });
-            target.targetMessage = this.messages[this.messages.length - 1];
-          }
-          this.onResult?.(target.targetMessage);
-        } else {
-          console.warn('Unknown role:', target.role, 'for item:', target);
-        }
-
         break;
       case 'function_call':
-
-        if (typeof target.arguments !== 'string') {
-          target.arguments = '';
+        {
+          const toolItem: LangMessageItemTool = {
+            type: "tool",
+            name: typeof data.item.name === "string" ? data.item.name : "",
+            callId: typeof data.item.call_id === "string" ? data.item.call_id : "",
+            arguments:
+              data.item.arguments && typeof data.item.arguments === "object"
+                ? data.item.arguments
+                : {}
+          };
+          this.newMessage.items.push(toolItem);
         }
-
+        break;
+      case 'apply_patch_call':
+        {
+          const toolItem: LangMessageItemTool = {
+            type: "tool",
+            name: "apply_patch",
+            callId: typeof data.item.call_id === "string" ? data.item.call_id : "",
+            arguments: {
+              operation: data.item.operation || {},
+              status: data.item.status || "in_progress"
+            }
+          };
+          this.newMessage.items.push(toolItem);
+        }
+        break;
+      case 'image_generation_call':
+        {
+          const imageItem: LangMessageItemImage = { type: "image" };
+          if (typeof data.item.url === "string") {
+            imageItem.url = data.item.url;
+          }
+          if (typeof data.item.b64_json === "string") {
+            imageItem.base64 = data.item.b64_json;
+          }
+          if (typeof data.item.output_format === "string" || typeof data.item.format === "string") {
+            imageItem.mimeType = (data.item.output_format || data.item.format) ?? undefined;
+          }
+          this.newMessage.items.push(imageItem);
+        }
+        break;
+      case 'reasoning':
+        {
+          // Create a thinking item immediately when reasoning starts
+          const reasoningItem: LangMessageItemReasoning = {
+            type: "reasoning",
+            text: ""
+          };
+          this.newMessage.items.push(reasoningItem);
+        }
         break;
       default:
+        console.warn('Unknown item type:', itemType);
+        return;
+    }
+
+    this.itemIdToMessageItemIndex.set(data.item.id, this.newMessage.items.length - 1);
+  }
+
+  handleItemFinished(data: any) {
+    const itemFromResponse = data.item as OpenAIResponseItem;
+
+    const messageIndex = this.itemIdToMessageItemIndex.get(itemFromResponse.id);
+    if (messageIndex === undefined) {
+      console.warn('Unknown message index for item:', itemFromResponse);
+      return;
+    }
+
+    const messageItem = this.newMessage.items[messageIndex];
+
+    this.applyItemToMessage(itemFromResponse, messageItem);
+  }
+
+  applyItemToMessage(resItem: OpenAIResponseItem, messageItem: LangMessageItem) {
+    switch (resItem.type) {
+      case 'message':
+        this.applyTextMessage(resItem as MessageItem, messageItem as LangMessageItemText);
+        break;
+      case 'function_call':
+        this.applyFunctionCall(resItem as MessageItem, messageItem as LangMessageItemTool);
+        break;
+      case 'apply_patch_call':
+        this.applyPatchCall(resItem as any, messageItem as LangMessageItemTool);
+        break;
+      case 'image_generation_call':
+        this.applyImageGenerationCall(resItem as MessageItem, messageItem as LangMessageItemImage);
         break;
     }
   }
 
+  applyTextMessage(res: MessageItem, target: LangMessageItemText) {
+    target.text = res.content.map(part => part.text).join('\n\n');
+  }
 
-  handlePartialImage(data: any) {
-    // For streaming image generation, we might want to show progress
-    // or buffer partial images until complete
-    const partialBase64 = data.partial_image_b64;
-    if (partialBase64) {
-      // Add partial image to assistant message
-      this.messages.addAssistantImage({ 
-        kind: 'base64', 
-        base64: partialBase64, 
-        mimeType: 'image/png' 
-      });
-      
-      const last = this.messages[this.messages.length - 1];
-      if (last) {
-        last.meta = { ...(last.meta || {}), openaiResponseId: this.id };
-      }
-      this.onResult?.(last);
+  applyFunctionCall(res: any, target: LangMessageItemTool) {
+    target.callId = res.call_id;
+    target.name = res.name;
+    try {
+      target.arguments = JSON.parse(res.arguments);
+    } catch (error) {
+      console.error('Error parsing arguments for function call:', error);
+      target.arguments = {};
     }
   }
 
-  addImage(data: OpenAIResponseItem) {
-    const b64image = data.b64_json;
-    // Extract additional image generation metadata: size, output_format, background
-    const size = data.size;
-    const format = data.output_format || data.format;
-    const background = data.background;
-    
-    if (b64image) {
-      // Add the completed image to the assistant message
-      this.messages.addAssistantImage({ 
-        kind: 'base64', 
-        base64: b64image, 
-        mimeType: format === 'png' ? 'image/png' : 'image/jpeg' 
-      });
-      
-      // Store metadata in the message
-      const last = this.messages[this.messages.length - 1];
-      if (!last.meta) last.meta = {};
-      last.meta.openaiResponseId = this.id;
-      last.meta.imageGeneration = {
-        size,
-        format,
-        background,
-        provider: 'openai'
+  applyPatchCall(res: any, target: LangMessageItemTool) {
+    target.callId = res.call_id;
+    target.name = "apply_patch";
+    target.arguments = {
+      operation: res.operation || {},
+      status: res.status || "completed"
+    };
+  }
+
+  applyImageGenerationCall(res: any, target: LangMessageItemImage) {
+    if (typeof res.url === "string") {
+      target.url = res.url;
+    }
+
+    const base64 = res.b64_json || res.base64 || res.result;
+    if (typeof base64 === "string") {
+      target.base64 = base64;
+    }
+
+    const format = res.mimeType || res.mime_type || res.output_format || res.format;
+    if (typeof format === "string") {
+      target.mimeType = format.includes("/") ? format : `image/${format}`;
+    }
+
+    if (typeof res.width === "number") {
+      target.width = res.width;
+    }
+    if (typeof res.height === "number") {
+      target.height = res.height;
+    }
+
+    if (res.metadata || res.revised_prompt || res.background || res.quality || res.size || res.status) {
+      const metadata: Record<string, any> = {
+        ...(target.metadata ?? {}),
+        ...(res.metadata ?? {}),
       };
-      
-      this.onResult?.(last);
+
+      if (res.revised_prompt) metadata.revisedPrompt = res.revised_prompt;
+      if (res.background) metadata.background = res.background;
+      if (res.quality) metadata.quality = res.quality;
+      if (res.size) metadata.size = res.size;
+      if (res.status) metadata.status = res.status;
+
+      target.metadata = metadata;
     }
   }
 
-  getItem(id: string): OpenAIResponseItem | undefined {
-    return this.items.find(r => r.id === id);
-  }
-
-  applyArgsDelta(itemId: string, delta: string) {
-    const item = this.getItem(itemId);
-    if (item && item.type === 'function_call') {
-      if (typeof item.arguments !== 'string') item.arguments = '';
-      item.arguments += delta;
+  getNewMessageItem(itemId: string): LangMessageItem | undefined {
+    const contentIndex = this.itemIdToMessageItemIndex.get(itemId);
+    if (contentIndex === undefined) {
+      return undefined;
     }
+
+    return this.newMessage.items[contentIndex];
   }
 
-  setArgs(itemId: string, args: string) {
-    const item = this.getItem(itemId);
-    if (item && item.type === 'function_call') {
-      item.arguments = args;
+  applyTextDelta(data: any) {
+    const messageItem = this.getNewMessageItem(data.item_id) as LangMessageItemText;
+    if (messageItem === undefined) {
+      console.warn('Unknown item:', data.item_id);
+      return;
     }
+
+    const delta = data.delta as string;
+
+    messageItem.text += delta;
   }
 
-  applyDelta(itemId: string, delta: any) {
-    const item = this.getItem(itemId);
-    if (item) {
-      if (typeof delta === "string") {
-        item.text += delta;
+  applyToolArgsDelta(data: any) {
+    const messageItem = this.getNewMessageItem(data.item_id) as LangMessageItemTool;
+    if (messageItem === undefined) {
+      console.warn('Unknown item:', data.item_id);
+      return;
+    }
+
+    const delta = data.delta as string;
+    // Note: given that we keep arguments as objects, delta wouldn't work like that.
+    // and in my experiments OpenaAI didn't stream arguments like it streamed text. 
+    // Always returned {} and then the final arguments.
+    //messageItem.arguments = JSON.parse(messageItem.arguments + delta);
+  }
+
+  applyReasoningSummaryTextDelta(data: any) {
+    const thinkingItem = this.getNewMessageItem(data.item_id) as LangMessageItemReasoning;
+    if (thinkingItem === undefined) {
+      console.warn('Unknown reasoning item:', data.item_id);
+      return;
+    }
+
+    const delta = data.delta as string;
+    
+    // Check if summary_index exists and has increased
+    if (typeof data.summary_index === 'number') {
+      const previousIndex = this.itemIdToSummaryIndex.get(data.item_id);
+      if (previousIndex !== undefined && data.summary_index > previousIndex) {
+        // summary_index increased, add separator before the delta
+        thinkingItem.text += '\n\n';
       }
-
-      if (item.targetMessage) {
-        // Ensure parts structure to safely append text alongside images
-        if (!Array.isArray(item.targetMessage.content)) {
-          const existingText = typeof item.targetMessage.content === 'string' ? item.targetMessage.content : '';
-          item.targetMessage.content = existingText ? [{ type: 'text', text: existingText }] : [];
-        }
-
-        if (typeof delta === "string") {
-          const parts = item.targetMessage.content as any[];
-          const lastPart = parts.length > 0 ? parts[parts.length - 1] : undefined;
-          if (lastPart && lastPart.type === 'text') {
-            lastPart.text += delta;
-          } else {
-            parts.push({ type: 'text', text: delta });
-          }
-        } else {
-          // @TODO: handle other delta types
-          console.warn('Unknown delta type:', typeof delta, 'for item:', item);
-        }
-
-        // This callback is responsible for the real-time visualization of the model output.
-        this.onResult?.(item.targetMessage);
-      }
+      // Update the stored summary_index
+      this.itemIdToSummaryIndex.set(data.item_id, data.summary_index);
     }
+    
+    thinkingItem.text += delta;
   }
+
 }

@@ -135,7 +135,7 @@ console.log(finalResult.answer);
 import { LangMessages } from "aiwrapper";
 
 const messages = new LangMessages();
-messages.addSystemMessage("You are a helpful assistant.");
+messages.instructions = "You are a helpful assistant.";
 messages.addUserMessage("Tell me about TypeScript.");
 
 const chatResult = await lang.chat(messages);

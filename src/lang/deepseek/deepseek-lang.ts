@@ -46,8 +46,10 @@ export class DeepSeekLang extends OpenAIChatCompletionsLang {
 
     if (data.choices && data.choices[0].delta.reasoning_content) {
       const reasoningContent = data.choices[0].delta.reasoning_content;
+      /*
       const msg = result.appendToAssistantThinking(reasoningContent);
       if (msg) onResult?.(msg);
+      */
       return;
     }
 

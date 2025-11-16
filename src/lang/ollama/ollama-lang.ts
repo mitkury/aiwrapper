@@ -26,17 +26,17 @@ export class OllamaLang extends LanguageProvider {
   constructor(options: OllamaLangOptions) {
     const modelName = options.model || "llama2:latest";
     super(modelName);
-    
+
     this._config = {
       model: modelName,
       systemPrompt: options.systemPrompt || "",
       maxTokens: options.maxTokens,
       baseURL: options.url || "http://localhost:11434",
     };
-    
+
     // Try to get model info from aimodels
     this.modelInfo = models.id(modelName);
-    
+
     // Print a warning if model is not in database, but don't block execution
     // This allows users to use any Ollama model, even if it's not in our database
     if (!this.modelInfo) {
@@ -63,7 +63,7 @@ export class OllamaLang extends LanguageProvider {
     // Create a proper message collection
     const messages = new LangMessages();
     messages.addUserMessage(prompt);
-    
+
     const result = new LangResult(messages);
 
     // Try to get model info and calculate max tokens
@@ -72,7 +72,7 @@ export class OllamaLang extends LanguageProvider {
     if (this.modelInfo) {
       requestMaxTokens = calculateModelResponseTokens(
         this.modelInfo,
-        [{ role: "user", content: prompt }],
+        [{ role: "user", text: prompt }],
         this._config.maxTokens
       );
     }
@@ -81,18 +81,20 @@ export class OllamaLang extends LanguageProvider {
     let visibleContent = "";
     let openThinkTagIndex = -1;
     let pendingThinkingContent = "";
-    
+
     const onResult = options?.onResult;
     const onData = (data: any) => {
       if (data.done) {
         // Final check for thinking content when streaming is complete
         const extracted = this.extractThinking(visibleContent);
         if (extracted.thinking) {
+          /*
           result.appendToAssistantThinking(extracted.thinking);
           const msg = result.ensureAssistantTextMessage();
           msg.content = extracted.answer;
+          */
         }
-        
+
         result.finished = true;
         const last = result.length > 0 ? result[result.length - 1] : undefined;
         if (last) options?.onResult?.(last as any);
@@ -102,10 +104,10 @@ export class OllamaLang extends LanguageProvider {
       if (data.response) {
         const currentChunk = data.response;
         visibleContent += currentChunk;
-        
+
         // Process the chunk for potential thinking content
         this.processChunkForThinking(currentChunk, visibleContent, result, openThinkTagIndex, pendingThinkingContent);
-        
+
         // Update tracking variables based on current state
         openThinkTagIndex = visibleContent.lastIndexOf("<think>");
         if (openThinkTagIndex !== -1) {
@@ -138,14 +140,16 @@ export class OllamaLang extends LanguageProvider {
       });
 
     await processServerEvents(response, onData);
-    
+
     // For non-streaming case, perform final extraction
     if (!onResult) {
       const extracted = this.extractThinking(result.answer);
       if (extracted.thinking) {
+        /*
         result.appendToAssistantThinking(extracted.thinking);
         const msg = result.ensureAssistantTextMessage();
         msg.content = extracted.answer;
+        */
       }
     }
 
@@ -170,18 +174,20 @@ export class OllamaLang extends LanguageProvider {
     let visibleContent = "";
     let openThinkTagIndex = -1;
     let pendingThinkingContent = "";
-    
+
     const onResult = options?.onResult;
     const onData = (data: any) => {
       if (data.done) {
         // Final check for thinking content when streaming is complete
         const extracted = this.extractThinking(visibleContent);
         if (extracted.thinking) {
+          /*
           result.appendToAssistantThinking(extracted.thinking);
           const msg = result.ensureAssistantTextMessage();
           msg.content = extracted.answer;
+          */
         }
-        
+
         result.finished = true;
         const last = result.length > 0 ? result[result.length - 1] : undefined;
         if (last) options?.onResult?.(last as any);
@@ -191,10 +197,10 @@ export class OllamaLang extends LanguageProvider {
       if (data.message && data.message.content) {
         const currentChunk = data.message.content;
         visibleContent += currentChunk;
-        
+
         // Process the chunk for potential thinking content
         this.processChunkForThinking(currentChunk, visibleContent, result, openThinkTagIndex, pendingThinkingContent);
-        
+
         // Update tracking variables based on current state
         openThinkTagIndex = visibleContent.lastIndexOf("<think>");
         if (openThinkTagIndex !== -1) {
@@ -249,48 +255,51 @@ export class OllamaLang extends LanguageProvider {
       });
 
     await processServerEvents(response, onData);
-    
+
     // For non-streaming case, perform final extraction
     if (!onResult) {
       const extracted = this.extractThinking(result.answer);
       if (extracted.thinking) {
+        /*
         result.appendToAssistantThinking(extracted.thinking);
         const msg = result.ensureAssistantTextMessage();
         msg.content = extracted.answer;
+        */
       }
     }
 
     return result;
   }
-  
+
   // Helper to extract thinking content from <think> tags
   private extractThinking(content: string): { thinking: string, answer: string } {
     const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
     const matches = content.match(thinkRegex);
-    
+
     if (!matches || matches.length === 0) {
       return { thinking: "", answer: content };
     }
-    
+
     // Extract thinking content
     const thinking = matches
       .map((match: string) => match.replace(/<think>|<\/think>/g, "").trim())
       .join("\n");
-    
+
     // Remove thinking tags for clean answer
     const answer = content.replace(thinkRegex, "").trim();
-    
+
     return { thinking, answer };
   }
-  
+
   // Process a chunk for thinking content during streaming
   private processChunkForThinking(
-    currentChunk: string, 
-    fullContent: string, 
+    currentChunk: string,
+    fullContent: string,
     result: LangMessages,
     openTagIndex: number,
     pendingThinking: string
   ): void {
+    /*
     // Check if we have a complete thinking section
     const extracted = this.extractThinking(fullContent);
     
@@ -338,5 +347,7 @@ export class OllamaLang extends LanguageProvider {
       const msg = result.ensureAssistantTextMessage();
       msg.content = fullContent;
     }
+    */
   }
+
 }

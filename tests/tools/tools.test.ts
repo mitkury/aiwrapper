@@ -8,12 +8,7 @@ describe('Tools', () => {
 
 async function runTest(lang: LanguageProvider) {
   it('should pick the correct tool among many', async () => {
-    const messages = new LangMessages([
-      {
-        role: 'user',
-        content: 'I need a color. Use the appropriate tool to get a color, then reply only with that color.'
-      }
-    ] as any, {
+    const messages = new LangMessages(undefined, {
       tools: [
         {
           name: 'get_random_number',
@@ -35,6 +30,7 @@ async function runTest(lang: LanguageProvider) {
         }
       ]
     });
+    messages.addUserMessage('I need a color. Use the appropriate tool to get a color, then reply only with that color.');
 
     const res = await lang.chat(messages);
 
@@ -42,32 +38,26 @@ async function runTest(lang: LanguageProvider) {
 
     // Verify tool selection via normalized fields or transcript
     const requested = ((res as any).tools || (res as any).toolsRequested || []) as any[];
-    const transcriptToolMsgs = res.filter((m: any) => m.role === 'tool');
+    const toolRequestMessages = res.filter(m => m.toolRequests.length > 0);
     const requestedNames = [
       ...requested.map((c: any) => c.name),
-      ...transcriptToolMsgs.flatMap((m: any) => (Array.isArray(m.content) ? m.content.map((c: any) => c.name) : []))
+      ...toolRequestMessages.flatMap(m => m.toolRequests.map(t => t.name))
     ];
     expect(requestedNames).toContain('get_random_color');
 
     // Find latest tool-results and validate
     const toolResultsMsg = [...res].reverse().find((m: any) => m.role === 'tool-results');
     expect(toolResultsMsg).toBeDefined();
-    expect(Array.isArray((toolResultsMsg as any).content)).toBe(true);
-    const toolResult = (toolResultsMsg as any).content[0];
-    expect(toolResult.toolId).toBeDefined();
-    expect(toolResult.result).toBe('red');
+    const toolResult = toolResultsMsg?.toolResults[0];
+    expect(toolResult?.callId).toBeDefined();
+    expect(toolResult?.result).toBe('red');
 
     const finalRes = await lang.chat(res);
     expect(finalRes.answer.toLowerCase()).toContain('red');
   });
 
   it('should call multiple tools (parallel or sequential) and combine results', async () => {
-    let messages = new LangMessages([
-      {
-        role: 'user',
-        content: 'For city Paris, get weather and population using the tools, then return a single sentence including the temperature in C and the population.'
-      }
-    ] as any, {
+    let messages = new LangMessages(undefined, {
       tools: [
         {
           name: 'get_weather',
@@ -95,6 +85,7 @@ async function runTest(lang: LanguageProvider) {
         }
       ]
     });
+    messages.addUserMessage('For city Paris, get weather and population using the tools, then return a single sentence including the temperature in C and the population.');
 
     const called = new Set<string>();
     let sawWeather = false;
@@ -109,17 +100,17 @@ async function runTest(lang: LanguageProvider) {
       // Collect requested tool names from normalized fields or transcript
       const requested = ((res as any).tools || (res as any).toolsRequested || []) as any[];
       for (const c of requested) called.add(c.name);
-      const transcriptToolMsgs = res.filter((m: any) => m.role === 'tool');
-      for (const m of transcriptToolMsgs) {
-        if (Array.isArray((m as any).content)) {
-          for (const c of (m as any).content as any[]) called.add(c.name);
+      const messagesWithToolRequests = res.filter(m => m.toolRequests.length > 0);
+      for (const m of messagesWithToolRequests) {
+        for (const toolRequest of m.toolRequests) {
+          called.add(toolRequest.name);
         }
       }
 
       // Gather tool results from the latest tool-results message
       const toolResultsMsg = [...res].reverse().find((m: any) => m.role === 'tool-results');
-      if (toolResultsMsg && Array.isArray((toolResultsMsg as any).content)) {
-        for (const r of (toolResultsMsg as any).content as any[]) {
+      if (toolResultsMsg) {
+        for (const r of toolResultsMsg.toolResults) {
           const val = r.result;
           if (val && typeof val === 'object') {
             if (typeof val.tempC === 'number') sawWeather = sawWeather || val.tempC === 21;
@@ -145,12 +136,7 @@ async function runTest(lang: LanguageProvider) {
 
   it('should handle tool arguments and produce correct result (streaming)', async () => {
     let streamingAnswer = '';
-    const messages = new LangMessages([
-      {
-        role: 'user',
-        content: 'Compute 7 multiplied by 6 using the tools, then reply with only the number.'
-      }
-    ] as any, {
+    const messages = new LangMessages(undefined, {
       tools: [
         {
           name: 'add',
@@ -174,6 +160,7 @@ async function runTest(lang: LanguageProvider) {
         }
       ]
     });
+    messages.addUserMessage('Compute 7 multiplied by 6 using the tools, then reply with only the number.');
 
     const res = await lang.chat(messages);
 
@@ -182,21 +169,21 @@ async function runTest(lang: LanguageProvider) {
     // Verify a tool was requested
     const requested = ((res as any).tools || (res as any).toolsRequested || []) as any[];
     const requestedNames = requested.map((c: any) => c.name);
-    const transcriptToolMsgs = res.filter((m: any) => m.role === 'tool');
-    const transcriptNames = transcriptToolMsgs.flatMap((m: any) => (Array.isArray(m.content) ? m.content.map((c: any) => c.name) : []));
+    const toolRequestMessages = res.filter(m => m.toolRequests.length > 0);
+    const transcriptNames = toolRequestMessages.flatMap(m => m.toolRequests.map(t => t.name));
     const allNames = new Set<string>([...requestedNames, ...transcriptNames]);
     expect(['multiply', 'add'].some(n => allNames.has(n))).toBe(true);
 
     // Verify tool results contained 42
     const toolResultsMsg = [...res].reverse().find((m: any) => m.role === 'tool-results');
     expect(toolResultsMsg).toBeDefined();
-    const toolResultArr = (toolResultsMsg as any).content as any[];
+    const toolResultArr = toolResultsMsg?.toolResults ?? [];
     expect(Array.isArray(toolResultArr)).toBe(true);
     expect(toolResultArr.some((r: any) => r.result === 42)).toBe(true);
 
     const options: LangOptions = {
       onResult: (msgs) => {
-        streamingAnswer = msgs.content as string;
+        streamingAnswer = msgs.text;
       }
     };
 

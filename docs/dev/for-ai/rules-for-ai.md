@@ -17,6 +17,12 @@ Anything related to testing - "tests: description"
 Anything related to documentation - "docs: description"
 Anything related to the build pipelines and dev convinience - "dev: description"
 
+### Testing
+To run a specific test suite against a single provider, set the `PROVIDERS` env variable and execute Vitest in non-interactive mode. Example:
+`PROVIDERS=openai npx vitest run tests/agents/chat-agent.test.ts`
+This runs the `chat-agent` suite using only the OpenAI provider. Make sure you use `vitest run` (or keep the `--run` flag) so the test run completes once and doesn't wait for file changes.
+Before running `npx vitest run ...`, rebuild the package if you've changed the source by executing `npm run build`. You can skip the manual build when using `npm test`, since the `pretest` script already runs the build step for you. For common subsets, there are helper scripts (for example, `npm run test:lang` runs only the Lang suites and already performs a build).
+
 ## Publishing Steps
 When publishing, follow these steps in order:
 1. Build and test: `npm run build && npm test`

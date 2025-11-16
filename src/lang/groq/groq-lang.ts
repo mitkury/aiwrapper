@@ -32,6 +32,8 @@ export class GroqLang extends OpenAIChatCompletionsLang {
     messages: LangMessage[] | LangMessages,
     options?: LangOptions,
   ): Promise<LangMessages> {
+    throw new Error("Not implemented");
+    /*
     const messageCollection = messages instanceof LangMessages
       ? messages
       : new LangMessages(messages);
@@ -177,6 +179,7 @@ export class GroqLang extends OpenAIChatCompletionsLang {
     await this.callAPI("/chat/completions", streamingBody, onData);
     
     return messageCollection;
+    */
   }
   
   private extractThinking(content: string): { thinking: string, answer: string } {
@@ -200,6 +203,7 @@ export class GroqLang extends OpenAIChatCompletionsLang {
     fullContent: string, 
     result: LangMessages
   ): void {
+    /*
     const extracted = this.extractThinking(fullContent);
     
     if (extracted.thinking) {
@@ -238,6 +242,7 @@ export class GroqLang extends OpenAIChatCompletionsLang {
       const msg = result.ensureAssistantTextMessage();
       msg.content = fullContent;
     }
+    */
   }
 
   private async callAPI(endpoint: string, body: any, onData: (data: any) => void) {

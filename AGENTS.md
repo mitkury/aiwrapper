@@ -139,7 +139,7 @@ console.log(finalResult.answer);
 import { LangMessages } from "aiwrapper";
 
 const messages = new LangMessages();
-messages.addSystemMessage("You are a helpful assistant.");
+messages.instructions = "You are a helpful assistant.";
 messages.addUserMessage("Tell me about TypeScript.");
 
 const chatResult = await lang.chat(messages);
@@ -278,6 +278,12 @@ Anything related to testing - "tests: description"
 Anything related to documentation - "docs: description"
 Anything related to the build pipelines and dev convinience - "dev: description"
 
+### Testing
+To run a specific test suite against a single provider, set the `PROVIDERS` env variable and execute Vitest in non-interactive mode. Example:
+`PROVIDERS=openai npx vitest run tests/agents/chat-agent.test.ts`
+This runs the `chat-agent` suite using only the OpenAI provider. Make sure you use `vitest run` (or keep the `--run` flag) so the test run completes once and doesn't wait for file changes.
+Before running `npx vitest run ...`, rebuild the package if you've changed the source by executing `npm run build`. You can skip the manual build when using `npm test`, since the `pretest` script already runs the build step for you. For common subsets, there are helper scripts (for example, `npm run test:lang` runs only the Lang suites and already performs a build).
+
 ## Publishing Steps
 When publishing, follow these steps in order:
 1. Build and test: `npm run build && npm test`
@@ -290,11 +296,11 @@ When publishing, follow these steps in order:
 
 # From package.json:
 
-{
-  "type": "module",
-  "name": "aiwrapper",
-  "description": "A Universal AI Wrapper for JavaScript & TypeScript",
-  "version": "2.1.3",
+  {
+    "type": "module",
+    "name": "aiwrapper",
+    "description": "A Universal AI Wrapper for JavaScript & TypeScript",
+    "version": "3.0.0-beta.0",
   "author": "Dmitry Kury (https://dkury.com)",
   "license": "MIT",
   "repository": {
@@ -340,7 +346,7 @@ When publishing, follow these steps in order:
     "test:reasoning": "npm run build && vitest run tests/reasoning/*.test.ts"
   },
   "dependencies": {
-    "aimodels": "^0.4.15",
+    "aimodels": "^0.5.1",
     "ajv": "^8.17.1",
     "jsonic": "^2.16.0",
     "zod": "^3.24.4",

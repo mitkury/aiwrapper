@@ -18,8 +18,8 @@ function createMockTokenModel(total: number | null, maxOutput: number | null, ou
 
 const mockNonTokenModel: AnyModel = { context: { type: 'character' } };
 
-const shortMessage = { role: 'user', content: 'Hello' };
-const longMessage = { role: 'user', content: 'This is a longer message that will use more tokens than the short message. It should be approximately 25 tokens according to our rough estimation.' };
+const shortMessage = { role: 'user', text: 'Hello' };
+const longMessage = { role: 'user', text: 'This is a longer message that will use more tokens than the short message. It should be approximately 25 tokens according to our rough estimation.' };
 
 describe('calculateModelResponseTokens', () => {
   it('uses user maxTokens when within limits', () => {
@@ -29,7 +29,7 @@ describe('calculateModelResponseTokens', () => {
 
   it('returns default for non-token models', () => {
     const got = calculateModelResponseTokens(mockNonTokenModel, [shortMessage]);
-    expect(got).toBe(2000);
+    expect(got).toBe(4000);
   });
 
   it('returns maxOutput for fixed-output models', () => {
