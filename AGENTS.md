@@ -296,11 +296,11 @@ When publishing, follow these steps in order:
 
 # From package.json:
 
-  {
-    "type": "module",
-    "name": "aiwrapper",
-    "description": "A Universal AI Wrapper for JavaScript & TypeScript",
-    "version": "3.0.0-beta.0",
+{
+  "type": "module",
+  "name": "aiwrapper",
+  "description": "A Universal AI Wrapper for JavaScript & TypeScript",
+  "version": "3.0.0-beta.2",
   "author": "Dmitry Kury (https://dkury.com)",
   "license": "MIT",
   "repository": {
