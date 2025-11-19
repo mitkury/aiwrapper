@@ -315,14 +315,6 @@ export class LangMessages extends Array<LangMessage> {
 
     const toolRequests = last.toolRequests;
 
-    // Warn the user if we don't have any available tools
-    if (!this.availableTools) {
-      for (const toolRequest of toolRequests) {
-        console.warn("Don't have available tool named '" + toolRequest.name + "'");
-      }
-      return null;
-    }
-
     const toolsWithHandlers = (this.availableTools || []).filter(
       (t): t is LangToolWithHandler => 'handler' in t
     );
@@ -334,13 +326,25 @@ export class LangMessages extends Array<LangMessage> {
       if (!toolName) continue;
 
       const tool = toolsWithHandlers.find(t => t.name === toolName);
-      if (!tool) continue;
+      if (!tool) {
+        // Tool was requested but not found - add error result so LLM can respond
+        const id = requestedTool.callId;
+        toolResults.push({
+          toolId: id,
+          name: toolName,
+          result: {
+            error: true,
+            name: "ToolNotFound",
+            message: `Tool "${toolName}" is not available. Available tools: ${toolsWithHandlers.map(t => t.name).join(", ") || "none"}`,
+          }
+        });
+        continue;
+      }
 
       let result: any;
       try {
         result = await Promise.resolve(tool.handler(requestedTool.arguments || {}));
       } catch (error) {
-        console.error('Error executing tool "' + toolName + '":', error);
         result = {
           error: true,
           name: error.name,
