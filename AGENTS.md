@@ -300,7 +300,7 @@ When publishing, follow these steps in order:
   "type": "module",
   "name": "aiwrapper",
   "description": "A Universal AI Wrapper for JavaScript & TypeScript",
-  "version": "3.0.0-beta.0",
+  "version": "3.0.0-beta.2",
   "author": "Dmitry Kury (https://dkury.com)",
   "license": "MIT",
   "repository": {
