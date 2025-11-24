@@ -60,6 +60,7 @@ export class OllamaLang extends LanguageProvider {
     prompt: string,
     options?: LangOptions,
   ): Promise<LangResult> {
+    const abortSignal = options?.signal;
     // Create a proper message collection
     const messages = new LangMessages();
     messages.addUserMessage(prompt);
@@ -123,23 +124,32 @@ export class OllamaLang extends LanguageProvider {
       if (last) options?.onResult?.(last as any);
     };
 
-    const response = await fetch(`${this._config.baseURL}/api/generate`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: this._config.model,
-        prompt,
-        stream: true,
-        ...(requestMaxTokens && { num_predict: requestMaxTokens })
-      }),
-    })
-      .catch((err) => {
-        throw new Error(err);
-      });
+    try {
+      const response = await fetch(`${this._config.baseURL}/api/generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: this._config.model,
+          prompt,
+          stream: true,
+          ...(requestMaxTokens && { num_predict: requestMaxTokens })
+        }),
+        signal: abortSignal,
+      })
+        .catch((err) => {
+          throw new Error(err);
+        });
 
-    await processServerEvents(response, onData);
+      await processServerEvents(response, onData, abortSignal);
+    } catch (error) {
+      if ((error as any)?.name === "AbortError") {
+        result.aborted = true;
+        (error as any).partialResult = result;
+      }
+      throw error;
+    }
 
     // For non-streaming case, perform final extraction
     if (!onResult) {
@@ -157,6 +167,7 @@ export class OllamaLang extends LanguageProvider {
   }
 
   async chat(messages: LangMessage[] | LangMessages, options?: LangOptions): Promise<LangResult> {
+    const abortSignal = options?.signal;
     const result = new LangResult(messages);
 
     // Try to get model info and calculate max tokens
@@ -240,21 +251,30 @@ export class OllamaLang extends LanguageProvider {
       return m;
     });
 
-    const response = await fetch(`${this._config.baseURL}/api/chat`, {
-      method: "POST",
-      body: JSON.stringify({
-        model: this._config.model,
-        messages: mappedMessages,
-        ...(images.length > 0 ? { images } : {}),
-        stream: true,
-        ...(requestMaxTokens && { num_predict: requestMaxTokens }),
+    try {
+      const response = await fetch(`${this._config.baseURL}/api/chat`, {
+        method: "POST",
+        body: JSON.stringify({
+          model: this._config.model,
+          messages: mappedMessages,
+          ...(images.length > 0 ? { images } : {}),
+          stream: true,
+          ...(requestMaxTokens && { num_predict: requestMaxTokens }),
+        }),
+        signal: abortSignal,
       })
-    })
-      .catch((err) => {
-        throw new Error(err);
-      });
+        .catch((err) => {
+          throw new Error(err);
+        });
 
-    await processServerEvents(response, onData);
+      await processServerEvents(response, onData, abortSignal);
+    } catch (error) {
+      if ((error as any)?.name === "AbortError") {
+        result.aborted = true;
+        (error as any).partialResult = result;
+      }
+      throw error;
+    }
 
     // For non-streaming case, perform final extraction
     if (!onResult) {

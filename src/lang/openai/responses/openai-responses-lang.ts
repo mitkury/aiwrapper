@@ -119,6 +119,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
   }
 
   private async sendToApi(msgCollection: LangMessages, options?: LangOptions): Promise<void> {
+    const abortSignal = options?.signal;
     // If apply_patch is used as a tool, require that the user provides a handler for it.
     // This keeps the provider behavior (built-in apply_patch tool) while still allowing
     // users to supply a local patch harness.
@@ -146,6 +147,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
         ...options?.providerSpecificHeaders,
       },
       body: JSON.stringify(body),
+      signal: abortSignal,
       on400Error: async (res: Response, _error: Error, reqOptions: HttpResponseWithRetries) => {
         const data = await res.text();
         const dataObj = JSON.parse(data);
@@ -176,8 +178,16 @@ export class OpenAIResponsesLang extends LanguageProvider {
     };
 
     const streamHander = new OpenAIResponseStreamHandler(msgCollection, options?.onResult);
-    const response = await fetch(`${this.baseURL}/responses`, req);
-    await processServerEvents(response, (data) => streamHander.handleEvent(data));
+    try {
+      const response = await fetch(`${this.baseURL}/responses`, req);
+      await processServerEvents(response, (data) => streamHander.handleEvent(data), abortSignal);
+    } catch (error) {
+      if ((error as any)?.name === "AbortError") {
+        msgCollection.aborted = true;
+        (error as any).partialResult = msgCollection;
+      }
+      throw error;
+    }
 
     // If we expect a structured output, validate the schema against the result
     if (options?.schema) {

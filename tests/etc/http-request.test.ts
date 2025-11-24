@@ -146,5 +146,53 @@ describe('httpRequestWithRetry', () => {
       expect(httpError.bodyText).toContain('invalid_request');
     }
   });
-});
 
+  it('aborts in-flight requests and skips retries', async () => {
+    let attemptCount = 0;
+
+    setHttpRequestImpl(async (_url: string | URL, options: any) => {
+      attemptCount++;
+      const controllerSignal: AbortSignal | undefined = options.signal;
+
+      return new Promise<Response>((resolve, reject) => {
+        const abortHandler = () => {
+          controllerSignal?.removeEventListener("abort", abortHandler);
+          const err = new Error("Aborted");
+          err.name = "AbortError";
+          reject(err);
+        };
+
+        if (controllerSignal) {
+          if (controllerSignal.aborted) {
+            abortHandler();
+            return;
+          }
+          controllerSignal.addEventListener("abort", abortHandler, { once: true });
+        }
+
+        setTimeout(() => {
+          controllerSignal?.removeEventListener("abort", abortHandler);
+          resolve(
+            new Response("OK", {
+              status: 200,
+              headers: { "Content-Type": "text/plain" },
+            })
+          );
+        }, 50);
+      });
+    });
+
+    const ac = new AbortController();
+    const promise = httpRequestWithRetry("https://example.com/slow", {
+      method: "GET",
+      retries: 2,
+      backoffMs: 5,
+      signal: ac.signal,
+    });
+
+    setTimeout(() => ac.abort(), 10);
+
+    await expect(promise).rejects.toMatchObject({ name: "AbortError" });
+    expect(attemptCount).toBe(1);
+  });
+});

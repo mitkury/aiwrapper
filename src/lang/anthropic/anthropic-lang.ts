@@ -79,6 +79,7 @@ export class AnthropicLang extends LanguageProvider {
     messages: LangMessage[] | LangMessages,
     options?: LangOptions,
   ): Promise<LangMessages> {
+    const abortSignal = options?.signal;
     const messageCollection = messages instanceof LangMessages
       ? messages
       : new LangMessages(messages);
@@ -110,22 +111,31 @@ export class AnthropicLang extends LanguageProvider {
       ...(tools ? { tools } : {}),
     };
 
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-        "x-api-key": this._config.apiKey
-      },
-      body: JSON.stringify(requestBody),
-    } as any).catch((err) => { throw new Error(err); });
+    try {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+          "x-api-key": this._config.apiKey
+        },
+        body: JSON.stringify(requestBody),
+        signal: abortSignal,
+      } as any).catch((err) => { throw new Error(err); });
 
-    const streamHandler = new AnthropicStreamHandler(result, options?.onResult);
+      const streamHandler = new AnthropicStreamHandler(result, options?.onResult);
 
-    await processServerEvents(response, (data: any) => {
-      streamHandler.handleEvent(data);
-    });
+      await processServerEvents(response, (data: any) => {
+        streamHandler.handleEvent(data);
+      }, abortSignal);
+    } catch (error) {
+      if ((error as any)?.name === "AbortError") {
+        result.aborted = true;
+        (error as any).partialResult = result;
+      }
+      throw error;
+    }
 
     result.finished = true;
 

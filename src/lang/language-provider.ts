@@ -36,6 +36,9 @@ export interface LangOptions {
   // Streaming callback
   onResult?: (result: LangMessage) => void;
 
+  // Optional AbortSignal to cancel requests/streams
+  signal?: AbortSignal;
+
   providerSpecificBody?: Record<string, any>;
   providerSpecificHeaders?: Record<string, string>;
 }

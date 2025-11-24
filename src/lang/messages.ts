@@ -152,6 +152,7 @@ export class LangMessage {
 export class LangMessages extends Array<LangMessage> {
   availableTools?: LangTool[];
   finished: boolean = false;
+  aborted: boolean = false;
   instructions?: string;
 
   constructor();

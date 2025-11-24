@@ -21,7 +21,4 @@ Allow callers to cancel in-flight `ask/chat` calls by passing an `AbortSignal` t
 
 ## Behavior Details
 - Request-level only (v1): a single abort cancels the whole chat/ask request and underlying stream.
-- Tool calls: treat as incomplete on abort—do not auto-execute or commit tool results after abort fires. Keep any partial messages collected so far in the `LangMessages` instance for inspection, but mark the result as aborted (surface `AbortError`).
-  
-## Open Questions
-- Do we need a dedicated `aborted: true` flag on `LangMessages` (or reuse `finished = false`) to signal the partial state explicitly?
+- Tool calls: treat as incomplete on abort—do not auto-execute or commit tool results after abort fires. Keep any partial messages collected so far in the `LangMessages` instance for inspection, mark the result with `aborted: true`, and surface `AbortError`.

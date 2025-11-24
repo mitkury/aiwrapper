@@ -62,6 +62,7 @@ export class CohereLang extends LanguageProvider {
     messages: LangMessage[] | LangMessages,
     options?: LangOptions,
   ): Promise<LangResult> {
+    const abortSignal = options?.signal;
     const result = new LangResult(messages);
 
     // Transform messages to Cohere's format (only user/assistant roles)
@@ -89,18 +90,6 @@ export class CohereLang extends LanguageProvider {
       preamble_override: this._systemPrompt || undefined,
     };
 
-    const response = await fetch(`https://api.cohere.com/v2/chat?alt=sse`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${this._apiKey}`,
-        "Accept": "text/event-stream",
-      },
-      body: JSON.stringify(requestBody),
-    }).catch((err) => {
-      throw new Error(err);
-    });
-
     const onResult = options?.onResult;
     const onData = (data: any) => {
       if (data.type === "message-end") {
@@ -118,8 +107,29 @@ export class CohereLang extends LanguageProvider {
       }
     };
 
-    await processServerEvents(response, onData);
+    try {
+      const response = await fetch(`https://api.cohere.com/v2/chat?alt=sse`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${this._apiKey}`,
+          "Accept": "text/event-stream",
+        },
+        body: JSON.stringify(requestBody),
+        signal: abortSignal,
+      }).catch((err) => {
+        throw new Error(err);
+      });
+
+      await processServerEvents(response, onData, abortSignal);
+    } catch (error) {
+      if ((error as any)?.name === "AbortError") {
+        result.aborted = true;
+        (error as any).partialResult = result;
+      }
+      throw error;
+    }
 
     return result;
   }
-} 
+}

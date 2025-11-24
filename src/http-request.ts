@@ -3,6 +3,7 @@ export interface HttpRequestInit {
   cache?: string;
   credentials?: string;
   headers?: Record<string, string>;
+  signal?: AbortSignal;
   /**
    * A cryptographic hash of the resource to be fetched by request. Sets
    * request's integrity.
@@ -192,6 +193,12 @@ function parseRetryAfter(retryAfter: string): number {
   return 0;
 }
 
+function createAbortError(): Error {
+  const abortError = new Error("The operation was aborted");
+  abortError.name = "AbortError";
+  return abortError;
+}
+
 /**
  * Performs an HTTP request with automatic retry logic and exponential backoff.
  * 
@@ -210,6 +217,9 @@ export const httpRequestWithRetry = async (
   url: string | URL,
   options: HttpResponseWithRetries,
 ): Promise<Response> => {
+  if (options.signal?.aborted) {
+    throw createAbortError();
+  }
   // Initialize defaults (mutates options object)
   if (options.retries === undefined) {
     options.retries = 6;
@@ -274,6 +284,9 @@ export const httpRequestWithRetry = async (
     }
     return response;
   } catch (error) {
+    if ((error as any)?.name === "AbortError") {
+      throw error;
+    }
     // Handle network errors (no Response object) - treat as retryable
     if (!(error instanceof HttpRequestError)) {
       // Network errors (timeout, DNS, connection refused, etc.) should be retried
@@ -326,7 +339,34 @@ export const httpRequestWithRetry = async (
           options.backoffMs = targetBackoffMs;
         }
 
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        await new Promise((resolve) => {
+          let timeout: ReturnType<typeof setTimeout> | undefined;
+          let onAbort: (() => void) | undefined;
+          if (options.signal) {
+            onAbort = () => {
+              if (timeout !== undefined) {
+                clearTimeout(timeout);
+              }
+              options.signal?.removeEventListener("abort", onAbort!);
+              resolve(null);
+            };
+            if (options.signal.aborted) {
+              options.signal.removeEventListener("abort", onAbort);
+              resolve(null);
+              return;
+            }
+            options.signal.addEventListener("abort", onAbort, { once: true });
+          }
+          timeout = setTimeout(() => {
+            if (options.signal && onAbort) {
+              options.signal.removeEventListener("abort", onAbort);
+            }
+            resolve(null);
+          }, delayMs);
+        });
+        if (options.signal?.aborted) {
+          throw createAbortError();
+        }
         return httpRequestWithRetry(url, options);
       }
     }

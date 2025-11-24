@@ -121,6 +121,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
         ...(options?.providerSpecificHeaders ?? {}),
       },
       body: JSON.stringify(body),
+      signal: options?.signal,
     } as const;
   }
 
@@ -184,6 +185,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     messages: LangMessage[] | LangMessages,
     options?: LangOptions,
   ): Promise<LangMessages> {
+    const abortSignal = options?.signal;
     const result = messages instanceof LangMessages
       ? messages
       : new LangMessages(messages);
@@ -204,11 +206,19 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
       this.handleStreamData(data, result, options?.onResult);
     };
 
-    const response = await fetch(`${this._config.baseURL}/chat/completions`, commonRequest as any).catch((err) => {
-      throw new Error(err);
-    });
+    try {
+      const response = await fetch(`${this._config.baseURL}/chat/completions`, commonRequest as any).catch((err) => {
+        throw new Error(err);
+      });
 
-    await processServerEvents(response, onData);
+      await processServerEvents(response, onData, abortSignal);
+    } catch (error) {
+      if ((error as any)?.name === "AbortError") {
+        result.aborted = true;
+        (error as any).partialResult = result;
+      }
+      throw error;
+    }
 
     result.finished = true;
 

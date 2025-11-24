@@ -1,7 +1,7 @@
 import processLinesFromStream from "./lang/process-lines-from-stream.ts";
 
 // This would work only in Deno and browsers, not in Node.
-let _processServerEvents = (response: Response, onData: (data: any) => void): Promise<void> => {
+let _processServerEvents = (response: Response, onData: (data: any) => void, signal?: AbortSignal): Promise<void> => {
   if (response.ok === false) {
     throw new Error(
       `Response from server was not ok. Status code: ${response.status}.`,
@@ -11,9 +11,32 @@ let _processServerEvents = (response: Response, onData: (data: any) => void): Pr
   const reader = response.body!.getReader();
   let decoder = new TextDecoder("utf-8");
   let rawData = "";
+  let aborted = false;
+  let abortError: Error | null = null;
+  let abortHandler: (() => void) | undefined;
+
+  if (signal) {
+    abortHandler = () => {
+      aborted = true;
+      abortError = new Error("The operation was aborted");
+      abortError.name = "AbortError";
+      reader.cancel().catch(() => {});
+    };
+    if (signal.aborted) {
+      abortHandler();
+    } else {
+      signal.addEventListener("abort", abortHandler, { once: true });
+    }
+  }
 
   return reader.read().then(function processStream(result): Promise<void> {
+    if (aborted) {
+      return Promise.reject(abortError ?? new Error("AbortError"));
+    }
     if (result.done || result.value === undefined) {
+      if (aborted) {
+        return Promise.reject(abortError ?? new Error("AbortError"));
+      }
       return Promise.resolve();
     }
 
@@ -29,6 +52,10 @@ let _processServerEvents = (response: Response, onData: (data: any) => void): Pr
     }
 
     return reader.read().then(processStream);
+  }).finally(() => {
+    if (signal && abortHandler) {
+      signal.removeEventListener("abort", abortHandler);
+    }
   });
 };
 
@@ -37,7 +64,7 @@ let _processServerEvents = (response: Response, onData: (data: any) => void): Pr
  * This is useful for testing and for customizing the behavior of the processServerEvents function.
  */
 export const setProcessServerEventsImpl = (
-  impl: (response: Response, onProgress: (data: any) => void) => Promise<void>,
+  impl: (response: Response, onProgress: (data: any) => void, signal?: AbortSignal) => Promise<void>,
 ) => {
   _processServerEvents = impl;
 };
@@ -45,6 +72,7 @@ export const setProcessServerEventsImpl = (
 export const processServerEvents = (
   response: Response,
   onProgress: (data: any) => void,
+  signal?: AbortSignal,
 ): Promise<void> => {
-  return _processServerEvents(response, onProgress);
+  return _processServerEvents(response, onProgress, signal);
 };
