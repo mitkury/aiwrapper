@@ -27,6 +27,7 @@
   type Mode = "chat" | "inspect" | "json";
   let mode: Mode = $state("chat");
   let error: Error | unknown | undefined = $state(undefined);
+  let abortController: AbortController | null = null;
 
   const modeOptions: { id: Mode; label: string }[] = [
     { id: "chat", label: "Chat" },
@@ -78,16 +79,22 @@
   async function handleSubmit(message: string) {
     error = undefined; // Clear any previous error
     agent.messages.addUserMessage(message);
+    abortController?.abort();
+    abortController = new AbortController();
     
     try {
-      await agent.run();
+      await agent.run(undefined, { signal: abortController.signal });
     } catch (err) {
       console.error("Error running agent", err);
       error = err;
+    } finally {
+      abortController = null;
     }
   }
 
   async function handleClear() {
+    abortController?.abort();
+    abortController = null;
     agent.messages.splice(0, agent.messages.length);
     agent.messages.availableTools = tools;
     messages = [];
@@ -101,16 +108,24 @@
   async function handleTryAgain() {
     tryAgain = false;
     error = undefined; // Clear error when retrying
+    abortController?.abort();
+    abortController = new AbortController();
     try {
-      await agent.run();
+      await agent.run(undefined, { signal: abortController.signal });
     } catch (err) {
       console.error("Error running agent", err);
       error = err;
+    } finally {
+      abortController = null;
     }
   }
 
   function handleDismissError() {
     error = undefined;
+  }
+
+  function handleStop() {
+    abortController?.abort();
   }
 
   function setMode(nextMode: Mode) {
@@ -220,7 +235,12 @@
     </div>
 
     <div class="py-3 border-neutral-200 sticky bottom-0 bg-white">
-      <ChatInput onsubmit={handleSubmit} waitForResponse={waitForResponse} />
+      <ChatInput
+        onsubmit={handleSubmit}
+        waitForResponse={waitForResponse}
+        isRunning={agentIsRunning}
+        onstop={handleStop}
+      />
     </div>
   </div>
 </div>
