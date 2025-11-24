@@ -159,9 +159,9 @@ export class LangMessages extends Array<LangMessage> {
   constructor(initialPrompt: string, opts?: { tools?: LangTool[] });
   constructor(initialMessages: LangMessage[], opts?: { tools?: LangTool[] });
   constructor(initialMessages: LangMessages, opts?: { tools?: LangTool[] });
-  constructor(initialMessages: { role: LangMessageRole; items: LangMessageItem[]; }[], opts?: { tools?: LangTool[] });
+  constructor(initialMessages: { role: LangMessageRole; items: LangMessageItem[]; meta?: Record<string, any>; }[], opts?: { tools?: LangTool[] });
   constructor(
-    initial?: string | { role: LangMessageRole; items: LangMessageItem[]; }[] | LangMessage[] | LangMessages,
+    initial?: string | { role: LangMessageRole; items: LangMessageItem[]; meta?: Record<string, any>; }[] | LangMessage[] | LangMessages,
     opts?: { tools?: LangTool[] }
   ) {
     // When extending Array, call super with the initial elements if provided
@@ -183,7 +183,7 @@ export class LangMessages extends Array<LangMessage> {
         if (m instanceof LangMessage) {
           this.push(m);
         } else {
-          this.push(new LangMessage(m.role, m.items));
+          this.push(new LangMessage(m.role, m.items, m.meta));
         }
       }
     }

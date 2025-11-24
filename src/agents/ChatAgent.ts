@@ -12,7 +12,14 @@ export interface ChatStreamingEvent {
   data: { msg: LangMessage; idx: number };
 }
 
-export class ChatAgent extends Agent<{ role: LangMessageRole; items: LangMessageItem[] }[] | LangMessages | LangMessage[], LangMessages, ChatStreamingEvent> {
+export class ChatAgent
+  extends Agent<
+    | { role: LangMessageRole; items: LangMessageItem[] }[]
+    | LangMessages
+    | LangMessage[],
+    LangMessages,
+    ChatStreamingEvent
+  > {
   private lang?: LanguageProvider;
   messages: LangMessages;
 
@@ -25,11 +32,16 @@ export class ChatAgent extends Agent<{ role: LangMessageRole; items: LangMessage
     });
   }
 
-  protected async runInternal(input: { role: LangMessageRole; items: LangMessageItem[] }[] | LangMessages | LangMessage[], options?: { signal?: AbortSignal }): Promise<LangMessages> {
+  protected async runInternal(
+    input:
+      | { role: LangMessageRole; items: LangMessageItem[] }[]
+      | LangMessages
+      | LangMessage[],
+    options?: { signal?: AbortSignal },
+  ): Promise<LangMessages> {
     if (input instanceof LangMessages) {
       this.messages = input;
-    }
-    else {
+    } else {
       this.messages.push(...new LangMessages(input));
     }
 
@@ -60,7 +72,8 @@ export class ChatAgent extends Agent<{ role: LangMessageRole; items: LangMessage
       // We continue the loop if the last message has tool results.
       // If it has - it means we need to give them to the model.
       const lastMessage = this.messages[this.messages.length - 1];
-      const lastMessageHasToolResults = lastMessage && lastMessage.toolResults.length > 0;
+      const lastMessageHasToolResults = lastMessage &&
+        lastMessage.toolResults.length > 0;
       if (!lastMessageHasToolResults) {
         break;
       }
