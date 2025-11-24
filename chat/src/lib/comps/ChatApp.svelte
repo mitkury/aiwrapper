@@ -2,6 +2,7 @@
   import { Lang, LangMessage, ChatAgent, type LangTool, LangMessages } from "aiwrapper";
 	import ChatInput from "./ChatInput.svelte";
 	import ChatMessages from "./ChatMessages.svelte";
+  import ChatMessagesJson from "./ChatMessagesJson.svelte";
 	import SecretsSetup from "./SecretsSetup.svelte";
 	import Button from "./Button.svelte";
 	import ErrorDisplay from "./ErrorDisplay.svelte";
@@ -218,7 +219,11 @@
       </Button>
     </div>
     <div class="flex-1 overflow-y-auto py-4 sm:py-6">
-      <ChatMessages messages={messages} mode={mode} />
+      {#if mode === "json"}
+        <ChatMessagesJson {messages} />
+      {:else}
+        <ChatMessages messages={messages} mode={mode === "inspect" ? "inspect" : "chat"} />
+      {/if}
       {#if error}
         <div class="mt-4">
           <ErrorDisplay error={error} onDismiss={handleDismissError} />
