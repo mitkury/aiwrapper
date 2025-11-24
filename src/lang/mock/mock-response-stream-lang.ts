@@ -150,6 +150,21 @@ export class MockResponseStreamLang extends LanguageProvider {
     const responseText = this.pickMessage(overrides);
     const chunkSize = this.resolveChunkSize(overrides);
     const delay = this.resolveSpeed(overrides);
+    const signal = options?.signal;
+    let aborted = false;
+    let abortError: Error | null = null;
+    const abortHandler = () => {
+      aborted = true;
+      abortError = new Error("The operation was aborted");
+      abortError.name = "AbortError";
+    };
+    if (signal) {
+      if (signal.aborted) {
+        abortHandler();
+      } else {
+        signal.addEventListener("abort", abortHandler, { once: true });
+      }
+    }
 
     const handler = new OpenAIResponseStreamHandler(messages, options?.onResult);
     const responseId = randomId("resp_mock");
@@ -173,43 +188,59 @@ export class MockResponseStreamLang extends LanguageProvider {
     });
 
     const chunks = this.chunkText(responseText, chunkSize);
-    for (const chunk of chunks) {
-      await sleep(delay);
-      if (chunk.length > 0) {
-        handler.handleEvent({
-          type: "response.output_text.delta",
-          item_id: itemId,
-          delta: chunk
-        });
+    try {
+      for (const chunk of chunks) {
+        if (aborted) break;
+        await sleep(delay);
+        if (aborted) break;
+        if (chunk.length > 0) {
+          handler.handleEvent({
+            type: "response.output_text.delta",
+            item_id: itemId,
+            delta: chunk
+          });
+        }
+      }
+
+      if (aborted) {
+        messages.aborted = true;
+        const err = abortError ?? new Error("AbortError");
+        err.name = err.name || "AbortError";
+        (err as any).partialResult = messages;
+        throw err;
+      }
+
+      handler.handleEvent({
+        type: "response.output_item.done",
+        item: {
+          id: itemId,
+          type: "message",
+          status: "completed",
+          role: "assistant",
+          content: [
+            {
+              type: "output_text",
+              text: responseText,
+              annotations: [],
+              logprobs: []
+            }
+          ]
+        }
+      });
+
+      handler.handleEvent({
+        type: "response.completed",
+        response: {
+          id: responseId,
+          status: "completed"
+        }
+      });
+
+      messages.finished = true;
+    } finally {
+      if (signal && abortHandler) {
+        signal.removeEventListener("abort", abortHandler);
       }
     }
-
-    handler.handleEvent({
-      type: "response.output_item.done",
-      item: {
-        id: itemId,
-        type: "message",
-        status: "completed",
-        role: "assistant",
-        content: [
-          {
-            type: "output_text",
-            text: responseText,
-            annotations: [],
-            logprobs: []
-          }
-        ]
-      }
-    });
-
-    handler.handleEvent({
-      type: "response.completed",
-      response: {
-        id: responseId,
-        status: "completed"
-      }
-    });
-
-    messages.finished = true;
   }
 }

@@ -59,4 +59,30 @@ describe("MockResponseStreamLang", () => {
     expect(second.answer).toBe("smaller");
     expect(third.answer).toBe("little");
   });
+
+  it("supports aborting mid-stream via signal", async () => {
+    const longMessage = "lorem ipsum ".repeat(1000); // big payload
+    const lang = new MockResponseStreamLang({
+      message: longMessage,
+      chunkSize: 50,
+      speedMs: 5,
+    });
+
+    const ac = new AbortController();
+    const seen: string[] = [];
+
+    const run = lang.ask("Say something long", {
+      signal: ac.signal,
+      onResult: (msg) => {
+        if (msg.role !== "assistant") return;
+        seen.push(msg.text);
+      },
+    });
+
+    setTimeout(() => ac.abort(), 10);
+
+    await expect(run).rejects.toMatchObject({ name: "AbortError" });
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen[seen.length - 1].length).toBeLessThan(longMessage.length);
+  });
 });
