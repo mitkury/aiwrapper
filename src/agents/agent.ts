@@ -12,6 +12,12 @@ export interface AgentErrorEvent {
   error: Error;
 }
 
+export interface AgentAbortedEvent<TOutput> {
+  type: "aborted";
+  error: Error;
+  partial?: TOutput;
+}
+
 export interface AgentStateEvent {
   type: "state";
   state: AgentState;
@@ -27,6 +33,7 @@ export interface AgentCustomEvent<TType extends string, TData = any> {
 export type AgentEvent<TOutput, TCustomEvents = never> = 
   | AgentFinishedEvent<TOutput>
   | AgentErrorEvent
+  | AgentAbortedEvent<TOutput>
   | AgentStateEvent
   | TCustomEvents;
 
@@ -54,14 +61,22 @@ export abstract class Agent<TInput, TOutput, TCustomEvents = never> {
   }
 
   // Run the agent either with a new input or the provided in this.lastInput
-  async run(input?: TInput): Promise<TOutput> {
+  async run(input?: TInput, options?: { signal?: AbortSignal }): Promise<TOutput> {
     this.setState("running");
 
     try {      
-      const result = await this.runInternal(input);
+      const result = await this.runInternal(input, options);
       this.setState("idle");
       return result;
     } catch (error) {
+      if ((error as any)?.name === "AbortError") {
+        const partial = (error as any)?.partialResult as TOutput | undefined;
+        this.emit({ type: "aborted", error: error as Error, partial });
+        this.setState("idle");
+        if (partial !== undefined) return partial;
+        throw error;
+      }
+
       this.emit({ type: "error", error: error as Error });
       this.setState("idle");
       throw error;
@@ -88,5 +103,5 @@ export abstract class Agent<TInput, TOutput, TCustomEvents = never> {
   }
 
   // Abstract method to be implemented by concrete agents
-  protected abstract runInternal(input?: TInput): Promise<TOutput>;
+  protected abstract runInternal(input?: TInput, options?: { signal?: AbortSignal }): Promise<TOutput>;
 }

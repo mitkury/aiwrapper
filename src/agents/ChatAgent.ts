@@ -25,7 +25,7 @@ export class ChatAgent extends Agent<{ role: LangMessageRole; items: LangMessage
     });
   }
 
-  protected async runInternal(input: { role: LangMessageRole; items: LangMessageItem[] }[] | LangMessages | LangMessage[]): Promise<LangMessages> {
+  protected async runInternal(input: { role: LangMessageRole; items: LangMessageItem[] }[] | LangMessages | LangMessage[], options?: { signal?: AbortSignal }): Promise<LangMessages> {
     if (input instanceof LangMessages) {
       this.messages = input;
     }
@@ -51,7 +51,8 @@ export class ChatAgent extends Agent<{ role: LangMessageRole; items: LangMessage
             lastRoleInRun = msg.role;
           }
           this.emit({ type: "streaming", data: { msg, idx: streamIdx } });
-        }
+        },
+        signal: options?.signal,
       });
 
       this.messages = response;
