@@ -7,7 +7,7 @@ export interface LangProvider {
 }
 
 /** Supported provider names */
-export type SupportedProvider = 'openai' | 'openrouter' | 'anthropic' | 'deepseek';
+export type SupportedProvider = 'openai' | 'openrouter' | 'anthropic' | 'google' | 'deepseek';
 
 export interface LangGathererOptions {
   /** Custom model overrides */
@@ -15,6 +15,7 @@ export interface LangGathererOptions {
     openai?: string;
     openrouter?: string;
     anthropic?: string;
+    google?: string;
     deepseek?: string;
   };
   /** Specific providers to include (overrides other options) */
@@ -40,7 +41,7 @@ function getProviderFilters(): string[] {
   for (let i = 0; i < args.length; i++) {
     if (args[i].startsWith('--') && !args[i].startsWith('--reporter') && !args[i].startsWith('--run')) {
       const providerName = args[i].substring(2).toLowerCase();
-      if (['openai', 'openrouter', 'anthropic', 'deepseek'].includes(providerName)) {
+      if (['openai', 'openrouter', 'anthropic', 'google', 'deepseek'].includes(providerName)) {
         providers.push(providerName);
       }
     }
@@ -127,6 +128,14 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
     langs.push(Lang.anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY as string,
       model: modelOverrides.anthropic || 'claude-3-7-sonnet-20250219'
+    }));
+  }
+
+  // Google
+  if (process.env.GOOGLE_API_KEY && shouldIncludeProvider('google')) {
+    langs.push(Lang.google({
+      apiKey: process.env.GOOGLE_API_KEY as string,
+      model: modelOverrides.google || 'gemini-3-pro-preview'
     }));
   }
 

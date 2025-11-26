@@ -11,8 +11,6 @@ describe('Basic Lang', () => {
 });
 
 async function runTest(lang: LanguageProvider) {
-
-  /*
   it('should respond with a string', async () => {
     const res = await lang.ask('Hey, respond with "Hey" as well');
     expect(res.length).toBeGreaterThan(1);
@@ -54,7 +52,6 @@ async function runTest(lang: LanguageProvider) {
     expect(typeof res.answer).toBe('string');
     expect(res.answer.toLocaleLowerCase()).toContain('paris');
   });
-  */
 
   it('should return a simple JSON object', async () => {
 
