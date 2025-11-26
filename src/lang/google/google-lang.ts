@@ -5,7 +5,6 @@ import { LangContentPart, LangImageInput } from "../language-provider.ts";
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
 import { LangMessage, LangMessages, LangMessageItemImage, LangMessageItemTool, LangTool } from "../messages.ts";
 import { addInstructionAboutSchema } from "../prompt-for-json.ts";
-import { isZodSchema, zodToJsonSchema } from "../schema/schema-utils.ts";
 
 export type GoogleLangOptions = {
   apiKey: string;
@@ -22,7 +21,7 @@ export class GoogleLang extends LanguageProvider {
   private modelInfo?: Model;
 
   constructor(options: GoogleLangOptions) {
-    const modelName = options.model || "gemini-2.5-flash-preview";
+    const modelName = options.model || "gemini-1.5-flash";
     super(modelName);
 
     const modelInfo = models.id(modelName);
@@ -66,37 +65,31 @@ export class GoogleLang extends LanguageProvider {
 
     const generationConfig: Record<string, any> = {};
     if (typeof maxOutputTokens === "number") {
-      generationConfig.maxOutputTokens = maxOutputTokens;
+      generationConfig.max_output_tokens = maxOutputTokens;
     }
 
     const requestBody: any = {
       contents,
       ...(instructions ? {
-        systemInstruction: {
+        system_instruction: {
           role: "system",
           parts: [{ text: instructions }],
         },
       } : {}),
-      ...(Object.keys(generationConfig).length > 0 ? { generationConfig } : {}),
+      ...(Object.keys(generationConfig).length > 0 ? { generation_config: generationConfig } : {}),
       ...(tools ? { tools } : {}),
       ...(options?.providerSpecificBody ?? {}),
     };
 
-    if (options?.schema) {
-      const schema = options.schema;
-      requestBody.responseMimeType = "application/json";
-      requestBody.responseSchema = isZodSchema(schema)
-        ? zodToJsonSchema(schema)
-        : schema;
-    }
-
+    // Gemini REST v1beta doesn't yet accept responseSchema/responseMimeType; fall back to prompt
     try {
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${this._model}:generateContent`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${this._model}:generateContent?key=${this._apiKey}`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            // Some setups still expect the header, so keep both
             "x-goog-api-key": this._apiKey,
             ...(options?.providerSpecificHeaders ?? {}),
           },
@@ -166,7 +159,7 @@ export class GoogleLang extends LanguageProvider {
           } else if (item.type === "tool") {
             const toolItem = item as LangMessageItemTool;
             parts.push({
-              functionCall: {
+              function_call: {
                 name: toolItem.name,
                 args: toolItem.arguments ?? {},
               },
@@ -290,7 +283,7 @@ export class GoogleLang extends LanguageProvider {
       parameters: (tool as any).parameters,
     }));
 
-    return functionDeclarations.length > 0 ? { functionDeclarations } : undefined;
+    return functionDeclarations.length > 0 ? [{ function_declarations: functionDeclarations }] : undefined;
   }
 
   private applyCandidates(
@@ -322,10 +315,11 @@ export class GoogleLang extends LanguageProvider {
       if (part.fileData?.fileUri) {
         assistantMessage.items.push({ type: "image", url: part.fileData.fileUri });
       }
-      if (part.functionCall) {
-        const name = part.functionCall.name || `function_call_${toolIndex}`;
+      const funcCall = part.functionCall || part.function_call;
+      if (funcCall) {
+        const name = funcCall.name || `function_call_${toolIndex}`;
         const callId = `function_call_${toolIndex++}`;
-        const rawArgs = part.functionCall.args;
+        const rawArgs = funcCall.args || funcCall.arguments;
         const args = this.parseFunctionArgs(rawArgs);
         assistantMessage.items.push({
           type: "tool",
