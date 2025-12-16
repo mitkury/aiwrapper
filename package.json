@@ -48,7 +48,7 @@
     "test:reasoning": "npm run build && vitest run tests/reasoning/*.test.ts"
   },
   "dependencies": {
-    "aimodels": "^0.5.1",
+    "aimodels": "^0.5.2",
     "ajv": "^8.17.1",
     "jsonic": "^2.16.0",
     "zod": "^3.24.4",

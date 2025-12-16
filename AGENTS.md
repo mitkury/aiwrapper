@@ -3,16 +3,19 @@ This is a context for AI editor/agent about the project. It's generated with a t
 # From README.md:
 
 # AIWrapper
+
 A universal AI wrapper for JavaScript & TypeScript.
 
-Use LLMs from anywhere—servers, browsers and web-apps. AIWrapper works in anything that runs JavaScript.
+Use LLMs from anywhere—servers, browsers and web-apps. AIWrapper works in
+anything that runs JavaScript.
 
 > :warning: **It's in early WIP stage and the API may change.**
 
-
 ## Features
+
 - Generate plain text or JSON objects with a simple API
-- Use different LLM providers: OpenAI, Anthropic, Groq, DeepSeek, Ollama and any OpenAI-compatible services
+- Use different LLM providers: OpenAI, Anthropic, Groq, DeepSeek, Ollama and any
+  OpenAI-compatible services
 - Output objects based on Zod schemas or JSON Schema
 - Swap models quickly or chain different models together
 - Use it with JavaScript or TypeScript from anywhere
@@ -25,7 +28,32 @@ npm install aiwrapper
 
 ## Quick Start
 
+### Agents with Tools
+
+If you need the AI to use tools, start with `ChatAgent`.
+
+```javascript
+import { ChatAgent, Lang, LangMessage } from "aiwrapper";
+import { getTools } from "<your script>";
+
+const lang = Lang.openai({ apiKey: "<key>" });
+const agent = new ChatAgent(lang, { tools: getTools() });
+
+const result = await agent.run([
+  new LangMessage(
+    "user",
+    "Find the deployment checklist and send it to Alex B",
+  ),
+]);
+
+console.log(result.answer);
+// Full conversation history is available via agent.getMessages()
+```
+
 ### Generate Text
+
+For simpler text/JSON generation without tools, use the basic `Lang`.
+
 ```javascript
 import { Lang } from "aiwrapper";
 
@@ -37,6 +65,7 @@ console.log(result.answer);
 ## Lang (LLM) Examples
 
 ### Initialize a Model
+
 ```javascript
 import { Lang } from "aiwrapper";
 
@@ -44,6 +73,7 @@ const lang = Lang.openai({ apiKey: "YOUR KEY" }); // or Lang.anthropic
 ```
 
 ### Connect to Custom OpenAI-compatible APIs
+
 ```javascript
 import { Lang } from "aiwrapper";
 
@@ -53,19 +83,19 @@ const lang = Lang.openaiLike({
   model: "model-name",
   baseURL: "https://your-custom-api.example.com/v1",
   systemPrompt: "Optional system prompt",
-  
+
   // Optional headers for authentication or other purposes
   headers: {
     "X-Custom-Header": "custom-value",
-    "Authorization": "Basic dXNlcm5hbWU6cGFzc3dvcmQ=" // Alternative auth method example
+    "Authorization": "Basic dXNlcm5hbWU6cGFzc3dvcmQ=", // Alternative auth method example
   },
-  
+
   // Additional properties to include in the request body
   bodyProperties: {
     temperature: 0.7,
     presence_penalty: 0.6,
-    frequency_penalty: 0.1
-  }
+    frequency_penalty: 0.1,
+  },
 });
 
 // Use it just like any other LLM provider
@@ -74,6 +104,7 @@ console.log(result.answer);
 ```
 
 ### Use OpenRouter (Access 100+ Models)
+
 ```javascript
 import { Lang } from "aiwrapper";
 
@@ -93,18 +124,22 @@ const langWithSiteInfo = Lang.openrouter({
   maxTokens: 4000,
 });
 
-const result = await langWithSiteInfo.ask("Explain quantum computing in simple terms");
+const result = await langWithSiteInfo.ask(
+  "Explain quantum computing in simple terms",
+);
 console.log(result.answer);
 ```
 
 ### Stream Results
+
 ```javascript
 await lang.ask("Hello, AI!", {
-  onResult: (msg) => console.log(msg)
+  onResult: (msg) => console.log(msg),
 });
 ```
 
 ### Use Templates
+
 ```javascript
 // In most cases - a prompt template should be just a function that returns a string
 function getPrompt(product) {
@@ -115,11 +150,12 @@ Write just the name. Nothing else aside from the name - no extra comments or cha
 const prompt = getPrompt("colorful socks");
 
 await lang.ask(prompt, {
-  onResult: (msg) => console.log(msg)
+  onResult: (msg) => console.log(msg),
 });
 ```
 
 ### Conversation Management
+
 ```javascript
 // Start a conversation
 const result = await lang.ask("Hello, who are you?");
@@ -147,6 +183,7 @@ console.log(chatResult.answer);
 ```
 
 ### Getting Objects from LLMs
+
 ```javascript
 // We can ask for an object with a particular schema
 // You can use either Zod schemas or JSON Schema
@@ -159,7 +196,7 @@ const companyNamesSchema = z.array(z.string());
 
 const result = await lang.askForObject(
   "You are a naming consultant for new companies. What are 3 good names for a company that makes colorful socks?",
-  companyNamesSchema
+  companyNamesSchema,
 );
 
 // TypeScript automatically infers the type as string[]
@@ -169,21 +206,21 @@ console.log(result.object); // ["Chromatic Toe", "SockSpectra", "VividStep"]
 const jsonSchema = {
   type: "array",
   items: {
-    type: "string"
-  }
+    type: "string",
+  },
 };
 
 const result2 = await lang.askForObject(
   "You are a naming consultant for new companies. What are 3 good names for a company that makes colorful socks?",
-  jsonSchema
+  jsonSchema,
 );
 
 console.log(result2.object); // ["Chromatic Toe", "SockSpectra", "VividStep"]
 ```
 
 ### Getting Complex Objects
-```javascript
 
+```javascript
 // Option 1: Using Zod schema
 import { z } from "aiwrapper";
 
@@ -194,14 +231,14 @@ const companySchema = z.object({
   marketingStrategy: z.object({
     target: z.string(),
     channels: z.array(z.string()),
-    budget: z.number()
-  })
+    budget: z.number(),
+  }),
 });
 
 // TypeScript automatically infers the correct type
 const result = await lang.askForObject(
   "Create a company profile for a business that makes colorful socks",
-  companySchema
+  companySchema,
 );
 
 console.log(result.object);
@@ -219,18 +256,18 @@ const jsonSchema = {
         target: { type: "string" },
         channels: {
           type: "array",
-          items: { type: "string" }
+          items: { type: "string" },
         },
-        budget: { type: "number" }
-      }
-    }
+        budget: { type: "number" },
+      },
+    },
   },
-  required: ["name", "tagline", "marketingStrategy"]
+  required: ["name", "tagline", "marketingStrategy"],
 };
 
 const result2 = await lang.askForObject(
   "Create a company profile for a business that makes colorful socks",
-  jsonSchema
+  jsonSchema,
 );
 
 console.log(result2.object);
@@ -300,7 +337,7 @@ When publishing, follow these steps in order:
   "type": "module",
   "name": "aiwrapper",
   "description": "A Universal AI Wrapper for JavaScript & TypeScript",
-  "version": "3.0.0-beta.2",
+  "version": "3.0.0-beta.4",
   "author": "Dmitry Kury (https://dkury.com)",
   "license": "MIT",
   "repository": {
@@ -346,7 +383,7 @@ When publishing, follow these steps in order:
     "test:reasoning": "npm run build && vitest run tests/reasoning/*.test.ts"
   },
   "dependencies": {
-    "aimodels": "^0.5.1",
+    "aimodels": "^0.5.2",
     "ajv": "^8.17.1",
     "jsonic": "^2.16.0",
     "zod": "^3.24.4",
