@@ -42,6 +42,7 @@
     "pretest": "npm run build",
     "test": "vitest run",
     "test:lang": "npm run build && vitest run tests/lang/*.test.ts",
+    "test:tools": "npm run build && vitest run tests/tools/tools.test.ts",
     "test:agents": "npm run build && vitest run tests/agents/*.test.ts",
     "test:img-in": "npm run build && vitest run tests/img-in/*.test.ts",
     "test:img-out": "npm run build && vitest run tests/img-out/*.test.ts",

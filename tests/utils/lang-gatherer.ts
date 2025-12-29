@@ -51,17 +51,38 @@ function getProviderFilters(): string[] {
 }
 
 /**
+ * Gets model overrides from environment variables
+ * Uses simple env vars: OPENAI_MODEL, OPENROUTER_MODEL, etc.
+ */
+function getModelOverridesFromEnv(): LangGathererOptions['modelOverrides'] {
+  const overrides: LangGathererOptions['modelOverrides'] = {};
+  
+  if (process.env.OPENAI_MODEL) overrides.openai = process.env.OPENAI_MODEL;
+  if (process.env.OPENROUTER_MODEL) overrides.openrouter = process.env.OPENROUTER_MODEL;
+  if (process.env.ANTHROPIC_MODEL) overrides.anthropic = process.env.ANTHROPIC_MODEL;
+  if (process.env.GOOGLE_MODEL) overrides.google = process.env.GOOGLE_MODEL;
+  if (process.env.DEEPSEEK_MODEL) overrides.deepseek = process.env.DEEPSEEK_MODEL;
+  
+  return Object.keys(overrides).length > 0 ? overrides : undefined;
+}
+
+/**
  * Gathers available language providers based on environment variables and options
  */
 export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider[] {
   // Check for provider filters from env/CLI
   const providerFilters = getProviderFilters();
   
+  // Get model overrides from env var and merge with options (options take precedence)
+  const envModelOverrides = getModelOverridesFromEnv() || {};
   const {
     modelOverrides = {},
     providers,
     overrideProviders
   } = options;
+  
+  // Merge env overrides with options (options override env)
+  const finalModelOverrides = { ...envModelOverrides, ...modelOverrides };
 
   // Determine which providers to use
   // PROVIDERS env var is the final authority - if set, it filters everything
@@ -111,7 +132,7 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
   if (process.env.OPENAI_API_KEY && shouldIncludeProvider('openai')) {
     langs.push(Lang.openai({
       apiKey: process.env.OPENAI_API_KEY as string,
-      model: modelOverrides.openai || 'gpt-5-nano'
+      model: finalModelOverrides.openai || 'gpt-5-nano'
     }));
   }
 
@@ -119,7 +140,7 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
   if (process.env.OPENROUTER_API_KEY && shouldIncludeProvider('openrouter')) {
     langs.push(Lang.openrouter({
       apiKey: process.env.OPENROUTER_API_KEY as string,
-      model: modelOverrides.openrouter || 'google/gemini-2.5-flash'
+      model: finalModelOverrides.openrouter || 'google/gemini-2.5-flash' //'openai/gpt-5.2'
     }));
   }
 
@@ -127,7 +148,7 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
   if (process.env.ANTHROPIC_API_KEY && shouldIncludeProvider('anthropic')) {
     langs.push(Lang.anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY as string,
-      model: modelOverrides.anthropic || 'claude-3-7-sonnet-20250219'
+      model: finalModelOverrides.anthropic || 'claude-3-7-sonnet-20250219'
     }));
   }
 
@@ -135,7 +156,7 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
   if (process.env.GOOGLE_API_KEY && shouldIncludeProvider('google')) {
     langs.push(Lang.google({
       apiKey: process.env.GOOGLE_API_KEY as string,
-      model: modelOverrides.google || 'gemini-1.5-flash'
+      model: finalModelOverrides.google || 'gemini-1.5-flash'
     }));
   }
 
@@ -143,7 +164,7 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
   if (process.env.DEEPSEEK_API_KEY && shouldIncludeProvider('deepseek')) {
     langs.push(Lang.deepseek({
       apiKey: process.env.DEEPSEEK_API_KEY as string,
-      model: modelOverrides.deepseek || 'deepseek-chat'
+      model: finalModelOverrides.deepseek || 'deepseek-reasoner'
     }));
   }
 
