@@ -28,15 +28,37 @@ function findModel(modelId: string, provider?: string): { model: Model | null; p
     return { model: null, providerId: null };
   }
   
-  // Get provider from model's source.creatorId
-  const creatorId = (model as any).source?.creatorId;
-  
-  // If provider was specified, verify it matches
-  if (provider && creatorId && creatorId.toLowerCase() !== provider.toLowerCase()) {
-    console.warn(`⚠️  Warning: Model "${modelId}" belongs to provider "${creatorId}", not "${provider}"`);
+  // Get provider from model's providers array
+  const modelProviders = model.providers;
+  if (!Array.isArray(modelProviders) || modelProviders.length === 0) {
+    throw new Error(`Model "${modelId}" has no providers`);
   }
   
-  return { model, providerId: creatorId || null };
+  let providerId: string | null = null;
+  
+  if (provider) {
+    // If provider was specified, find it in the array
+    const normalizedProvider = provider.toLowerCase();
+    const foundProvider = modelProviders.find(p => {
+      const providerId = typeof p === 'string' ? p : p?.id;
+      return providerId?.toLowerCase() === normalizedProvider;
+    });
+    
+    if (!foundProvider) {
+      const availableProviders = modelProviders.map(p => typeof p === 'string' ? p : p?.id).join(', ');
+      throw new Error(`Provider "${provider}" not found for model "${modelId}". Available providers: ${availableProviders}`);
+    }
+    
+    providerId = typeof foundProvider === 'string' ? foundProvider : (foundProvider?.id || null);
+  } else {
+    // If no provider specified, use the first one
+    const firstProvider = modelProviders[0];
+    providerId = typeof firstProvider === 'string' 
+      ? firstProvider 
+      : (firstProvider?.id || null);
+  }
+  
+  return { model, providerId };
 }
 
 const modelArg = parseModelArg();
@@ -67,7 +89,7 @@ if (modelInfo) {
   console.log();
 }
 
-describe.skipIf(!modelInfo || !providerId)("Testing a model", () => {
+describe.skipIf(!modelInfo || !providerId)("Testing a model " + modelInfo?.id + " with provider " + providerId, () => {
   if (!modelInfo) {
     it.skip("Model not found or not specified");
     return;
@@ -92,6 +114,7 @@ describe.skipIf(!modelInfo || !providerId)("Testing a model", () => {
     'deepseek': 'DEEPSEEK_API_KEY',
     'openrouter': 'OPENROUTER_API_KEY',
     'xai': 'XAI_API_KEY',
+    'groq': 'GROQ_API_KEY',
   };
   
   const apiKeyEnv = apiKeyEnvMap[providerId.toLowerCase()];
@@ -123,6 +146,9 @@ describe.skipIf(!modelInfo || !providerId)("Testing a model", () => {
         break;
       case 'xai':
         lang = Lang.xai({ apiKey, model: modelInfo.id });
+        break;
+      case 'groq':
+        lang = Lang.groq({ apiKey, model: modelInfo.id });
         break;
       default:
         it.skip(`Provider ${providerId} not yet supported in test`);
