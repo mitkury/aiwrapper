@@ -337,7 +337,7 @@ When publishing, follow these steps in order:
   "type": "module",
   "name": "aiwrapper",
   "description": "A Universal AI Wrapper for JavaScript & TypeScript",
-  "version": "3.0.0-beta.4",
+  "version": "3.0.0-beta.5",
   "author": "Dmitry Kury (https://dkury.com)",
   "license": "MIT",
   "repository": {
@@ -380,7 +380,9 @@ When publishing, follow these steps in order:
     "test:agents": "npm run build && vitest run tests/agents/*.test.ts",
     "test:img-in": "npm run build && vitest run tests/img-in/*.test.ts",
     "test:img-out": "npm run build && vitest run tests/img-out/*.test.ts",
-    "test:reasoning": "npm run build && vitest run tests/reasoning/*.test.ts"
+    "test:reasoning": "npm run build && vitest run tests/reasoning/*.test.ts",
+    "aimodels:link": "./scripts/link-aimodels-local.sh",
+    "aimodels:unlink": "./scripts/unlink-aimodels-local.sh"
   },
   "dependencies": {
     "aimodels": "^0.5.2",
