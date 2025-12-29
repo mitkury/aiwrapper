@@ -1,21 +1,18 @@
 import { OpenAIChatCompletionsLang } from "../openai/openai-chat-completions-lang.ts";
-import { models } from 'aimodels';
-import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
-import { 
-  LangOptions, 
-  LangMessage
-} from "../language-provider.ts";
-import { LangMessages, LangToolWithHandler } from "../messages.ts";
 
 export type GroqLangOptions = {
   apiKey: string;
   model?: string;
   systemPrompt?: string;
   maxTokens?: number;
+  reasoningEffort?: "low" | "medium" | "high";
+  includeReasoning?: boolean;
   bodyProperties?: Record<string, any>;
 };
 
 export class GroqLang extends OpenAIChatCompletionsLang {
+  private includeReasoning?: boolean;
+
   constructor(options: GroqLangOptions) {
     const modelName = options.model || "llama3-70b-8192";
     super({
@@ -25,301 +22,39 @@ export class GroqLang extends OpenAIChatCompletionsLang {
       baseURL: "https://api.groq.com/openai/v1",
       bodyProperties: options.bodyProperties || {},
       maxTokens: options.maxTokens,
+      reasoningEffort: options.reasoningEffort,
     });
+    this.includeReasoning = options.includeReasoning;
   }
 
-  override async chat(
-    messages: LangMessage[] | LangMessages,
-    options?: LangOptions,
-  ): Promise<LangMessages> {
-    throw new Error("Not implemented");
-    /*
-    const messageCollection = messages instanceof LangMessages
-      ? messages
-      : new LangMessages(messages);
-
-    const modelInfo = models.id(this._config.model);
-    const isReasoningModel = modelInfo?.canReason() || false;
+  protected override transformBody(body: Record<string, unknown>): Record<string, unknown> {
+    const transformedBody = super.transformBody(body);
     
-    const bodyProperties = {
-      ...this._config.bodyProperties
-    };
-    
-    if (isReasoningModel && !bodyProperties.reasoning_format) {
-      bodyProperties.reasoning_format = "parsed";
+    // Transform model ID for GPT-OSS models - Groq API requires "openai/gpt-oss-20b" format
+    if (this.isGPTOSSModel() && typeof transformedBody.model === "string") {
+      const modelId = transformedBody.model;
+      if (!modelId.startsWith("openai/")) {
+        transformedBody.model = `openai/${modelId}`;
+      }
     }
     
-    const onResult = options?.onResult;
-    
-    if (!onResult) {
-      const effectiveTools: LangToolWithHandler[] | undefined = messageCollection.availableTools
-        ? (messageCollection.availableTools as LangToolWithHandler[])
-        : undefined;
-
-      const body: any = {
-        ...this.transformBody({
-          model: this._config.model,
-          messages: messageCollection,
-          stream: false,
-          max_tokens: this._config.maxTokens || 4000,
-        }),
-        ...bodyProperties,
-        ...(effectiveTools ? { tools: this.formatTools(effectiveTools), tool_choice: 'required' } : {}),
-      };
-      
-      const response = await fetch(`${this._config.baseURL}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(this._config.apiKey ? { "Authorization": `Bearer ${this._config.apiKey}` } : {}),
-          ...this._config.headers,
-        },
-        body: JSON.stringify(body),
-      });
-      
-      const data: any = await response.json();
-      
-      if (data.choices && data.choices.length > 0) {
-        const message = data.choices[0].message;
-        const toolCalls = message?.tool_calls;
-        if (Array.isArray(toolCalls) && toolCalls.length > 0) {
-          for (const tc of toolCalls) {
-            const id: string = tc?.id || '';
-            const name: string = tc?.function?.name || '';
-            const rawArgs: string = tc?.function?.arguments || '';
-            let parsedArgs: Record<string, unknown> = {};
-            if (typeof rawArgs === 'string' && rawArgs.trim().length > 0) {
-              try {
-                parsedArgs = JSON.parse(rawArgs);
-              } catch {}
-            }
-            messageCollection.addAssistantToolCalls([{ callId: id, name, arguments: parsedArgs }]);
-          }
-        }
-
-        let finalText = message?.content || "";
-        if (message.reasoning) {
-          messageCollection.appendToAssistantThinking(message.reasoning);
-        } else {
-          const thinkingContent = this.extractThinking(finalText);
-          if (thinkingContent.thinking) {
-            messageCollection.appendToAssistantThinking(thinkingContent.thinking);
-            finalText = thinkingContent.answer;
-          }
-        }
-        if (finalText) {
-          messageCollection.addAssistantMessage(finalText);
-        }
+    // For GPT-OSS models, add include_reasoning parameter if specified
+    // Default is true, so we only need to add it if it's explicitly false
+    if (this.supportsReasoning() && this.isGPTOSSModel()) {
+      if (this.includeReasoning === false) {
+        transformedBody.include_reasoning = false;
       }
-      
-      return messageCollection;
+      // include_reasoning defaults to true, so we don't need to set it explicitly
     }
     
-    let thinkingContent = "";
-    let visibleContent = "";
-    let openThinkTagIndex = -1;
-    let pendingThinkingContent = "";
-    
-    const onData = (data: any) => {
-      if (data.finished) {
-        const extracted = this.extractThinking(visibleContent);
-        if (extracted.thinking) {
-          messageCollection.appendToAssistantThinking(extracted.thinking);
-          const msg = messageCollection.ensureAssistantTextMessage();
-          msg.content = extracted.answer;
-        }
-        
-        messageCollection.finished = true;
-        options?.onResult?.(messageCollection as any);
-        return;
-      }
-      
-      if (data.choices !== undefined) {
-        const delta = data.choices[0].delta || {};
-        
-        if (delta.reasoning) {
-          thinkingContent += delta.reasoning;
-          messageCollection.appendToAssistantThinking(delta.reasoning);
-        }
-        
-        if (delta.content) {
-          const currentChunk = delta.content;
-          visibleContent += currentChunk;
-          this.processChunkForThinking(visibleContent, messageCollection as any);
-          openThinkTagIndex = visibleContent.lastIndexOf("<think>");
-          if (openThinkTagIndex !== -1) {
-            const closeTagIndex = visibleContent.indexOf("</think>", openThinkTagIndex);
-            if (closeTagIndex === -1) {
-              pendingThinkingContent = visibleContent.substring(openThinkTagIndex + 7);
-            }
-          }
-        }
-        
-        const textToShow = visibleContent;
-        if (messageCollection.length > 0 && messageCollection[messageCollection.length - 1].role === "assistant") {
-          messageCollection[messageCollection.length - 1].content = textToShow;
-        } else {
-          messageCollection.addAssistantMessage(textToShow);
-        }
-        
-        options?.onResult?.(messageCollection as any);
-      }
-    };
-    
-    const streamingBody = {
-      ...this.transformBody({
-        model: this._config.model,
-        messages: messages as any,
-        stream: true,
-        max_tokens: this._config.maxTokens || 4000,
-      }),
-      ...bodyProperties
-    };
-    
-    await this.callAPI("/chat/completions", streamingBody, onData);
-    
-    return messageCollection;
-    */
-  }
-  
-  private extractThinking(content: string): { thinking: string, answer: string } {
-    const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
-    const matches = content.match(thinkRegex);
-    
-    if (!matches || matches.length === 0) {
-      return { thinking: "", answer: content };
-    }
-    
-    const thinking = matches
-      .map((match: string) => match.replace(/<think>|<\/think>/g, "").trim())
-      .join("\n");
-    
-    const answer = content.replace(thinkRegex, "").trim();
-    
-    return { thinking, answer };
-  }
-  
-  private processChunkForThinking(
-    fullContent: string, 
-    result: LangMessages
-  ): void {
-    /*
-    const extracted = this.extractThinking(fullContent);
-    
-    if (extracted.thinking) {
-      result.appendToAssistantThinking(extracted.thinking);
-      const msg = result.ensureAssistantTextMessage();
-      msg.content = extracted.answer;
-      return;
-    }
-    
-    if (fullContent.includes("<think>")) {
-      const lastOpenTagIndex = fullContent.lastIndexOf("<think>");
-      const firstCloseTagIndex = fullContent.indexOf("</think>");
-      
-      if (firstCloseTagIndex === -1 || lastOpenTagIndex > firstCloseTagIndex) {
-        const beforeThinkingContent = fullContent.substring(0, lastOpenTagIndex).trim();
-        const potentialThinkingContent = fullContent.substring(lastOpenTagIndex + 7).trim();
-        
-        result.appendToAssistantThinking(potentialThinkingContent);
-        const msg = result.ensureAssistantTextMessage();
-        msg.content = beforeThinkingContent;
-        return;
-      }
-      
-      const startIndex = fullContent.indexOf("<think>") + 7;
-      const endIndex = fullContent.indexOf("</think>");
-      if (startIndex < endIndex) {
-        const thinkingContent = fullContent.substring(startIndex, endIndex).trim();
-        const beforeThinking = fullContent.substring(0, fullContent.indexOf("<think>")).trim();
-        const afterThinking = fullContent.substring(fullContent.indexOf("</think>") + 8).trim();
-        
-        result.appendToAssistantThinking(thinkingContent);
-        const msg = result.ensureAssistantTextMessage();
-        msg.content = (beforeThinking + " " + afterThinking).trim();
-      }
-    } else {
-      const msg = result.ensureAssistantTextMessage();
-      msg.content = fullContent;
-    }
-    */
+    return transformedBody;
   }
 
-  private async callAPI(endpoint: string, body: any, onData: (data: any) => void) {
-    const response = await fetch(`${this._config.baseURL}${endpoint}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(this._config.apiKey ? { "Authorization": `Bearer ${this._config.apiKey}` } : {}),
-        ...this._config.headers,
-      },
-      body: JSON.stringify(body),
-    }).catch((err) => {
-      throw new Error(err);
-    });
-    
-    await this.processResponse(response, onData);
-    
-    return response;
-  }
-  
-  private async processResponse(response: Response, onData: (data: any) => void) {
-    const reader = response.body?.getReader();
-    if (!reader) return;
-    
-    const decoder = new TextDecoder();
-    let buffer = "";
-    
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        
-        buffer += decoder.decode(value, { stream: true });
-        
-        let lineEnd = buffer.indexOf('\n');
-        while (lineEnd !== -1) {
-          const line = buffer.substring(0, lineEnd).trim();
-          buffer = buffer.substring(lineEnd + 1);
-          
-          if (line.startsWith('data: ')) {
-            const dataValue = line.substring(6);
-            if (dataValue === '[DONE]') {
-              onData({ finished: true });
-            } else {
-              try {
-                const data = JSON.parse(dataValue);
-                onData(data);
-              } catch (e) {
-                console.error("Error parsing JSON:", e);
-              }
-            }
-          }
-          
-          lineEnd = buffer.indexOf('\n');
-        }
-      }
-      
-      if (buffer.trim() && buffer.startsWith('data: ')) {
-        const dataValue = buffer.substring(6).trim();
-        if (dataValue === '[DONE]') {
-          onData({ finished: true });
-        } else if (dataValue) {
-          try {
-            const data = JSON.parse(dataValue);
-            onData(data);
-          } catch (e) {
-            console.error("Error parsing JSON:", e);
-          }
-        }
-      }
-      
-      onData({ finished: true });
-    } catch (e) {
-      console.error("Error processing response stream:", e);
-      throw e;
-    } finally {
-      reader.releaseLock();
+  private isGPTOSSModel(): boolean {
+    if (!this.modelInfo) {
+      return false;
     }
+    const modelId = this.modelInfo.id.toLowerCase();
+    return modelId.includes("gpt-oss");
   }
 }
