@@ -189,6 +189,9 @@ export class OpenAIChatCompletionsStreamHandler {
   private handleToolCalls(toolCalls: any[]) {
     for (const tc of toolCalls) {
       if (!tc) continue;
+
+      if (!tc.id) continue;
+      
       const id: string =
         typeof tc.id === "string"
           ? tc.id
