@@ -46,6 +46,7 @@
     "test:img-in": "npm run build && vitest run tests/img-in/*.test.ts",
     "test:img-out": "npm run build && vitest run tests/img-out/*.test.ts",
     "test:reasoning": "npm run build && vitest run tests/reasoning/*.test.ts",
+    "test:model": "vitest run tests/model.test.ts",
     "aimodels:link": "./scripts/link-aimodels-local.sh",
     "aimodels:unlink": "./scripts/unlink-aimodels-local.sh"
   },
