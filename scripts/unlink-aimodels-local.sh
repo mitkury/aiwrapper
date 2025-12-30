@@ -10,7 +10,9 @@ echo "Unlinking local aimodels..."
 
 cd "$AIWRAPPER_DIR"
 npm unlink aimodels 2>/dev/null || true
-npm install aimodels@^0.5.2
+# Remove symlink if it still exists (workspace handling)
+[ -L node_modules/aimodels ] && rm -f node_modules/aimodels
+npm install
 
 echo "✓ Now using published aimodels package"
 
