@@ -157,13 +157,18 @@ export class GoogleLang extends LanguageProvider {
             const imagePart = this.mapImageItemToGemini(item as LangMessageItemImage);
             if (imagePart) parts.push(imagePart);
           } else if (item.type === "tool") {
-            const toolItem = item as LangMessageItemTool;
-            parts.push({
+            const toolItem = item as LangMessageItemTool & { thoughtSignature?: string };
+            const part: any = {
               function_call: {
                 name: toolItem.name,
                 args: toolItem.arguments ?? {},
               },
-            });
+            };
+            // Include thoughtSignature at part level (required by Google Gemini API)
+            if (toolItem.thoughtSignature) {
+              part.thoughtSignature = toolItem.thoughtSignature;
+            }
+            parts.push(part);
           }
         }
       }
@@ -321,12 +326,19 @@ export class GoogleLang extends LanguageProvider {
         const callId = `function_call_${toolIndex++}`;
         const rawArgs = funcCall.args || funcCall.arguments;
         const args = this.parseFunctionArgs(rawArgs);
-        assistantMessage.items.push({
+        const toolItem: any = {
           type: "tool",
           callId,
           name,
           arguments: args,
-        });
+        };
+        // Store thoughtSignature if present (required by Google Gemini API)
+        // Google API returns thoughtSignature (camelCase) at the part level
+        const thoughtSignature = part.thoughtSignature || funcCall?.thoughtSignature;
+        if (thoughtSignature) {
+          toolItem.thoughtSignature = thoughtSignature;
+        }
+        assistantMessage.items.push(toolItem);
       }
     }
 
