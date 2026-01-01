@@ -160,7 +160,7 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
   if (process.env.GOOGLE_API_KEY && shouldIncludeProvider('google')) {
     langs.push(Lang.google({
       apiKey: process.env.GOOGLE_API_KEY as string,
-      model: finalModelOverrides.google || 'gemini-1.5-flash'
+      model: finalModelOverrides.google || 'gemini-3-pro-preview'
     }));
   }
 
