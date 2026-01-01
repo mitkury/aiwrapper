@@ -191,5 +191,39 @@ async function runTest(lang: LanguageProvider) {
     expect(finalRes.answer).toContain('42');
     expect(streamingAnswer).toBe(finalRes.answer);
   });
+
+  it('should handle tool results that return arrays', async () => {
+    const messages = new LangMessages(undefined, {
+      tools: [
+        {
+          name: 'get_items',
+          description: 'Return a list of items',
+          parameters: { type: 'object', properties: {} },
+          handler: (_args: any) => ['item1', 'item2', 'item3'] // Returns an array
+        }
+      ]
+    });
+    messages.addUserMessage('Use the get_items tool and then tell me how many items were returned.');
+
+    const res = await lang.chat(messages);
+
+    expect(res.length).toBeGreaterThanOrEqual(2);
+
+    // Verify tool was requested
+    const toolRequestMessages = res.filter(m => m.toolRequests.length > 0);
+    const requestedNames = toolRequestMessages.flatMap(m => m.toolRequests.map(t => t.name));
+    expect(requestedNames).toContain('get_items');
+
+    // Verify tool results contain the array
+    const toolResultsMsg = [...res].reverse().find((m: any) => m.role === 'tool-results');
+    expect(toolResultsMsg).toBeDefined();
+    const toolResult = toolResultsMsg?.toolResults[0];
+    expect(toolResult?.result).toEqual(['item1', 'item2', 'item3']);
+
+    // Continue conversation - this should work without errors (previously would fail for Google)
+    const finalRes = await lang.chat(res);
+    expect(finalRes.answer).toBeDefined();
+    expect(finalRes.answer.length).toBeGreaterThan(0);
+  });
 }
 

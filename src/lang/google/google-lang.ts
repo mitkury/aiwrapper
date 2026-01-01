@@ -128,14 +128,24 @@ export class GoogleLang extends LanguageProvider {
 
     for (const msg of messages) {
       if (msg.role === "tool-results") {
-        const parts = msg.toolResults.map((tr) => ({
-          functionResponse: {
-            name: tr.name,
-            response: typeof tr.result === "object" && tr.result !== null
-              ? tr.result
-              : { result: tr.result },
-          },
-        }));
+        const parts = msg.toolResults.map((tr) => {
+          // Google API requires response to be an object, not an array
+          // If result is an array, wrap it in an object
+          let response: any;
+          if (Array.isArray(tr.result)) {
+            response = { result: tr.result };
+          } else if (typeof tr.result === "object" && tr.result !== null) {
+            response = tr.result;
+          } else {
+            response = { result: tr.result };
+          }
+          return {
+            functionResponse: {
+              name: tr.name,
+              response,
+            },
+          };
+        });
         mapped.push({ role: "user", parts });
         continue;
       }
