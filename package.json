@@ -49,10 +49,11 @@
     "test:reasoning": "npm run build && vitest run tests/reasoning/*.test.ts",
     "test:model": "vitest run tests/model.test.ts",
     "aimodels:link": "./scripts/link-aimodels-local.sh",
-    "aimodels:unlink": "./scripts/unlink-aimodels-local.sh"
+    "aimodels:unlink": "./scripts/unlink-aimodels-local.sh",
+    "aimodels:status": "./scripts/aimodels-status.sh"
   },
   "dependencies": {
-    "aimodels": "^0.5.2",
+    "aimodels": "^0.6.0",
     "ajv": "^8.17.1",
     "jsonic": "^2.16.0",
     "zod": "^3.24.4",
