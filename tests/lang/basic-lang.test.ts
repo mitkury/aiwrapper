@@ -1,7 +1,6 @@
 import { describe, it, expect, assert } from 'vitest';
-import { LangMessage, LangMessages, LangOptions, LanguageProvider, ToolRequest, ToolResult, z } from 'aiwrapper';
+import { LangMessage, LangMessages, LanguageProvider, z } from 'aiwrapper';
 import { createLangTestRunner, printAvailableProviders } from '../utils/lang-gatherer.js';
-import { LangMessageItemTool, LangMessageItemToolResult } from 'src/lang/messages.js';
 
 // Show available providers for debugging
 printAvailableProviders();
@@ -54,7 +53,6 @@ async function runTest(lang: LanguageProvider) {
   });
 
   it('should return a simple JSON object', async () => {
-
     const nameSchema = z.object({
       name: z.string(),
     });
