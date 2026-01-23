@@ -7,7 +7,7 @@ import {
 } from "../utils/lang-gatherer.js";
 
 const langTestOptions = {
-  providers: ["openai"],
+  providers: ["anthropic", "openai", "openrouter"],
 } as LangGathererOptions;
 
 printAvailableProviders(langTestOptions);
