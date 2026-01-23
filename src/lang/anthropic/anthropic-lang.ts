@@ -16,6 +16,7 @@ import {
   LangMessageItemToolResult,
   LangMessages,
   LangTool,
+  fixToolResultsIfNeeded,
 } from "../messages.ts";
 import { addInstructionAboutSchema } from "../prompt-for-json.ts";
 import { AnthropicStreamHandler } from "./anthropic-stream-handler.ts";
@@ -95,6 +96,8 @@ export class AnthropicLang extends LanguageProvider {
         options.schema
       );
     }
+
+    fixToolResultsIfNeeded(messageCollection);
 
     const { providerMessages, requestMaxTokens, tools } =
       this.prepareRequest(messageCollection);

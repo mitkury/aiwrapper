@@ -10,6 +10,7 @@ import {
   LangMessageItemText,
   LangMessageItemTool,
   LangMessageItemToolResult,
+  fixToolResultsIfNeeded,
 } from "../messages.ts";
 import {
   httpRequestWithRetry as fetch,
@@ -194,6 +195,8 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
       const baseInstruction = result.instructions + '\n\n' || '';
       result.instructions = baseInstruction + addInstructionAboutSchema(options.schema);
     }
+
+    fixToolResultsIfNeeded(result);
 
     const requestMaxTokens = this.computeRequestMaxTokens(result);
     if (this.supportsReasoning() && this._config.maxCompletionTokens === undefined) {

@@ -6,7 +6,8 @@ import {
   LangMessage, 
   LangMessageItem,
   LangMessageRole, 
-  LangMessages 
+  LangMessages,
+  fixToolResultsIfNeeded,
 } from "../messages.ts";
 import { OpenAIResponseStreamHandler } from "../openai/responses/openai-responses-stream-handler.ts";
 
@@ -81,6 +82,8 @@ export class MockResponseStreamLang extends LanguageProvider {
     const messageCollection = messages instanceof LangMessages
       ? messages
       : new LangMessages(messages);
+
+    fixToolResultsIfNeeded(messageCollection);
 
     await this.streamMockResponse(messageCollection, options);
     return messageCollection;

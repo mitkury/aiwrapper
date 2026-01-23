@@ -8,7 +8,7 @@ import {
   LangResult,
   LanguageProvider,
 } from "../language-provider.ts";
-import { LangMessages, LangMessage as ConversationMessage } from "../messages.ts";
+import { LangMessages, LangMessage as ConversationMessage, fixToolResultsIfNeeded } from "../messages.ts";
 import { models, Model } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
 
@@ -64,9 +64,12 @@ export class CohereLang extends LanguageProvider {
   ): Promise<LangResult> {
     const abortSignal = options?.signal;
     const result = new LangResult(messages);
+    const messageCollection = result;
+
+    fixToolResultsIfNeeded(messageCollection);
 
     // Transform messages to Cohere's format (only user/assistant roles)
-    const transformedMessages = messages.map(msg => ({
+    const transformedMessages = messageCollection.map(msg => ({
       role: msg.role === "assistant" ? "assistant" : "user",
       content: msg.text
     }));
@@ -76,7 +79,7 @@ export class CohereLang extends LanguageProvider {
     if (this.modelInfo && !maxTokens) {
       maxTokens = calculateModelResponseTokens(
         this.modelInfo,
-        messages,
+        messageCollection,
         this._maxTokens
       );
     }

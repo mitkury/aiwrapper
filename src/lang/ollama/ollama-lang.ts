@@ -1,5 +1,5 @@
 import { LangOptions, LangResult, LanguageProvider, LangContentPart, LangMessage } from "../language-provider.ts";
-import { LangMessages } from "../messages.ts";
+import { LangMessages, fixToolResultsIfNeeded } from "../messages.ts";
 import { httpRequestWithRetry as fetch } from "../../http-request.ts";
 import { processServerEvents } from "../../process-server-events.ts";
 import { models, Model } from 'aimodels';
@@ -169,6 +169,9 @@ export class OllamaLang extends LanguageProvider {
   async chat(messages: LangMessage[] | LangMessages, options?: LangOptions): Promise<LangResult> {
     const abortSignal = options?.signal;
     const result = new LangResult(messages);
+    const messageCollection = result;
+
+    fixToolResultsIfNeeded(messageCollection);
 
     // Try to get model info and calculate max tokens
     let requestMaxTokens = this._config.maxTokens;
@@ -176,7 +179,7 @@ export class OllamaLang extends LanguageProvider {
     if (this.modelInfo) {
       requestMaxTokens = calculateModelResponseTokens(
         this.modelInfo,
-        messages,
+        messageCollection,
         this._config.maxTokens
       );
     }
@@ -229,7 +232,7 @@ export class OllamaLang extends LanguageProvider {
 
     // Extract base64 images for models that support vision via images array.
     const images: string[] = [];
-    const mappedMessages = messages.map((m: any) => {
+    const mappedMessages = messageCollection.map((m: any) => {
       if (Array.isArray(m.content)) {
         for (const part of m.content as LangContentPart[]) {
           if (part.type === 'image') {

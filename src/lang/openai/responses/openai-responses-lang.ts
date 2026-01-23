@@ -1,5 +1,5 @@
 import { LangOptions, LangResponseSchema, LanguageProvider } from "../../language-provider.ts";
-import { LangMessage, LangMessageItem, LangMessageRole, LangMessages } from "../../messages.ts";
+import { LangMessage, LangMessageItem, LangMessageRole, LangMessages, fixToolResultsIfNeeded } from "../../messages.ts";
 import { prepareBodyPartForOpenAIResponsesAPI } from "./openai-responses-messages.ts";
 import { processServerEvents } from "../../../process-server-events.ts";
 import { OpenAIResponseStreamHandler } from "./openai-responses-stream-handler.ts";
@@ -60,6 +60,8 @@ export class OpenAIResponsesLang extends LanguageProvider {
     const msgCollection = messages instanceof LangMessages
       ? messages
       : new LangMessages(messages);
+
+    fixToolResultsIfNeeded(msgCollection);
 
     await this.sendToApi(msgCollection, options);
 

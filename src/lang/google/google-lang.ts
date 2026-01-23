@@ -3,7 +3,7 @@ import { httpRequestWithRetry as fetch } from "../../http-request.ts";
 import { models, Model } from "aimodels";
 import { LangContentPart, LangImageInput } from "../language-provider.ts";
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
-import { LangMessage, LangMessages, LangMessageItemImage, LangMessageItemTool, LangTool } from "../messages.ts";
+import { LangMessage, LangMessages, LangMessageItemImage, LangMessageItemTool, LangTool, fixToolResultsIfNeeded } from "../messages.ts";
 import { addInstructionAboutSchema } from "../prompt-for-json.ts";
 
 export type GoogleLangOptions = {
@@ -57,6 +57,8 @@ export class GoogleLang extends LanguageProvider {
       : new LangMessages(messages);
 
     const instructions = this.buildInstructions(messageCollection, options);
+
+    fixToolResultsIfNeeded(messageCollection);
 
     const contents = this.transformMessagesForProvider(messageCollection as any);
 

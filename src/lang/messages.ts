@@ -375,3 +375,32 @@ export class LangMessages extends Array<LangMessage> {
     return out.join("\n\n");
   }
 }
+
+/**
+ * Ensure every assistant tool call has a follow-up tool-results message to keep provider chains valid.
+ */
+export function fixToolResultsIfNeeded(messages: LangMessages | LangMessage[]): void {
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i];
+    if (message.role !== "assistant") continue;
+
+    const toolRequests = message.toolRequests;
+    if (toolRequests.length === 0) continue;
+
+    const nextMessage = messages[i + 1];
+    if (nextMessage && nextMessage.role === "tool-results") continue;
+
+    const toolResultItems: LangMessageItemToolResult[] = toolRequests.map((toolRequest) => ({
+      type: "tool-result",
+      name: toolRequest.name,
+      callId: toolRequest.callId,
+      result: "aborted",
+    }));
+
+    const toolResultsMessage = new LangMessage("tool-results", toolResultItems);
+    (messages as LangMessage[]).splice(i + 1, 0, toolResultsMessage);
+    i += 1;
+
+    console.warn(`Inserted missing tool-results message after assistant tool call for tool "${toolRequests[0].name}".`);
+  }
+}
