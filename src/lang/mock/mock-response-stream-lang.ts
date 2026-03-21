@@ -34,6 +34,7 @@ export type MockResponseStreamOptions = {
    * Optional custom provider name for debugging.
    */
   name?: string;
+  defaultOptions?: LangOptions;
 };
 
 type MockResponseStreamOverrides = {
@@ -65,7 +66,7 @@ export class MockResponseStreamLang extends LanguageProvider {
   private presetIndex = 0;
 
   constructor(options: MockResponseStreamOptions = {}) {
-    super(options.name ?? "Mock Response Stream");
+    super(options.name ?? "Mock Response Stream", options.defaultOptions);
     this.config = options;
   }
 
@@ -79,13 +80,14 @@ export class MockResponseStreamLang extends LanguageProvider {
     messages: { role: LangMessageRole; items: LangMessageItem[]; }[] | LangMessage[] | LangMessages,
     options?: LangOptions,
   ): Promise<LangMessages> {
+    const resolvedOptions = this.resolveOptions(options);
     const messageCollection = messages instanceof LangMessages
       ? messages
       : new LangMessages(messages);
 
     fixToolResultsIfNeeded(messageCollection);
 
-    await this.streamMockResponse(messageCollection, options);
+    await this.streamMockResponse(messageCollection, resolvedOptions);
     return messageCollection;
   }
 

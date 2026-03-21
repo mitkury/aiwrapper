@@ -1,3 +1,4 @@
+import type { LangOptions } from "../language-provider.ts";
 import { OpenAIChatCompletionsLang } from "../openai/openai-chat-completions-lang.ts";
 
 export type KimiThinkingMode = {
@@ -13,6 +14,7 @@ export type KimiLangOptions = {
   promptCacheKey?: string;
   safetyIdentifier?: string;
   bodyProperties?: Record<string, unknown>;
+  defaultOptions?: LangOptions;
 };
 
 export class KimiLang extends OpenAIChatCompletionsLang {
@@ -31,6 +33,7 @@ export class KimiLang extends OpenAIChatCompletionsLang {
         ...(options.promptCacheKey ? { prompt_cache_key: options.promptCacheKey } : {}),
         ...(options.safetyIdentifier ? { safety_identifier: options.safetyIdentifier } : {}),
       },
+      defaultOptions: options.defaultOptions,
     });
   }
 

@@ -33,6 +33,7 @@ export type AnthropicLangOptions = {
   systemPrompt?: string;
   maxTokens?: number;
   extendedThinking?: boolean;
+  defaultOptions?: LangOptions;
 };
 
 export type AnthropicLangConfig = {
@@ -48,7 +49,7 @@ export class AnthropicLang extends LanguageProvider {
 
   constructor(options: AnthropicLangOptions) {
     const modelName = options.model || "claude-sonnet-4-6";
-    super(modelName);
+    super(modelName, options.defaultOptions);
 
     const modelInfo = models.id(modelName);
     if (!modelInfo) {
@@ -80,7 +81,8 @@ export class AnthropicLang extends LanguageProvider {
     messages: LangMessage[] | LangMessages,
     options?: LangOptions,
   ): Promise<LangMessages> {
-    const abortSignal = options?.signal;
+    const resolvedOptions = this.resolveOptions(options);
+    const abortSignal = resolvedOptions?.signal;
     const messageCollection = messages instanceof LangMessages
       ? messages
       : new LangMessages(messages);
@@ -90,10 +92,10 @@ export class AnthropicLang extends LanguageProvider {
       instructions = this._config.systemPrompt;
     }
 
-    if (options?.schema) {
+    if (resolvedOptions?.schema) {
       const baseInstruction = instructions !== '' ? instructions + '\n\n' : '';
       instructions = baseInstruction + addInstructionAboutSchema(
-        options.schema
+        resolvedOptions.schema
       );
     }
 
@@ -112,6 +114,7 @@ export class AnthropicLang extends LanguageProvider {
       // Always stream internally to unify the code path
       stream: true,
       ...(tools ? { tools } : {}),
+      ...(resolvedOptions?.providerSpecificBody ?? {}),
     };
 
     try {
@@ -121,13 +124,14 @@ export class AnthropicLang extends LanguageProvider {
           "Content-Type": "application/json",
           "anthropic-version": "2023-06-01",
           "anthropic-dangerous-direct-browser-access": "true",
-          "x-api-key": this._config.apiKey
+          "x-api-key": this._config.apiKey,
+          ...(resolvedOptions?.providerSpecificHeaders ?? {}),
         },
         body: JSON.stringify(requestBody),
         signal: abortSignal,
       } as any).catch((err) => { throw new Error(err); });
 
-      const streamHandler = new AnthropicStreamHandler(result, options?.onResult);
+      const streamHandler = new AnthropicStreamHandler(result, resolvedOptions?.onResult);
 
       await processServerEvents(response, (data: any) => {
         streamHandler.handleEvent(data);
@@ -144,7 +148,7 @@ export class AnthropicLang extends LanguageProvider {
 
     // Automatically execute tools if the assistant requested them
     const toolResults = await result.executeRequestedTools();
-    if (options?.onResult && toolResults) options.onResult(toolResults);
+    if (resolvedOptions?.onResult && toolResults) resolvedOptions.onResult(toolResults);
 
     return result;
   }

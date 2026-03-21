@@ -14,6 +14,7 @@ import { MistralLang, MistralLangOptions } from "./mistral/mistral-lang.ts";
 import { OpenAIChatCompletionsLang } from "./openai/openai-chat-completions-lang.ts";
 import { MockOpenAILikeLang, MockOpenAILikeOptions } from "./mock/mock-openai-like-lang.ts";
 import { MockResponseStreamLang, MockResponseStreamOptions } from "./mock/mock-response-stream-lang.ts";
+import type { LangOptions } from "./language-provider.ts";
 
 /**
  * Lang is a factory class for using language models from different providers. 
@@ -92,6 +93,7 @@ export abstract class Lang {
     maxTokens?: number;
     headers?: Record<string, string>;
     bodyProperties?: Record<string, unknown>;
+    defaultOptions?: LangOptions;
   }): OpenAIChatCompletionsLang {
     return OpenAIChatCompletionsLang.custom(options);
   }

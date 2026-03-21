@@ -11,6 +11,7 @@ export type GoogleLangOptions = {
   model?: string;
   systemPrompt?: string;
   maxTokens?: number;
+  defaultOptions?: LangOptions;
 };
 
 export class GoogleLang extends LanguageProvider {
@@ -22,7 +23,7 @@ export class GoogleLang extends LanguageProvider {
 
   constructor(options: GoogleLangOptions) {
     const modelName = options.model || "gemini-2.5-pro";
-    super(modelName);
+    super(modelName, options.defaultOptions);
 
     const modelInfo = models.id(modelName);
     if (!modelInfo) {
@@ -52,11 +53,12 @@ export class GoogleLang extends LanguageProvider {
     messages: LangMessage[] | LangMessages,
     options?: LangOptions,
   ): Promise<LangMessages> {
+    const resolvedOptions = this.resolveOptions(options);
     const messageCollection = messages instanceof LangMessages
       ? messages
       : new LangMessages(messages);
 
-    const instructions = this.buildInstructions(messageCollection, options);
+    const instructions = this.buildInstructions(messageCollection, resolvedOptions);
 
     fixToolResultsIfNeeded(messageCollection);
 
@@ -80,7 +82,7 @@ export class GoogleLang extends LanguageProvider {
       } : {}),
       ...(Object.keys(generationConfig).length > 0 ? { generation_config: generationConfig } : {}),
       ...(tools ? { tools } : {}),
-      ...(options?.providerSpecificBody ?? {}),
+      ...(resolvedOptions?.providerSpecificBody ?? {}),
     };
 
     // Gemini REST v1beta doesn't yet accept responseSchema/responseMimeType; fall back to prompt
@@ -93,10 +95,10 @@ export class GoogleLang extends LanguageProvider {
             "Content-Type": "application/json",
             // Some setups still expect the header, so keep both
             "x-goog-api-key": this._apiKey,
-            ...(options?.providerSpecificHeaders ?? {}),
+            ...(resolvedOptions?.providerSpecificHeaders ?? {}),
           },
           body: JSON.stringify(requestBody),
-          signal: options?.signal,
+          signal: resolvedOptions?.signal,
         },
       );
 
@@ -108,7 +110,7 @@ export class GoogleLang extends LanguageProvider {
       }
 
       const data = await response.json();
-      this.applyCandidates(data?.candidates, messageCollection, options?.onResult);
+      this.applyCandidates(data?.candidates, messageCollection, resolvedOptions?.onResult);
     } catch (error) {
       if ((error as any)?.name === "AbortError") {
         messageCollection.aborted = true;
@@ -120,7 +122,7 @@ export class GoogleLang extends LanguageProvider {
     messageCollection.finished = true;
 
     const toolsResults = await messageCollection.executeRequestedTools();
-    if (options?.onResult && toolsResults) options.onResult(toolsResults);
+    if (resolvedOptions?.onResult && toolsResults) resolvedOptions.onResult(toolsResults);
 
     return messageCollection;
   }

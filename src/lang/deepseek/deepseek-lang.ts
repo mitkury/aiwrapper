@@ -11,6 +11,7 @@ export type DeepSeekLangOptions = {
   model?: string;
   systemPrompt?: string;
   maxTokens?: number;
+  defaultOptions?: LangOptions;
 };
 
 export class DeepSeekLang extends OpenAIChatCompletionsLang {
@@ -22,6 +23,7 @@ export class DeepSeekLang extends OpenAIChatCompletionsLang {
       systemPrompt: options.systemPrompt || "",
       maxTokens: options.maxTokens,
       baseURL: "https://api.deepseek.com/v1",
+      defaultOptions: options.defaultOptions,
     });
   }
 

@@ -1,3 +1,4 @@
+import type { LangOptions } from "../language-provider.ts";
 import { OpenAIChatCompletionsLang } from "../openai/openai-chat-completions-lang.ts";
 
 export type MistralLangOptions = {
@@ -5,6 +6,7 @@ export type MistralLangOptions = {
   model?: string;
   systemPrompt?: string;
   maxTokens?: number;
+  defaultOptions?: LangOptions;
 };
 
 export class MistralLang extends OpenAIChatCompletionsLang {
@@ -17,6 +19,7 @@ export class MistralLang extends OpenAIChatCompletionsLang {
       systemPrompt: options.systemPrompt || "",
       maxTokens: options.maxTokens,
       baseURL: "https://api.mistral.ai/v1",
+      defaultOptions: options.defaultOptions,
     });
     
     // For Mistral, we require the model to be in aimodels database

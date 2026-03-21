@@ -1,3 +1,4 @@
+import type { LangOptions } from "../language-provider.ts";
 import { OpenAIChatCompletionsLang } from "../openai/openai-chat-completions-lang.ts";
 
 export type OpenRouterLangOptions = {
@@ -10,6 +11,7 @@ export type OpenRouterLangOptions = {
   siteName?: string; // Optional. Site title for rankings on openrouter.ai
   headers?: Record<string, string>; // Additional custom headers
   bodyProperties?: Record<string, unknown>; // Additional request body properties
+  defaultOptions?: LangOptions;
 };
 
 export class OpenRouterLang extends OpenAIChatCompletionsLang {
@@ -39,6 +41,7 @@ export class OpenRouterLang extends OpenAIChatCompletionsLang {
       baseURL: "https://openrouter.ai/api/v1",
       headers,
       bodyProperties: options.bodyProperties,
+      defaultOptions: options.defaultOptions,
     });
   }
 

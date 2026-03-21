@@ -9,6 +9,7 @@ export type XAILangOptions = {
   model?: string;
   systemPrompt?: string;
   maxTokens?: number;
+  defaultOptions?: LangOptions;
 };
 
 export class XAILang extends OpenAIChatCompletionsLang {
@@ -21,6 +22,7 @@ export class XAILang extends OpenAIChatCompletionsLang {
       systemPrompt: options.systemPrompt || "",
       maxTokens: options.maxTokens,
       baseURL: "https://api.x.ai/v1",
+      defaultOptions: options.defaultOptions,
     });
   }
 } 

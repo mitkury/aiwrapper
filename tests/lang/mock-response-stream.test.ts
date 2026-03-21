@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { MockResponseStreamLang } from "../../src/lang/mock/mock-response-stream-lang.ts";
+import { MockOpenAILikeLang } from "../../src/lang/mock/mock-openai-like-lang.ts";
 
 describe("MockResponseStreamLang", () => {
   it("streams multiple updates for a configured message", async () => {
@@ -42,6 +43,63 @@ describe("MockResponseStreamLang", () => {
     });
 
     expect(res.answer).toBe(overrideMessage);
+  });
+
+  it("applies defaultOptions and lets per-call options override them", async () => {
+    const streamed: string[] = [];
+    const lang = new MockResponseStreamLang({
+      defaultOptions: {
+        onResult: (msg) => {
+          if (msg.role === "assistant" && msg.text.length > 0) {
+            streamed.push(msg.text);
+          }
+        },
+        providerSpecificBody: {
+          mockResponseStream: {
+            message: "Default from defaultOptions",
+            chunkSize: 3,
+            speedMs: 0,
+          }
+        }
+      }
+    });
+
+    const first = await lang.ask("Use defaults");
+    const second = await lang.ask("Override defaults", {
+      providerSpecificBody: {
+        mockResponseStream: {
+          message: "Per-call override",
+          chunkSize: 50,
+          speedMs: 0,
+        }
+      }
+    });
+
+    expect(first.answer).toBe("Default from defaultOptions");
+    expect(second.answer).toBe("Per-call override");
+    expect(streamed).toContain("Default from defaultOptions");
+    expect(streamed[streamed.length - 1]).toBe("Per-call override");
+  });
+
+  it("applies defaultOptions in OpenAI-like providers too", async () => {
+    const streamed: string[] = [];
+    const lang = new MockOpenAILikeLang({
+      mockResponseText: "Hello from default callback",
+      chunkSize: 5,
+      defaultOptions: {
+        onResult: (msg) => {
+          if (msg.role === "assistant" && msg.text.length > 0) {
+            streamed.push(msg.text);
+          }
+        }
+      }
+    });
+
+    const res = await lang.ask("Say hi");
+
+    expect(res.answer).toBe("Hello from default callback");
+    expect(streamed.length).toBeGreaterThan(0);
+    expect(streamed[streamed.length - 1]).toBe("Hello from default callback");
   });
 
   it("rotates through preset messages when no explicit message provided", async () => {

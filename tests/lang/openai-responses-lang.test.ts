@@ -29,6 +29,21 @@ async function runTest(lang: LanguageProvider) {
     expect(res.answer.toLocaleLowerCase()).toContain('berlin');
   });
 
+  it('should accept OpenAI context compaction options and still return a response', async () => {
+    const res = await lang.ask('Reply with just the word hello.', {
+      providerSpecificBody: {
+        context_management: [
+          {
+            type: 'compaction',
+            compact_threshold: 200000,
+          },
+        ],
+      },
+    });
+
+    expect(res.answer.length).toBeGreaterThan(0);
+  });
+
   /*
   it('should correctly convert assistant images to output_text format', async () => {
     // Read the test image

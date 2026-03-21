@@ -17,6 +17,7 @@ export type CohereLangOptions = {
   model?: string;
   systemPrompt?: string;
   maxTokens?: number;
+  defaultOptions?: LangOptions;
 };
 
 export class CohereLang extends LanguageProvider {
@@ -28,7 +29,7 @@ export class CohereLang extends LanguageProvider {
 
   constructor(options: CohereLangOptions) {
     const modelName = options.model || "command-r-plus-08-2024";
-    super(modelName);
+    super(modelName, options.defaultOptions);
 
     // Get model info from aimodels
     const modelInfo = models.id(modelName);
@@ -62,7 +63,8 @@ export class CohereLang extends LanguageProvider {
     messages: LangMessage[] | LangMessages,
     options?: LangOptions,
   ): Promise<LangResult> {
-    const abortSignal = options?.signal;
+    const resolvedOptions = this.resolveOptions(options);
+    const abortSignal = resolvedOptions?.signal;
     const result = new LangResult(messages);
     const messageCollection = result;
 
@@ -91,9 +93,10 @@ export class CohereLang extends LanguageProvider {
       max_tokens: maxTokens,
       temperature: 0.7,
       preamble_override: this._systemPrompt || undefined,
+      ...(resolvedOptions?.providerSpecificBody ?? {}),
     };
 
-    const onResult = options?.onResult;
+    const onResult = resolvedOptions?.onResult;
     const onData = (data: any) => {
       if (data.type === "message-end") {
         result.finished = true;
@@ -117,6 +120,7 @@ export class CohereLang extends LanguageProvider {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${this._apiKey}`,
           "Accept": "text/event-stream",
+          ...(resolvedOptions?.providerSpecificHeaders ?? {}),
         },
         body: JSON.stringify(requestBody),
         signal: abortSignal,

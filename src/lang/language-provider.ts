@@ -63,9 +63,22 @@ export class LangResult extends LangMessages {
  */
 export abstract class LanguageProvider {
   readonly name: string;
+  protected readonly defaultOptions?: LangOptions;
 
-  constructor(name: string) {
+  constructor(name: string, defaultOptions?: LangOptions) {
     this.name = name;
+    this.defaultOptions = defaultOptions;
+  }
+
+  protected resolveOptions(options?: LangOptions): LangOptions | undefined {
+    if (!this.defaultOptions && !options) {
+      return undefined;
+    }
+
+    return {
+      ...(this.defaultOptions ?? {}),
+      ...(options ?? {}),
+    };
   }
 
   /**

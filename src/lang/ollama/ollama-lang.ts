@@ -10,6 +10,7 @@ export type OllamaLangOptions = {
   systemPrompt?: string;
   maxTokens?: number;
   url?: string;
+  defaultOptions?: LangOptions;
 };
 
 export type OllamaLangConfig = {
@@ -25,7 +26,7 @@ export class OllamaLang extends LanguageProvider {
 
   constructor(options: OllamaLangOptions) {
     const modelName = options.model || "llama2:latest";
-    super(modelName);
+    super(modelName, options.defaultOptions);
 
     this._config = {
       model: modelName,
@@ -60,7 +61,8 @@ export class OllamaLang extends LanguageProvider {
     prompt: string,
     options?: LangOptions,
   ): Promise<LangResult> {
-    const abortSignal = options?.signal;
+    const resolvedOptions = this.resolveOptions(options);
+    const abortSignal = resolvedOptions?.signal;
     // Create a proper message collection
     const messages = new LangMessages();
     messages.addUserMessage(prompt);
@@ -83,7 +85,7 @@ export class OllamaLang extends LanguageProvider {
     let openThinkTagIndex = -1;
     let pendingThinkingContent = "";
 
-    const onResult = options?.onResult;
+    const onResult = resolvedOptions?.onResult;
     const onData = (data: any) => {
       if (data.done) {
         // Final check for thinking content when streaming is complete
@@ -98,7 +100,7 @@ export class OllamaLang extends LanguageProvider {
 
         result.finished = true;
         const last = result.length > 0 ? result[result.length - 1] : undefined;
-        if (last) options?.onResult?.(last as any);
+        if (last) resolvedOptions?.onResult?.(last as any);
         return;
       }
 
@@ -121,7 +123,7 @@ export class OllamaLang extends LanguageProvider {
       }
 
       const last = result.length > 0 ? result[result.length - 1] : undefined;
-      if (last) options?.onResult?.(last as any);
+      if (last) resolvedOptions?.onResult?.(last as any);
     };
 
     try {
@@ -129,12 +131,14 @@ export class OllamaLang extends LanguageProvider {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(resolvedOptions?.providerSpecificHeaders ?? {}),
         },
         body: JSON.stringify({
           model: this._config.model,
           prompt,
           stream: true,
-          ...(requestMaxTokens && { num_predict: requestMaxTokens })
+          ...(requestMaxTokens && { num_predict: requestMaxTokens }),
+          ...(resolvedOptions?.providerSpecificBody ?? {}),
         }),
         signal: abortSignal,
       })
@@ -167,7 +171,8 @@ export class OllamaLang extends LanguageProvider {
   }
 
   async chat(messages: LangMessage[] | LangMessages, options?: LangOptions): Promise<LangResult> {
-    const abortSignal = options?.signal;
+    const resolvedOptions = this.resolveOptions(options);
+    const abortSignal = resolvedOptions?.signal;
     const result = new LangResult(messages);
     const messageCollection = result;
 
@@ -189,7 +194,7 @@ export class OllamaLang extends LanguageProvider {
     let openThinkTagIndex = -1;
     let pendingThinkingContent = "";
 
-    const onResult = options?.onResult;
+    const onResult = resolvedOptions?.onResult;
     const onData = (data: any) => {
       if (data.done) {
         // Final check for thinking content when streaming is complete
@@ -204,7 +209,7 @@ export class OllamaLang extends LanguageProvider {
 
         result.finished = true;
         const last = result.length > 0 ? result[result.length - 1] : undefined;
-        if (last) options?.onResult?.(last as any);
+        if (last) resolvedOptions?.onResult?.(last as any);
         return;
       }
 
@@ -227,7 +232,7 @@ export class OllamaLang extends LanguageProvider {
       }
 
       const last = result.length > 0 ? result[result.length - 1] : undefined;
-      if (last) options?.onResult?.(last as any);
+      if (last) resolvedOptions?.onResult?.(last as any);
     };
 
     // Extract base64 images for models that support vision via images array.
@@ -257,12 +262,17 @@ export class OllamaLang extends LanguageProvider {
     try {
       const response = await fetch(`${this._config.baseURL}/api/chat`, {
         method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(resolvedOptions?.providerSpecificHeaders ?? {}),
+        },
         body: JSON.stringify({
           model: this._config.model,
           messages: mappedMessages,
           ...(images.length > 0 ? { images } : {}),
           stream: true,
           ...(requestMaxTokens && { num_predict: requestMaxTokens }),
+          ...(resolvedOptions?.providerSpecificBody ?? {}),
         }),
         signal: abortSignal,
       })

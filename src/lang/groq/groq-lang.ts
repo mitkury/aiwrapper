@@ -1,3 +1,4 @@
+import type { LangOptions } from "../language-provider.ts";
 import { OpenAIChatCompletionsLang } from "../openai/openai-chat-completions-lang.ts";
 
 export type GroqLangOptions = {
@@ -8,6 +9,7 @@ export type GroqLangOptions = {
   reasoningEffort?: "low" | "medium" | "high";
   includeReasoning?: boolean;
   bodyProperties?: Record<string, any>;
+  defaultOptions?: LangOptions;
 };
 
 export class GroqLang extends OpenAIChatCompletionsLang {
@@ -23,6 +25,7 @@ export class GroqLang extends OpenAIChatCompletionsLang {
       bodyProperties: options.bodyProperties || {},
       maxTokens: options.maxTokens,
       reasoningEffort: options.reasoningEffort,
+      defaultOptions: options.defaultOptions,
     });
     this.includeReasoning = options.includeReasoning;
   }

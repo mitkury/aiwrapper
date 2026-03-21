@@ -33,6 +33,7 @@ export type OpenAILikeConfig = {
   headers?: Record<string, string>;
   bodyProperties?: Record<string, unknown>;
   reasoningEffort?: ReasoningEffort;
+  defaultOptions?: LangOptions;
 };
 
 export type ReasoningTokenDetails = {
@@ -69,7 +70,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
   protected modelInfo?: Model;
 
   constructor(config: OpenAILikeConfig) {
-    super(config.model);
+    super(config.model, config.defaultOptions);
 
     const modelInfo = models.id(config.model);
     this.modelInfo = modelInfo; // can be undefined
@@ -136,6 +137,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     headers?: Record<string, string>;
     bodyProperties?: Record<string, unknown>;
     reasoningEffort?: ReasoningEffort;
+    defaultOptions?: LangOptions;
   }): OpenAIChatCompletionsLang {
     return new OpenAIChatCompletionsLang({
       apiKey: options.apiKey,
@@ -147,6 +149,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
       headers: options.headers,
       bodyProperties: options.bodyProperties,
       reasoningEffort: options.reasoningEffort,
+      defaultOptions: options.defaultOptions,
     });
   }
 
@@ -186,14 +189,15 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     messages: LangMessage[] | LangMessages,
     options?: LangOptions,
   ): Promise<LangMessages> {
-    const abortSignal = options?.signal;
+    const resolvedOptions = this.resolveOptions(options);
+    const abortSignal = resolvedOptions?.signal;
     const result = messages instanceof LangMessages
       ? messages
       : new LangMessages(messages);
 
-    if (options?.schema) {
+    if (resolvedOptions?.schema) {
       const baseInstruction = result.instructions + '\n\n' || '';
-      result.instructions = baseInstruction + addInstructionAboutSchema(options.schema);
+      result.instructions = baseInstruction + addInstructionAboutSchema(resolvedOptions.schema);
     }
 
     fixToolResultsIfNeeded(result);
@@ -203,10 +207,10 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
       this._config.maxCompletionTokens = Math.max(requestMaxTokens, 25000);
     }
 
-    const body = this.buildRequestBody(result, requestMaxTokens, options);
-    const commonRequest = this.buildCommonRequest(body, options);
+    const body = this.buildRequestBody(result, requestMaxTokens, resolvedOptions);
+    const commonRequest = this.buildCommonRequest(body, resolvedOptions);
     const onData = (data: any) => {
-      this.handleStreamData(data, result, options?.onResult);
+      this.handleStreamData(data, result, resolvedOptions?.onResult);
     };
 
     try {
@@ -227,7 +231,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
 
     // Automatically execute tools if the assistant requested them
     const toolResults = await result.executeRequestedTools();
-    if (options?.onResult && toolResults) options.onResult(toolResults);
+    if (resolvedOptions?.onResult && toolResults) resolvedOptions.onResult(toolResults);
 
     return result;
   }

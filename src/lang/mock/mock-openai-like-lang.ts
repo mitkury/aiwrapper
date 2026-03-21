@@ -19,6 +19,7 @@ export type MockOpenAILikeOptions = {
     name: string;
     argumentsChunks: string[];
   }>;
+  defaultOptions?: LangOptions;
 };
 
 /**
@@ -33,7 +34,8 @@ export class MockOpenAILikeLang extends OpenAIChatCompletionsLang {
       apiKey: "", // not used
       model: options.model || "gpt-4o-mini",
       systemPrompt: options.systemPrompt || "",
-      baseURL: "http://mock.local" // not used
+      baseURL: "http://mock.local", // not used
+      defaultOptions: options.defaultOptions,
     });
     this.mockConfig = options;
   }
@@ -51,13 +53,14 @@ export class MockOpenAILikeLang extends OpenAIChatCompletionsLang {
     messages: LangMessage[] | LangMessages,
     options?: LangOptions,
   ): Promise<LangMessages> {
+    const resolvedOptions = this.resolveOptions(options);
     // Normalize to LangMessages
     const messageCollection = messages instanceof LangMessages
       ? messages
       : new LangMessages(messages);
 
     const result = messageCollection;
-    const onResult = options?.onResult;
+    const onResult = resolvedOptions?.onResult;
 
     // If mockToolCalls provided, emit tool_calls deltas instead of plain content
     if (this.mockConfig.mockToolCalls && this.mockConfig.mockToolCalls.length > 0) {
@@ -82,7 +85,7 @@ export class MockOpenAILikeLang extends OpenAIChatCompletionsLang {
 
     // Decide content to emit
     let fullContent = "Hello from MockOpenAI";
-    if (options?.schema && this.mockConfig.mockResponseObject !== undefined) {
+    if (resolvedOptions?.schema && this.mockConfig.mockResponseObject !== undefined) {
       fullContent = JSON.stringify(this.mockConfig.mockResponseObject);
     } else if (typeof this.mockConfig.mockResponseText === 'function') {
       fullContent = this.mockConfig.mockResponseText();

@@ -28,6 +28,7 @@ export type OpenAILangOptions = {
   systemPrompt?: string;
   reasoningEffort?: "low" | "medium" | "high";
   showReasoningSummary?: boolean;
+  defaultOptions?: LangOptions;
 };
 
 export class OpenAIResponsesLang extends LanguageProvider {
@@ -39,7 +40,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
   private showReasoningSummary: boolean;
 
   constructor(options: OpenAILangOptions) {
-    super("OpenAI Responses");
+    super("OpenAI Responses", options.defaultOptions);
 
     this.model = options.model;
     this.apiKey = options.apiKey;
@@ -57,13 +58,14 @@ export class OpenAIResponsesLang extends LanguageProvider {
   }
 
   async chat(messages: { role: LangMessageRole; items: LangMessageItem[] }[] | LangMessage[] | LangMessages, options?: LangOptions): Promise<LangMessages> {
+    const resolvedOptions = this.resolveOptions(options);
     const msgCollection = messages instanceof LangMessages
       ? messages
       : new LangMessages(messages);
 
     fixToolResultsIfNeeded(msgCollection);
 
-    await this.sendToApi(msgCollection, options);
+    await this.sendToApi(msgCollection, resolvedOptions);
 
     return msgCollection;
   }
