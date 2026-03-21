@@ -7,7 +7,7 @@ export interface LangProvider {
 }
 
 /** Supported provider names */
-export type SupportedProvider = 'openai' | 'openrouter' | 'anthropic' | 'google' | 'deepseek' | 'mistral' | 'groq';
+export type SupportedProvider = 'openai' | 'openrouter' | 'anthropic' | 'google' | 'deepseek' | 'mistral' | 'groq' | 'kimi';
 
 export interface LangGathererOptions {
   /** Custom model overrides */
@@ -19,6 +19,7 @@ export interface LangGathererOptions {
     deepseek?: string;
     mistral?: string;
     groq?: string;
+    kimi?: string;
   };
   /** Specific providers to include (overrides other options) */
   providers?: SupportedProvider[];
@@ -43,7 +44,7 @@ function getProviderFilters(): string[] {
   for (let i = 0; i < args.length; i++) {
     if (args[i].startsWith('--') && !args[i].startsWith('--reporter') && !args[i].startsWith('--run')) {
       const providerName = args[i].substring(2).toLowerCase();
-      if (['openai', 'openrouter', 'anthropic', 'google', 'deepseek', 'mistral', 'groq'].includes(providerName)) {
+      if (['openai', 'openrouter', 'anthropic', 'google', 'deepseek', 'mistral', 'groq', 'kimi'].includes(providerName)) {
         providers.push(providerName);
       }
     }
@@ -66,6 +67,7 @@ function getModelOverridesFromEnv(): LangGathererOptions['modelOverrides'] {
   if (process.env.DEEPSEEK_MODEL) overrides.deepseek = process.env.DEEPSEEK_MODEL;
   if (process.env.MISTRAL_MODEL) overrides.mistral = process.env.MISTRAL_MODEL;
   if (process.env.GROQ_MODEL) overrides.groq = process.env.GROQ_MODEL;
+  if (process.env.KIMI_MODEL) overrides.kimi = process.env.KIMI_MODEL;
   
   return Object.keys(overrides).length > 0 ? overrides : undefined;
 }
@@ -188,6 +190,14 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
     }));
   }
 
+  // Kimi
+  if (process.env.KIMI_API_KEY && shouldIncludeProvider('kimi')) {
+    langs.push(Lang.kimi({
+      apiKey: process.env.KIMI_API_KEY as string,
+      model: finalModelOverrides.kimi || 'kimi-k2.5'
+    }));
+  }
+
   return langs;
 }
 
@@ -214,6 +224,8 @@ export function gatherLangsWithNames(options: LangGathererOptions = {}): LangPro
       friendlyName = 'Mistral';
     } else if (lang.constructor.name === 'GroqLang') {
       friendlyName = 'Groq';
+    } else if (lang.constructor.name === 'KimiLang') {
+      friendlyName = 'Kimi';
     }
 
     namedLangs.push({
@@ -312,6 +324,8 @@ export function isProviderAvailable(providerName: string): boolean {
       return !!process.env.MISTRAL_API_KEY;
     case 'groq':
       return !!process.env.GROQ_API_KEY;
+    case 'kimi':
+      return !!process.env.KIMI_API_KEY;
     default:
       return false;
   }

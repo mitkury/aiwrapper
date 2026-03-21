@@ -115,6 +115,7 @@ describe.skipIf(!modelInfo || !providerId)("Testing a model " + modelInfo?.id + 
     'openrouter': 'OPENROUTER_API_KEY',
     'xai': 'XAI_API_KEY',
     'groq': 'GROQ_API_KEY',
+    'kimi': 'KIMI_API_KEY',
   };
   
   const apiKeyEnv = apiKeyEnvMap[providerId.toLowerCase()];
@@ -149,6 +150,9 @@ describe.skipIf(!modelInfo || !providerId)("Testing a model " + modelInfo?.id + 
         break;
       case 'groq':
         lang = Lang.groq({ apiKey, model: modelInfo.id });
+        break;
+      case 'kimi':
+        lang = Lang.kimi({ apiKey, model: modelInfo.id });
         break;
       default:
         it.skip(`Provider ${providerId} not yet supported in test`);

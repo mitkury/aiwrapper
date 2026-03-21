@@ -5,6 +5,7 @@ import { AnthropicLang, AnthropicLangOptions  } from "./anthropic/anthropic-lang
 import { OllamaLang, OllamaLangOptions } from "./ollama/ollama-lang.ts";
 import { GroqLang, GroqLangOptions } from "./groq/groq-lang.ts";
 import { DeepSeekLang, DeepSeekLangOptions } from "./deepseek/deepseek-lang.ts";
+import { KimiLang, KimiLangOptions } from "./kimi/kimi-lang.ts";
 import { XAILang, XAILangOptions } from "./xai/xai-lang.ts";
 import { GoogleLang, GoogleLangOptions } from "./google/google-lang.ts";
 import { CohereLang, CohereLangOptions } from "./cohere/cohere-lang.ts";
@@ -46,6 +47,11 @@ export abstract class Lang {
   /** Create a DeepSeek provider instance */
   static deepseek(options: DeepSeekLangOptions): DeepSeekLang {
     return new DeepSeekLang(options);
+  }
+
+  /** Create a Moonshot Kimi provider instance */
+  static kimi(options: KimiLangOptions): KimiLang {
+    return new KimiLang(options);
   }
 
   /** Create an xAI provider instance */
