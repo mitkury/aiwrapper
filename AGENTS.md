@@ -340,7 +340,7 @@ When publishing, follow these steps in order:
   "type": "module",
   "name": "aiwrapper",
   "description": "A Universal AI Wrapper for JavaScript & TypeScript",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "author": "Dmitry Kury (https://dkury.com)",
   "license": "MIT",
   "repository": {
@@ -391,7 +391,7 @@ When publishing, follow these steps in order:
     "aimodels:status": "./scripts/aimodels-status.sh"
   },
   "dependencies": {
-    "aimodels": "^0.6.0",
+    "aimodels": "^0.6.1",
     "ajv": "^8.17.1",
     "jsonic": "^2.16.0",
     "zod": "^3.24.4",
