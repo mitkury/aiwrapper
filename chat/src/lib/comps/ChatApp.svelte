@@ -71,6 +71,16 @@
   const secrets = getSecrets();
 
   $effect(() => {
+    const provider = secrets?.values.LLM_PROVIDER || "openai";
+
+    if (provider === "kimi") {
+      const key = secrets?.values.KIMI_API_SECRET;
+      if (key) {
+        agent.setLanguageProvider(Lang.kimi({ apiKey: key, model: "kimi-k2.5" }));
+      }
+      return;
+    }
+
     const key = secrets?.values.OPENAI_API_SECRET;
     if (key) {
       agent.setLanguageProvider(Lang.openai({ apiKey: key, model: "gpt-5", reasoningEffort: "high", showReasoningSummary: true }));
