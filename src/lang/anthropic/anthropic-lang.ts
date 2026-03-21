@@ -47,7 +47,7 @@ export class AnthropicLang extends LanguageProvider {
   _config: AnthropicLangConfig;
 
   constructor(options: AnthropicLangOptions) {
-    const modelName = options.model || "claude-3-7-sonnet-20250219";
+    const modelName = options.model || "claude-sonnet-4-6";
     super(modelName);
 
     const modelInfo = models.id(modelName);

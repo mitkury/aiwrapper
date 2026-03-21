@@ -70,7 +70,7 @@ if (!modelArg) {
   console.error('Examples:');
   console.error('  MODEL=gpt-4 npm run test:model');
   console.error('  MODEL="gpt-4@openai" npm run test:model');
-  console.error('  MODEL=claude-3-7-sonnet-20250219 npm run test:model\n');
+  console.error('  MODEL=claude-sonnet-4-6 npm run test:model\n');
 }
 
 const modelResult = modelArg ? findModel(modelArg.modelId, modelArg.provider) : { model: null, providerId: null };

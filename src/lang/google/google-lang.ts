@@ -21,7 +21,7 @@ export class GoogleLang extends LanguageProvider {
   private modelInfo?: Model;
 
   constructor(options: GoogleLangOptions) {
-    const modelName = options.model || "gemini-1.5-flash";
+    const modelName = options.model || "gemini-2.5-pro";
     super(modelName);
 
     const modelInfo = models.id(modelName);

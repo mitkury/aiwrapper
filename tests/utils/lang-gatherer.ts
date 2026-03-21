@@ -154,7 +154,7 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
   if (process.env.ANTHROPIC_API_KEY && shouldIncludeProvider('anthropic')) {
     langs.push(Lang.anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY as string,
-      model: finalModelOverrides.anthropic || 'claude-3-7-sonnet-20250219'
+      model: finalModelOverrides.anthropic || 'claude-sonnet-4-6'
     }));
   }
 
@@ -162,7 +162,7 @@ export function gatherLangs(options: LangGathererOptions = {}): LanguageProvider
   if (process.env.GOOGLE_API_KEY && shouldIncludeProvider('google')) {
     langs.push(Lang.google({
       apiKey: process.env.GOOGLE_API_KEY as string,
-      model: finalModelOverrides.google || 'gemini-3-pro-preview'
+      model: finalModelOverrides.google || 'gemini-2.5-pro'
     }));
   }
 
