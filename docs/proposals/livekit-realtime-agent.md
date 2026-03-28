@@ -60,3 +60,12 @@ If we build our own real-time AI agent, we should closely examine and adapt the 
 2.  **Interruption Logic:** How `AgentActivity` cancels ongoing LLM/TTS generation when the VAD (Voice Activity Detector) triggers a new user speech event.
 3.  **Chat Context Management:** How tool calls, tool results, and standard messages are interleaved in the context history.
 4.  **The unified LLM/STT/TTS interfaces:** Allowing easy swapping of providers (e.g., swapping OpenAI TTS for Cartesia or ElevenLabs) without changing the core agent logic.
+
+## 6. Realtime Models and aiwrapper Natively
+LiveKit specifically supports "Realtime Models" (like OpenAI's Realtime API) via the `RealtimeModel` class, which handles bidirectional audio and text streams directly, bypassing the traditional separated STT -> LLM -> TTS pipeline nodes.
+
+**How we can adapt this for aiwrapper natively:**
+1.  **Introduce a `RealtimeLang` interface:** Just as `aiwrapper` currently has a `Lang` class for standard text/JSON generation, we should introduce a `RealtimeLang` (or `RealtimeChatAgent`) that uses WebSockets or WebRTC to establish a persistent, bidirectional connection.
+2.  **Streaming Audio Support in `aiwrapper`:** Our unified wrapper should support taking in a `ReadableStream<AudioFrame>` (or standard MediaStream from the browser) and returning a similar audio stream.
+3.  **Unified Tool Handling for Realtime:** We need to ensure that the `ChatAgent`'s tool capabilities (currently used in standard prompt/response) are fully integrated into the realtime stream. This means parsing JSON tool calls *as they stream in* over the websocket, executing the function locally, and pushing the function output back into the stream, exactly as LiveKit's `RealtimeSession` does.
+4.  **Handling Events natively:** `aiwrapper` should emit native events like `onUserStartedSpeaking`, `onAgentStartedSpeaking`, and `onInterruption` allowing developers using the wrapper to update UI state immediately without needing to handle the raw audio stream themselves.
