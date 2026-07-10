@@ -1,343 +1,131 @@
 # Agents
 
-Agents let you build conversational AI, task automation, and monitoring systems. They handle message history, emit events, and can use tools.
+Agents add orchestration and events around language providers. `ChatAgent` is the built-in conversational agent. It keeps message history, streams updates, and continues calling the model until locally handled tools are resolved.
 
----
+## ChatAgent
 
-## What You Can Build
+```ts
+import { ChatAgent, Lang, LangMessage } from "aiwrapper";
 
-* **Chat interfaces**: conversational bots with memory and tool calling
-* **Task automation**: web search, summarization, content generation
-* **Monitoring systems**: security checks, inbox triage, periodic data fetchers
-* **Multi-step workflows**: coordinate multiple LLM calls or tools
-
----
-
-## Core API
-
-### Methods
-
-* **`run(input?)`**: execute the agent with optional input. Returns output or void for long-running agents.
-* **`input(data)`**: provide input to the agent without running it immediately
-* **`subscribe(listener)`**: attach a listener to agent events. Returns an `unsubscribe` function
-* **`state`**: read-only property showing current agent state (`"idle" | "running"`)
-
-### Event Types
-
-* **`finished`**: agent completed with output
-* **`error`**: agent encountered an error
-* **`state`**: agent state changed (idle/running)
-* **`input`**: new input was received
-* **Custom events**: agents can define their own event types
-
----
-
-## Example: ChatAgent
-
-The `ChatAgent` is a conversational agent with memory and tool support.
-
-```typescript
-import { Lang, ChatAgent, LangMessage } from 'aiwrapper';
-
-const lang = Lang.openai({ apiKey: "YOUR_KEY" });
+const lang = Lang.openai({ apiKey: process.env.OPENAI_API_KEY });
 const agent = new ChatAgent(lang);
 
-// Simple usage - run with input
 const result = await agent.run([
-  new LangMessage('user', 'What is 2+2?')
+  new LangMessage("user", "What is 2 + 2?"),
 ]);
 
-console.log(result.answer); // "4"
-console.log(result); // Full conversation history (LangMessages)
+console.log(result.answer);
+console.log(agent.getMessages());
 ```
 
-### Conversation Flow
+Each call appends its input to the agent's existing history. You can also construct and pass a `LangMessages` collection. Passing a collection replaces the agent's current history with that collection.
 
-```typescript
-import { LangMessage } from 'aiwrapper';
+## Tools
 
-// Start conversation
-const result1 = await agent.run([
-  new LangMessage('user', 'My name is Alice.')
-]);
+Pass locally executed tools to the constructor:
 
-// Continue conversation
-const result2 = await agent.run([
-  new LangMessage('user', 'What is my name?')
-]);
-
-console.log(result2.answer); // "Alice"
-
-// Access conversation history
-const history = agent.getMessages();
-```
-
-### Event Subscription
-
-```typescript
-import { LangMessage } from 'aiwrapper';
-
-const agent = new ChatAgent(lang);
-
-const unsubscribe = agent.subscribe(event => {
-  if (event.type === 'finished') {
-    console.log('Done:', event.output);
-  }
-  if (event.type === 'error') {
-    console.error('Error:', event.error);
-  }
-  if (event.type === 'state') {
-    console.log('State:', event.state);
-  }
-  if (event.type === 'input') {
-    console.log('Input received:', event.input);
-  }
-});
-
-await agent.run([new LangMessage('user', 'Hello!')]);
-
-unsubscribe();
-```
-
-### Tools
-
-```typescript
-import { LangMessage } from 'aiwrapper';
-
+```ts
 const agent = new ChatAgent(lang, {
   tools: [
     {
-      name: 'get_weather',
-      description: 'Get current weather for a location',
+      name: "get_weather",
+      description: "Get current weather for a location",
       parameters: {
-        type: 'object',
+        type: "object",
         properties: {
-          location: { type: 'string' }
-        }
+          location: { type: "string" },
+        },
+        required: ["location"],
       },
-      handler: (args) => {
-        return { temp: 72, condition: 'sunny' };
-      }
-    }
-  ]
+      handler: async ({ location }) => ({ location, temperature: 22 }),
+    },
+  ],
 });
 
 const result = await agent.run([
-  new LangMessage('user', 'What is the weather in Boston?')
+  new LangMessage("user", "What is the weather in Bogotá?"),
 ]);
-
-// Agent automatically calls tool and incorporates result
 ```
 
----
+`ChatAgent` sends available tools to the provider, executes requested handlers, appends `tool-results` messages, and asks the provider to continue until it produces a final response.
 
-## Building Custom Agents
+## Events
 
-### Step 1: Define TypeScript Types
+Every agent emits state and failure events. `ChatAgent` also emits `streaming` and `finished` events.
 
-```typescript
-type WebSearchInput = {
-  query: string;
-  context?: string;
-};
-
-type WebSearchOutput = {
-  results: string[];
-  query: string;
-};
-```
-
-### Step 2: Extend the Agent Class
-
-```typescript
-import { Agent } from 'aiwrapper';
-
-class WebSearchAgent extends Agent<WebSearchInput, WebSearchOutput> {
-  constructor() {
-    super();
+```ts
+const unsubscribe = agent.subscribe(event => {
+  switch (event.type) {
+    case "state":
+      console.log(event.state);
+      break;
+    case "streaming":
+      console.log(event.data.idx, event.data.msg.text);
+      break;
+    case "finished":
+      console.log(event.output.answer);
+      break;
+    case "aborted":
+      console.log("Aborted", event.partial?.answer);
+      break;
+    case "error":
+      console.error(event.error);
+      break;
   }
-
-  protected async runInternal(input: WebSearchInput): Promise<WebSearchOutput> {
-    // Implement your logic
-    const results = await performSearch(input.query);
-    
-    const output = {
-      results,
-      query: input.query
-    };
-    
-    // Emit finished event
-    this.emit({ type: 'finished', output });
-    
-    return output;
-  }
-
-  // Optional: handle input processing
-  protected inputInternal(input: WebSearchInput): void {
-    console.log('Processing query:', input.query);
-  }
-}
-```
-
-### Step 3: Use It
-
-```typescript
-const search = new WebSearchAgent();
-
-const unsubscribe = search.subscribe(event => {
-  console.log(event);
 });
 
-// Option A: pass input to run()
-const result = await search.run({
-  query: 'What is TypeScript?',
-  context: 'programming'
-});
-
-// Option B: provide input first, then run()
-search.input({ query: 'What is TypeScript?' });
-await search.run();
-
+await agent.run([new LangMessage("user", "Hello")]);
 unsubscribe();
 ```
 
----
+Listeners should not throw. A listener error is logged and does not stop other listeners.
 
-## Custom Events
+## Cancellation
 
-Agents can define custom event types for domain-specific events.
+Pass an `AbortSignal` to `run`:
 
-```typescript
-type VideoEvents = 
-  | { type: 'video_chunk'; data: { chunk: Uint8Array; progress: number } }
-  | { type: 'video_complete'; data: { url: string } };
+```ts
+const controller = new AbortController();
 
-class VideoAgent extends Agent<{ prompt: string }, string, VideoEvents> {
-  protected async runInternal(input: { prompt: string }): Promise<string> {
-    // Emit custom events during processing
-    this.emit({
-      type: 'video_chunk',
-      data: { chunk: new Uint8Array(), progress: 0.5 }
-    });
-    
-    this.emit({
-      type: 'video_chunk',
-      data: { chunk: new Uint8Array(), progress: 1.0 }
-    });
-    
-    const result = 'video.mp4';
-    this.emit({ type: 'finished', output: result });
-    
-    return result;
-  }
-}
+const pending = agent.run(
+  [new LangMessage("user", "Write a long story")],
+  { signal: controller.signal },
+);
 
-// Usage
-const video = new VideoAgent();
-
-video.subscribe(event => {
-  if (event.type === 'video_chunk') {
-    console.log(`Progress: ${event.data.progress * 100}%`);
-  }
-  if (event.type === 'video_complete') {
-    console.log('Video ready:', event.data.url);
-  }
-});
-
-await video.run({ prompt: 'Generate video' });
+controller.abort();
+const partial = await pending;
 ```
 
----
+When a provider can return partial messages, `ChatAgent` emits an `aborted` event and resolves with that partial result. If no partial result exists, it rethrows the `AbortError`.
 
-## Long-Running Agents
+## Custom agents
 
-For agents that run indefinitely and accept inputs over time, return `void` from `runInternal`:
+Extend `Agent<Input, Output, CustomEvent>` and implement `runInternal`. State changes and failures are handled by the base class. A custom agent is responsible for emitting its own `finished` event.
 
-```typescript
-type SecurityInput = {
-  service: string;
-  key: string;
+```ts
+import { Agent } from "aiwrapper";
+
+type SearchInput = { query: string };
+type SearchOutput = { results: string[] };
+type SearchProgress = {
+  type: "progress";
+  data: { completed: number };
 };
 
-type SecurityOutput = {
-  incidents: string[];
-};
+class SearchAgent extends Agent<SearchInput, SearchOutput, SearchProgress> {
+  protected async runInternal(
+    input?: SearchInput,
+    options?: { signal?: AbortSignal },
+  ): Promise<SearchOutput> {
+    if (!input) throw new Error("Search input is required");
+    options?.signal?.throwIfAborted();
 
-type SecurityEvents = 
-  | { type: 'scan_progress'; data: { percentage: number } }
-  | { type: 'incident_detected'; data: { severity: string; details: string } };
-
-class SecurityAgent extends Agent<SecurityInput, SecurityOutput, SecurityEvents> {
-  private queue: SecurityInput[] = [];
-
-  protected async runInternal(input: SecurityInput): Promise<void> {
-    // Long-running loop
-    while (true) {
-      // Emit progress
-      this.emit({
-        type: 'scan_progress',
-        data: { percentage: 50 }
-      });
-      
-      // Check for incidents
-      const incident = await checkSecurity(input);
-      if (incident) {
-        this.emit({
-          type: 'incident_detected',
-          data: { severity: 'high', details: incident }
-        });
-      }
-      
-      await sleep(1000);
-    }
-  }
-
-  protected inputInternal(input: SecurityInput): void {
-    // Queue up new inputs while running
-    this.queue.push(input);
+    this.emit({ type: "progress", data: { completed: 0 } });
+    const output = { results: await search(input.query) };
+    this.emit({ type: "finished", output });
+    return output;
   }
 }
-
-// Usage
-const security = new SecurityAgent();
-
-security.subscribe(event => {
-  if (event.type === 'incident_detected') {
-    console.log(`[${event.data.severity}] ${event.data.details}`);
-  }
-});
-
-// Start in background
-security.run({ service: 'api', key: 'key1' });
-
-// Push more inputs while running
-security.input({ service: 'db', key: 'key2' });
 ```
 
----
-
-## Checklist for New Agents
-
-1. Define **InputType** and **OutputType** with TypeScript
-2. Extend `Agent<Input, Output, CustomEvents?>`
-3. Implement `runInternal(input)`:
-   - Return `TOutput` for one-off tasks
-   - Return `void` for long-running agents
-4. (Optional) Implement `inputInternal(input)` for immediate input processing
-5. (Optional) Define custom event types
-6. Emit `finished` events with output
-7. Handle errors and emit `error` events
-8. Use `this.emit()` for custom events during processing
-
----
-
-## Key Features
-
-* **Type Safety**: Full TypeScript support with compile-time validation
-* **Event-Driven**: Subscribe to agent events (finished, error, state, input, custom)
-* **Flexible Execution**: One-off or long-running agent patterns
-* **State Management**: Built-in idle/running state tracking
-* **Extensible Events**: Define custom event types for domain-specific needs
-* **Input Processing**: Optional immediate input handling via `inputInternal`
-* **Simple Setup**: No complex schema definitions needed
-
+The base `Agent` represents one `run` lifecycle. If an agent needs queued or continuous input, expose that behavior explicitly in the subclass instead of relying on an `input()` method; the base class does not provide one.

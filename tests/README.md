@@ -1,25 +1,41 @@
-Test categories
+# Tests
 
-- Image input tests: files matching `images-in-*.test.*` and `*vision*.int.test.*`
-  - Run once: `npm run test:img-in`
-  - Watch: `npm run test:watch:img-in`
-- Image output tests: files matching `images-out-*.test.*` (placeholder for future)
-  - Run once: `npm run test:img-out`
+The suite contains deterministic unit tests and credential-gated provider integration tests.
 
-- Text tests (regular, structured, reasoning):
-  - Run once: `npm run test:text`
+## Commands
 
-- Tools/function calling tests:
-  - Run once: `npm run test:tools`
+```bash
+npm test
+npm run test:lang
+npm run test:tools
+npm run test:agents
+npm run test:img-in
+npm run test:img-out
+npm run test:reasoning
+```
 
-- Model-specific tests: quickly test any model from aimodels database
-  - Run: `MODEL=<model-id> npm run test:model`
-  - With provider: `MODEL="<model-id>@<provider>" npm run test:model`
-  - Examples:
-    - `MODEL=claude-sonnet-4-6 npm run test:model`
-    - `MODEL="gpt-4@openai" npm run test:model`
-  - The test automatically detects model capabilities and runs appropriate tests
+`npm test` runs the build first. When running `vitest` directly after source changes, run `npm run build` first.
 
-Notes
-- Integration vision tests require API keys and sometimes regional access. They are skipped unless keys are present (and for some providers may still be skipped until enabled).
-- Model tests require the appropriate API key for the model's provider (e.g., `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`).
+Use `PROVIDERS` to limit integration tests:
+
+```bash
+PROVIDERS=openai npx vitest run tests/lang/basic-lang.test.ts
+PROVIDERS=openai,anthropic npm run test:tools
+```
+
+Provider tests are skipped when the corresponding API key is absent. A present but expired or invalid key still causes a provider failure.
+
+## Model check
+
+Use `test:model` for one catalog entry:
+
+```bash
+MODEL=<model-id> npm run test:model
+MODEL="<model-id>@<provider>" npm run test:model
+```
+
+The model test selects checks from the capabilities stored in `aimodels`. See [docs/dev/aimodels-linking.md](../docs/dev/aimodels-linking.md) to test unpublished catalog changes.
+
+## Generated files
+
+Image-output tests may write generated images under `tests/img-out`. Those files are ignored and should not be committed.

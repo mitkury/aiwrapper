@@ -1,6 +1,4 @@
-# Linking Local AIModels Package
-
-## Purpose
+# Linking a local aimodels package
 
 When new models are added to the `aimodels` package, you may want to test them in `aiwrapper` before publishing `aimodels` to npm. This workflow allows you to quickly link your local `aimodels` development version for testing new models.
 
@@ -17,11 +15,12 @@ We use npm's `link` mechanism, which creates symlinks in `node_modules` instead 
 The `aimodels` repository must be located at the same directory level as `aiwrapper`. The scripts expect `aimodels` at `../aimodels/js` relative to the `aiwrapper` repository root.
 
 For example:
+
 ```
 repos/
-  ├── aiwrapper/
-  └── aimodels/
-      └── js/
+  aiwrapper/
+  aimodels/
+    js/
 ```
 
 ## Usage
@@ -32,6 +31,9 @@ npm run aimodels:link
 
 # Test new models in aiwrapper...
 
+# Check which copy is active
+npm run aimodels:status
+
 # Switch back to published version
 npm run aimodels:unlink
 ```
@@ -41,7 +43,7 @@ npm run aimodels:unlink
 **When linking:**
 1. The local `aimodels` package is registered globally via `npm link`
 2. A symlink is created in `node_modules/aimodels` pointing to your local package
-3. The `"aimodels": "^0.5.2"` entry in `package.json` is ignored while the link is active
+3. The published `aimodels` dependency in `package.json` is ignored while the link is active
 4. New models in your local `aimodels` package are immediately available for testing (rebuild aimodels if it has a build step)
 
 **When unlinking:**
@@ -54,4 +56,3 @@ npm run aimodels:unlink
 The scripts are located in `scripts/`:
 - `scripts/link-aimodels-local.sh` - Creates the link
 - `scripts/unlink-aimodels-local.sh` - Removes the link and reinstalls from npm
-

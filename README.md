@@ -5,7 +5,7 @@ A universal AI wrapper for JavaScript & TypeScript.
 Use LLMs from anywhere—servers, browsers and web-apps. AIWrapper works in
 anything that runs JavaScript.
 
-> :warning: **It's in early WIP stage and the API may change.**
+> The API is evolving and may change between releases.
 
 ## Features
 
@@ -21,6 +21,10 @@ anything that runs JavaScript.
 ```bash
 npm install aiwrapper
 ```
+
+## Documentation
+
+See the [documentation index](docs/README.md) for language providers, agents, tools, testing, and development workflows.
 
 ## Quick Start
 
