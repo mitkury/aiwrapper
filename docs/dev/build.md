@@ -1,17 +1,18 @@
 # Build
 
-Source files use TypeScript, ESM, and explicit `.ts` import extensions. The package build produces ESM JavaScript and declarations in `dist`.
+AIWrapper is an npm-first ESM package for Node.js 20 and newer. Source files use TypeScript and explicit `.js` extensions in relative imports so the same specifiers work in emitted JavaScript and declarations.
 
 ```bash
 npm run build
 ```
 
-The build has three stages:
+The build has two stages:
 
-1. `prebuild` removes the previous `dist` directory.
-2. `build.js` compiles every `src/**/*.ts` file with esbuild for the ES2017 target while preserving the source directory structure.
-3. The build rewrites relative `.ts` imports to `.js` and uses TypeScript to emit declaration files.
+1. `npm run clean` removes the previous `dist` directory.
+2. TypeScript compiles `src` to ESM JavaScript, source maps, and declarations in `dist`.
 
-The runtime build uses `platform: "neutral"` so it remains suitable for modern browsers, Node.js, Deno, and other JavaScript runtimes. Runtime source should therefore avoid Node-only APIs unless a module is explicitly server-only.
+There is no bundling or post-build import rewriting. Keep relative source imports ending in `.js` and let TypeScript resolve them to their `.ts` sources.
 
-`package.json` publishes only `dist` and `LICENSE`.
+Run the complete deterministic package check with `npm run check`.
+
+`package.json` publishes only `dist`, `LICENSE`, and npm's standard package files.

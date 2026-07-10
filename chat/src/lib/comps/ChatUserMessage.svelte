@@ -4,13 +4,7 @@
 
   const { message }: { message: LangMessage } = $props();
 
-  const text = $derived.by(() => { 
-    if (message.content instanceof String) {
-      return message.content as string;
-    }
-
-    return message.text;
-  });
+  const text = $derived(message.text);
 
 </script>
 

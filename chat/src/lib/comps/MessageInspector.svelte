@@ -1,11 +1,11 @@
 <script lang="ts">
-  import type { LangMessage, LangImageOutput, ToolRequest, ToolResult } from "aiwrapper";
+  import type { LangMessage, LangImageOutput, ToolRequest, LangMessageItemToolResult } from "aiwrapper";
 
   const { message }: { message: LangMessage } = $props();
 
   let standaloneText: string = $state("");
   let toolRequests: ToolRequest[] = $state([]);
-  let toolResults: ToolResult[] = $state([]);
+  let toolResults: LangMessageItemToolResult[] = $state([]);
   let images: LangImageOutput[] = $state([]);
 
   const isUserMessage = $derived(message.role === "user");

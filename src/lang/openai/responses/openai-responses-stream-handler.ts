@@ -1,12 +1,12 @@
-import { LangMessages, LangMessage } from "../../messages";
+import { LangMessages, LangMessage } from "../../messages.js";
 import type {
   LangMessageItem,
   LangMessageItemText,
   LangMessageItemTool,
   LangMessageItemImage,
   LangMessageItemReasoning
-} from "../../messages";
-import { MessageItem } from "../responses-stream-types";
+} from "../../messages.js";
+import type { MessageItem } from "../responses-stream-types.js";
 
 type OpenAIResponseItem = {
   id: string;
@@ -18,11 +18,11 @@ type OpenAIResponseItem = {
  * Stream response handler for the OpenAI Responses API
  */
 export class OpenAIResponseStreamHandler {
-  id: string;
+  id!: string;
   itemIdToMessageItemIndex: Map<string, number> = new Map();
   itemIdToSummaryIndex: Map<string, number> = new Map();
   providerManagedItemIds: Set<string> = new Set();
-  newMessage: LangMessage;
+  newMessage!: LangMessage;
   messages: LangMessages;
   onResult?: (result: LangMessage) => void;
 

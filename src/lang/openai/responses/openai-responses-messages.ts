@@ -1,4 +1,5 @@
-import { LangMessages, LangMessage, LangTool } from "../../messages";
+import { LangMessages, LangMessage } from "../../messages.js";
+import type { LangTool } from "../../messages.js";
 
 export type BodyPartForOpenAIResponses = {
   input?: any[];
@@ -13,12 +14,13 @@ export function prepareBodyPartForOpenAIResponsesAPI(messages: LangMessages): Bo
   let lastMessageWithResponseId: LangMessage | undefined;
   let lastMessageWithResponseIdIndex = -1;
 
+  const tools = transformToolsForProvider(messages.availableTools || []);
   const bodyPart: BodyPartForOpenAIResponses = {
     instructions: messages.instructions,
-    tools: transformToolsForProvider(messages.availableTools || [])
+    tools,
   };
 
-  if (bodyPart.tools.length > 0) {
+  if (tools.length > 0) {
     bodyPart.tool_choice = 'auto';
   }
 
@@ -34,18 +36,22 @@ export function prepareBodyPartForOpenAIResponsesAPI(messages: LangMessages): Bo
   }
 
   if (lastMessageWithResponseId) {
+    const responseId = lastMessageWithResponseId.meta?.openaiResponseId;
+    if (!responseId) {
+      throw new Error("Assistant response metadata is missing its OpenAI response id.");
+    }
     if (lastMessageWithResponseIdIndex < messages.length - 1) {
       // There are new messages after the last message with a response ID
       // Use previous_response_id + only the new messages as input
       const newMessages = messages.slice(lastMessageWithResponseIdIndex + 1);
       const newInput = transformMessagesToResponsesInput(new LangMessages(newMessages));
 
-      bodyPart.previous_response_id = lastMessageWithResponseId.meta.openaiResponseId;
+      bodyPart.previous_response_id = responseId;
       bodyPart.input = newInput;
     } else {
       // The last message has a response ID and there are no new messages after it
       // Use previous_response_id with empty input (let the API continue from that response)
-      bodyPart.previous_response_id = lastMessageWithResponseId.meta.openaiResponseId;
+      bodyPart.previous_response_id = responseId;
       bodyPart.input = [];
     }
   } else {

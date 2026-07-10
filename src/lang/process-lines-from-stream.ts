@@ -30,8 +30,8 @@ const processDataAsStr = (rawData: string, onData: (data: any) => void) => {
           (data as any).type = currentEvent;
         }
         onData(data);
-      } catch (err) {
-        throw new Error(err as any);
+      } catch (error) {
+        throw new Error("Invalid server-sent event data.", { cause: error });
       } finally {
         currentEvent = null;
       }
@@ -45,8 +45,8 @@ const processDataAsJson = (rawData: string, onData: (data: any) => void) => {
     try {
       const data = JSON.parse(line);
       onData(data);
-    } catch (err) {
-      throw new Error(err);
+    } catch (error) {
+      throw new Error("Invalid JSON stream data.", { cause: error });
     }
   }
 }

@@ -1,9 +1,11 @@
-import { LangOptions, LanguageProvider } from "../language-provider.ts";
-import { httpRequestWithRetry as fetch } from "../../http-request.ts";
-import { models, Model } from "aimodels";
-import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
-import { LangMessage, LangMessages, LangMessageItemImage, LangMessageItemTool, LangTool, fixToolResultsIfNeeded } from "../messages.ts";
-import { addInstructionAboutSchema } from "../prompt-for-json.ts";
+import { LanguageProvider } from "../language-provider.js";
+import type { LangOptions } from "../language-provider.js";
+import { httpRequestWithRetry as fetch } from "../../http-request.js";
+import { models, type Model } from "aimodels";
+import { calculateModelResponseTokens } from "../utils/token-calculator.js";
+import { LangMessage, LangMessages, fixToolResultsIfNeeded } from "../messages.js";
+import type { LangMessageItemImage, LangMessageItemTool, LangTool } from "../messages.js";
+import { addInstructionAboutSchema } from "../prompt-for-json.js";
 
 export type GoogleLangOptions = {
   apiKey: string;

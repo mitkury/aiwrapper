@@ -1,20 +1,22 @@
 {
   "compilerOptions": {
-    "target": "ES2023",
-    "module": "ES2020",
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "rootDir": "src",
+    "outDir": "dist",
+    "declaration": true,
+    "sourceMap": true,
+    "strict": true,
+    "verbatimModuleSyntax": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "moduleResolution": "node",
-    "allowJs": true,
-    "allowImportingTsExtensions": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmitOnError": true,
     "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noEmit": true,
-    "baseUrl": ".",
-    "paths": {
-      "aiwrapper": ["./dist/index.d.ts"]
-    }
+    "noUnusedParameters": true
   },
-  "include": ["src/**/*", "tests/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "tests"]
 }

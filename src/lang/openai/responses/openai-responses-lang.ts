@@ -1,14 +1,16 @@
-import { LangOptions, LangResponseSchema, LanguageProvider } from "../../language-provider.ts";
-import { LangMessage, LangMessageItem, LangMessageRole, LangMessages, fixToolResultsIfNeeded } from "../../messages.ts";
-import { prepareBodyPartForOpenAIResponsesAPI } from "./openai-responses-messages.ts";
-import { processServerEvents } from "../../../process-server-events.ts";
-import { OpenAIResponseStreamHandler } from "./openai-responses-stream-handler.ts";
-import { isZodSchema, validateAgainstSchema, zodToJsonSchema } from "../../schema/schema-utils.ts";
+import { LanguageProvider } from "../../language-provider.js";
+import type { LangOptions, LangResponseSchema } from "../../language-provider.js";
+import { LangMessage, LangMessages, fixToolResultsIfNeeded } from "../../messages.js";
+import type { LangMessageItem, LangMessageRole } from "../../messages.js";
+import { prepareBodyPartForOpenAIResponsesAPI } from "./openai-responses-messages.js";
+import { processServerEvents } from "../../../process-server-events.js";
+import { OpenAIResponseStreamHandler } from "./openai-responses-stream-handler.js";
+import { isZodSchema, validateAgainstSchema, zodToJsonSchema } from "../../schema/schema-utils.js";
 import { models } from 'aimodels';
 import {
   httpRequestWithRetry as fetch,
-  HttpResponseWithRetries,
-} from "../../../http-request.ts";
+} from "../../../http-request.js";
+import type { HttpResponseWithRetries } from "../../../http-request.js";
 
 
 /**
@@ -42,7 +44,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
   constructor(options: OpenAILangOptions) {
     super("OpenAI Responses", options.defaultOptions);
 
-    this.model = options.model;
+    this.model = options.model || "gpt-5.4";
     this.apiKey = options.apiKey;
     this.reasoningEffort = options.reasoningEffort ?? "medium";
     // Accounts without reasoning-summary access can disable it explicitly.
@@ -166,7 +168,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
           }
 
           if (lastMessageWithResponseId) {
-            delete lastMessageWithResponseId.meta.openaiResponseId;
+            delete lastMessageWithResponseId.meta?.openaiResponseId;
             // Build new body that contains all messages (with the response id removed)
             const newBody = this.buildRequestBody(msgCollection, options);
             reqOptions.body = JSON.stringify(newBody);

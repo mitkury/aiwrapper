@@ -1,25 +1,26 @@
 import {
   httpRequestWithRetry as fetch,
-} from "../../http-request.ts";
-import { processServerEvents } from "../../process-server-events.ts";
+} from "../../http-request.js";
+import { processServerEvents } from "../../process-server-events.js";
 import {
-  LangMessage,
-  LangOptions,
   LanguageProvider,
-} from "../language-provider.ts";
+} from "../language-provider.js";
+import type { LangMessage, LangOptions } from "../language-provider.js";
 import { models } from 'aimodels';
-import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
+import { calculateModelResponseTokens } from "../utils/token-calculator.js";
 import {
+  LangMessages,
+  fixToolResultsIfNeeded,
+} from "../messages.js";
+import type {
   LangMessageItemImage,
   LangMessageItemText,
   LangMessageItemTool,
   LangMessageItemToolResult,
-  LangMessages,
   LangTool,
-  fixToolResultsIfNeeded,
-} from "../messages.ts";
-import { addInstructionAboutSchema } from "../prompt-for-json.ts";
-import { AnthropicStreamHandler } from "./anthropic-stream-handler.ts";
+} from "../messages.js";
+import { addInstructionAboutSchema } from "../prompt-for-json.js";
+import { AnthropicStreamHandler } from "./anthropic-stream-handler.js";
 
 type AnthropicTool = {
   name: string;

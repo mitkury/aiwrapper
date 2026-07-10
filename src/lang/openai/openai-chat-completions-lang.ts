@@ -1,25 +1,25 @@
-import {
-  LangOptions,
-  LanguageProvider,
-} from "../language-provider.ts";
+import { LanguageProvider } from "../language-provider.js";
+import type { LangOptions } from "../language-provider.js";
 import {
   LangMessages,
   LangMessage,
+  fixToolResultsIfNeeded,
+} from "../messages.js";
+import type {
   LangTool,
   LangMessageItemImage,
   LangMessageItemText,
   LangMessageItemTool,
   LangMessageItemToolResult,
-  fixToolResultsIfNeeded,
-} from "../messages.ts";
+} from "../messages.js";
 import {
   httpRequestWithRetry as fetch,
-} from "../../http-request.ts";
-import { processServerEvents } from "../../process-server-events.ts";
-import { models, Model } from 'aimodels';
-import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
-import { addInstructionAboutSchema } from "../prompt-for-json.ts";
-import { OpenAIChatCompletionsStreamHandler } from "./openai-chat-completions-stream-handler.ts";
+} from "../../http-request.js";
+import { processServerEvents } from "../../process-server-events.js";
+import { models, type Model } from 'aimodels';
+import { calculateModelResponseTokens } from "../utils/token-calculator.js";
+import { addInstructionAboutSchema } from "../prompt-for-json.js";
+import { OpenAIChatCompletionsStreamHandler } from "./openai-chat-completions-stream-handler.js";
 
 export type ReasoningEffort = "low" | "medium" | "high";
 

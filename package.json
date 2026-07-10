@@ -33,20 +33,33 @@
     "LICENSE"
   ],
   "main": "./dist/index.js",
-  "allowJs": true,
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "prebuild": "rm -rf dist",
-    "build": "node build.js",
-    "serve": "npx serve .",
-    "pretest": "npm run build",
-    "test": "vitest run",
-    "test:lang": "npm run build && vitest run tests/lang/*.test.ts",
-    "test:tools": "npm run build && vitest run tests/tools/tools.test.ts",
-    "test:agents": "npm run build && vitest run tests/agents/*.test.ts",
-    "test:img-in": "npm run build && vitest run tests/img-in/*.test.ts",
-    "test:img-out": "npm run build && vitest run tests/img-out/*.test.ts",
-    "test:reasoning": "npm run build && vitest run tests/reasoning/*.test.ts",
-    "test:model": "vitest run tests/model.test.ts",
+    "clean": "rm -rf dist",
+    "build": "npm run clean && tsc --project tsconfig.json",
+    "check": "npm run build && npm run test:unit && npm run check:package",
+    "check:package": "npm pack --dry-run --ignore-scripts",
+    "check:demo": "npm --prefix chat run check && npm --prefix chat run build",
+    "prepack": "npm run build",
+    "test": "npm run build && npm run test:unit",
+    "test:unit": "vitest run --exclude '**/*.integration.test.ts'",
+    "test:integration": "npm run build && vitest run integration",
+    "test:all": "npm test && vitest run integration",
+    "test:lang": "npm run build && vitest run tests/lang",
+    "test:tools": "npm run build && vitest run tests/tools",
+    "test:agents": "npm run build && vitest run tests/agents",
+    "test:img-in": "npm run build && vitest run tests/img-in",
+    "test:img-out": "npm run build && vitest run tests/img-out",
+    "test:model": "npm run build && vitest run tests/model.integration.test.ts",
     "aimodels:link": "./scripts/link-aimodels-local.sh",
     "aimodels:unlink": "./scripts/unlink-aimodels-local.sh",
     "aimodels:status": "./scripts/aimodels-status.sh"
@@ -59,13 +72,8 @@
     "zod-to-json-schema": "^3.24.6"
   },
   "devDependencies": {
-    "@playwright/test": "^1.42.1",
     "@types/node": "^20.11.16",
     "dotenv": "^16.4.1",
-    "dts-bundle-generator": "^9.5.1",
-    "esbuild": "^0.25.2",
-    "glob": "^11.0.1",
-    "ts-node": "^10.9.2",
     "typescript": "^5.8.2",
     "vitest": "^4.1.10"
   }

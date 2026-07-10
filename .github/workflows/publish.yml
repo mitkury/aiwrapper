@@ -8,6 +8,7 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    concurrency: npm-publish
     permissions:
       contents: read
       id-token: write
@@ -25,12 +26,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
         
-      - name: Build and test
-        run: |
-          npm run build
-          npm test
+      - name: Check package
+        run: npm run check
           
       - name: Publish to npm
-        run: npm publish --provenance --access public
+        run: npm publish --ignore-scripts --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

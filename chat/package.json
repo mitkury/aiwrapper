@@ -32,5 +32,8 @@
 		"@markpage/svelte": "^0.1.1",
 		"idb-keyval": "^6.2.1",
 		"lucide-svelte": "^0.553.0"
+	},
+	"overrides": {
+		"cookie": "^0.7.2"
 	}
 }

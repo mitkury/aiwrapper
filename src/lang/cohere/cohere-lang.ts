@@ -1,16 +1,15 @@
 import {
   httpRequestWithRetry as fetch,
-} from "../../http-request.ts";
-import { processServerEvents } from "../../process-server-events.ts";
+} from "../../http-request.js";
+import { processServerEvents } from "../../process-server-events.js";
 import {
-  LangMessage,
-  LangOptions,
   LangResult,
   LanguageProvider,
-} from "../language-provider.ts";
-import { LangMessages, LangMessage as ConversationMessage, fixToolResultsIfNeeded } from "../messages.ts";
-import { models, Model } from 'aimodels';
-import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
+} from "../language-provider.js";
+import type { LangMessage, LangOptions } from "../language-provider.js";
+import { LangMessages, LangMessage as ConversationMessage, fixToolResultsIfNeeded } from "../messages.js";
+import { models, type Model } from 'aimodels';
+import { calculateModelResponseTokens } from "../utils/token-calculator.js";
 
 export type CohereLangOptions = {
   apiKey: string;

@@ -1,6 +1,6 @@
-import { LangImageInput } from "../lang/language-provider.ts";
-import { LangMessages } from "../lang/messages.ts";
-import { httpRequestWithRetry as fetch } from "../http-request.ts";
+import type { LangImageInput } from "../lang/language-provider.js";
+import { LangMessages } from "../lang/messages.js";
+import { httpRequestWithRetry as fetch } from "../http-request.js";
 
 export type OpenAIImgOptions = {
   apiKey: string;

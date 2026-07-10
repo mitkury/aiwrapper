@@ -1,4 +1,4 @@
-import extractJSON from "./json/extract-json";
+import extractJSON from "./json/extract-json.js";
 
 export type LangMessageRole = "user" | "assistant" | "tool-results";
 export type LangMessageContent = string | LangContentPart[] | ToolRequest[] | ToolResult[];
@@ -344,11 +344,14 @@ export class LangMessages extends Array<LangMessage> {
       try {
         result = await Promise.resolve(tool.handler(requestedTool.arguments || {}));
       } catch (error) {
+        const normalizedError = error instanceof Error
+          ? error
+          : new Error(String(error));
         result = {
           error: true,
-          name: error.name,
-          message: error.message,
-          ...Object.fromEntries(Object.entries(error)),
+          name: normalizedError.name,
+          message: normalizedError.message,
+          ...Object.fromEntries(Object.entries(normalizedError)),
         }
       }
 

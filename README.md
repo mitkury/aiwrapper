@@ -1,9 +1,9 @@
 # AIWrapper
 
-A universal AI wrapper for JavaScript & TypeScript.
+A small, npm-first AI wrapper for JavaScript and TypeScript.
 
-Use LLMs from anywhere—servers, browsers and web-apps. AIWrapper works in
-anything that runs JavaScript.
+AIWrapper is an ESM package for modern Node.js. It keeps provider integrations
+behind one message and tool-calling API without introducing a framework.
 
 > The API is evolving and may change between releases.
 
@@ -21,6 +21,8 @@ anything that runs JavaScript.
 ```bash
 npm install aiwrapper
 ```
+
+Node.js 20 or newer is required.
 
 ## Documentation
 

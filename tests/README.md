@@ -6,20 +6,22 @@ The suite contains deterministic unit tests and credential-gated provider integr
 
 ```bash
 npm test
+npm run test:unit
+npm run test:integration
+npm run test:all
 npm run test:lang
 npm run test:tools
 npm run test:agents
 npm run test:img-in
 npm run test:img-out
-npm run test:reasoning
 ```
 
-`npm test` runs the build first. When running `vitest` directly after source changes, run `npm run build` first.
+`npm test` builds first and runs deterministic unit tests. Files ending in `.integration.test.ts` use live providers and are excluded from the default test command.
 
 Use `PROVIDERS` to limit integration tests:
 
 ```bash
-PROVIDERS=openai npx vitest run tests/lang/basic-lang.test.ts
+PROVIDERS=openai npx vitest run tests/lang/basic-lang.integration.test.ts
 PROVIDERS=openai,anthropic npm run test:tools
 ```
 

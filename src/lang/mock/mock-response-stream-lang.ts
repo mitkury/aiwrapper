@@ -1,15 +1,12 @@
-import { 
-  LangOptions, 
-  LanguageProvider 
-} from "../language-provider.ts";
-import { 
-  LangMessage, 
-  LangMessageItem,
-  LangMessageRole, 
+import { LanguageProvider } from "../language-provider.js";
+import type { LangOptions } from "../language-provider.js";
+import {
+  LangMessage,
   LangMessages,
   fixToolResultsIfNeeded,
-} from "../messages.ts";
-import { OpenAIResponseStreamHandler } from "../openai/responses/openai-responses-stream-handler.ts";
+} from "../messages.js";
+import type { LangMessageItem, LangMessageRole } from "../messages.js";
+import { OpenAIResponseStreamHandler } from "../openai/responses/openai-responses-stream-handler.js";
 
 type MessageFactory = string | (() => string);
 

@@ -1,4 +1,4 @@
-import { OpenAIResponsesLang, OpenAILangOptions } from "./responses/openai-responses-lang.ts";
+import { OpenAIResponsesLang, type OpenAILangOptions } from "./responses/openai-responses-lang.js";
 
 export type OpenAILangConfig = {
   apiKey: string;

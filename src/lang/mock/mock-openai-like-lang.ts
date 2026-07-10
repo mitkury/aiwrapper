@@ -1,9 +1,6 @@
-import { 
-  LangMessage,
-  LangOptions
-} from "../language-provider.ts";
-import { LangMessages } from "../messages.ts";
-import { OpenAIChatCompletionsLang } from "../openai/openai-chat-completions-lang.ts";
+import type { LangMessage, LangOptions } from "../language-provider.js";
+import { LangMessages } from "../messages.js";
+import { OpenAIChatCompletionsLang } from "../openai/openai-chat-completions-lang.js";
 
 export type MockOpenAILikeOptions = {
   model?: string;

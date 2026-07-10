@@ -8,6 +8,8 @@ on:
 jobs:
   update-dependency:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -19,12 +21,11 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          registry-url: 'https://registry.npmjs.org'
       
       - name: Get aimodels version
         id: version
         run: |
-          VERSION=$(echo '${{ github.event.client_payload }}' | jq -r .version)
+          VERSION=$(echo '${{ github.event.client_payload }}' | jq -er '.version | select(type == "string" and length > 0)')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
       
       - name: Update aimodels dependency
@@ -32,7 +33,7 @@ jobs:
           npm install aimodels@${{ steps.version.outputs.version }}
 
       - name: Build and test
-        run: npm test
+        run: npm run check
       
       - name: Configure Git
         run: |
@@ -45,14 +46,11 @@ jobs:
           git commit -m "deps: update aimodels to v${{ steps.version.outputs.version }}"
           git push
       
-      - name: Version patch and publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Version patch and trigger release
         run: |
           npm version patch -m "deps: release patch after aimodels v${{ steps.version.outputs.version }}"
           git push --follow-tags
-          npm publish
       
       - name: Output version info
         run: |
-          echo "Updated aimodels to version ${{ steps.version.outputs.version }} and published new patch version"
+          echo "Updated aimodels to version ${{ steps.version.outputs.version }} and queued the tagged release"

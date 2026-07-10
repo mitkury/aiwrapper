@@ -1,1 +1,1 @@
-export * from './token-calculator.ts';
+export * from './token-calculator.js';

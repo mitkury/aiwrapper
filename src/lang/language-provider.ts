@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { LangMessages } from "./messages.ts";
-import type { LangMessage, LangMessageItem, LangMessageRole } from "./messages.ts";
+import { LangMessages } from "./messages.js";
+import type { LangMessage, LangMessageItem, LangMessageRole } from "./messages.js";
 
 // Export zod for convenience
 export { z };
@@ -11,7 +11,7 @@ export { z };
 export type LangResponseSchema = z.ZodType | Record<string, unknown>;
 
 // Re-export message types from messages.ts to keep public API stable
-export type { LangMessage, LangContentPart, LangContentImage as LangImageInput } from "./messages.ts";
+export type { LangMessage, LangContentPart, LangContentImage as LangImageInput } from "./messages.js";
 
 /**
  * Image output type for providers that can generate images

@@ -1,5 +1,5 @@
-import { Model } from "aimodels";
-import { LangMessage } from "../messages";
+import { Model, type TokenContext } from "aimodels";
+import { LangMessage } from "../messages.js";
 
 // Rough estimate: 1 token ≈ 4 chars for English text
 function estimateTokens(text: string): number {
@@ -14,13 +14,13 @@ export function calculateModelResponseTokens(
   messages: Array<{ role: string; text: string } | LangMessage>,
   maxTokens?: number
 ): number {
-  // Get model context
-  if (model.context.type !== "token") {
+  const modelContext = model.context;
+  if (modelContext?.type !== "token") {
     // Non-token contexts aren't handled, return user maxTokens or a reasonable default
     return maxTokens || 4000;
   }
 
-  const context = model.context;
+  const context: TokenContext = modelContext;
   
   // For models with fixed output capacity (like Anthropic models)
   if (context.outputIsFixed === 1 && context.maxOutput) {
@@ -53,4 +53,4 @@ export function calculateModelResponseTokens(
   
   // If we don't have enough information, return user maxTokens or a reasonable default
   return maxTokens || context.maxOutput || 4000;
-} 
+}

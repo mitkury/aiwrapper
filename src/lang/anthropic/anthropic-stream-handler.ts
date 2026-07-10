@@ -1,10 +1,12 @@
 import {
   LangMessage,
+  LangMessages,
+} from "../messages.js";
+import type {
   LangMessageItemReasoning,
   LangMessageItemText,
   LangMessageItemTool,
-  LangMessages,
-} from "../messages.ts";
+} from "../messages.js";
 
 /**
  * Handles streaming events from the Anthropic Messages API and keeps

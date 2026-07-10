@@ -1,10 +1,10 @@
 # How to code here
 
-This package targets servers, browsers, and other JavaScript runtimes. Keep portability in mind and avoid Node-only behavior in runtime code unless the file is clearly server-only.
+This is an npm-first ESM package for Node.js 20 and newer. Prefer standard platform APIs when they keep the implementation simple.
 
 Most source code lives in `src` and is written in TypeScript with ESM imports. Follow the existing style in the surrounding files.
 
-Keep explicit `.ts` extensions in source imports. The build step rewrites them to `.js` in `dist`.
+Keep explicit `.js` extensions in relative source imports. TypeScript resolves them to `.ts` sources and preserves the correct specifiers in JavaScript and declarations.
 
 Prefer adding to existing provider and utility modules instead of introducing new abstractions too early. Keep the public API simple.
 

@@ -1,6 +1,5 @@
-import zodToJsonSchema from "zod-to-json-schema";
-import { LangResponseSchema } from "./language-provider";
-import { isZodSchema } from "./schema/schema-utils";
+import type { LangResponseSchema } from "./language-provider.js";
+import { isZodSchema, zodToJsonSchema } from "./schema/schema-utils.js";
 
 /**
  * Generate a prompt for extracting structured data based on a schema

@@ -95,10 +95,10 @@ export interface HttpResponseWithRetries extends HttpRequestInit {
 }
 
 let _httpRequest = (
-  _url: string | URL,
-  _options: HttpRequestInit,
+  url: string | URL,
+  options: HttpRequestInit,
 ): Promise<Response> => {
-  throw new Error("Not implemented");
+  return globalThis.fetch(url, options as unknown as RequestInit);
 };
 
 export const setHttpRequestImpl = (

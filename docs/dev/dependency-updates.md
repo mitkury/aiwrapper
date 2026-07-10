@@ -12,14 +12,13 @@ The upstream `aimodels` release process sends an `aimodels-package-updated` repo
 2. builds and tests AIWrapper;
 3. commits `package.json` and `package-lock.json` to the current default branch;
 4. creates a patch version and tag;
-5. pushes the commit and tag;
-6. publishes the package to npm.
+5. pushes the commit and tag.
 
-The workflow needs an npm publishing token in `NPM_TOKEN`. The upstream repository also needs credentials that can send the repository dispatch.
+The tag triggers the normal npm publish workflow. The dependency workflow does not publish directly.
 
 ## Tagged releases
 
-`.github/workflows/publish.yml` publishes tags matching `v*`. It installs with `npm ci`, runs the test suite, and publishes with npm provenance.
+`.github/workflows/publish.yml` publishes tags matching `v*`. It installs with `npm ci`, runs the deterministic package check, and publishes with npm provenance.
 
 ## Local dependency checks
 

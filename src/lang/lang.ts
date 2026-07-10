@@ -1,20 +1,20 @@
-import { models, ModelCollection } from 'aimodels';
-import { OpenAILang } from "./openai/openai-lang.ts";
-import { OpenAILangOptions } from "./openai/responses/openai-responses-lang.ts";
-import { AnthropicLang, AnthropicLangOptions  } from "./anthropic/anthropic-lang.ts";
-import { OllamaLang, OllamaLangOptions } from "./ollama/ollama-lang.ts";
-import { GroqLang, GroqLangOptions } from "./groq/groq-lang.ts";
-import { DeepSeekLang, DeepSeekLangOptions } from "./deepseek/deepseek-lang.ts";
-import { KimiLang, KimiLangOptions } from "./kimi/kimi-lang.ts";
-import { XAILang, XAILangOptions } from "./xai/xai-lang.ts";
-import { GoogleLang, GoogleLangOptions } from "./google/google-lang.ts";
-import { CohereLang, CohereLangOptions } from "./cohere/cohere-lang.ts";
-import { OpenRouterLang, OpenRouterLangOptions } from "./openrouter/openrouter-lang.ts";
-import { MistralLang, MistralLangOptions } from "./mistral/mistral-lang.ts";
-import { OpenAIChatCompletionsLang } from "./openai/openai-chat-completions-lang.ts";
-import { MockOpenAILikeLang, MockOpenAILikeOptions } from "./mock/mock-openai-like-lang.ts";
-import { MockResponseStreamLang, MockResponseStreamOptions } from "./mock/mock-response-stream-lang.ts";
-import type { LangOptions } from "./language-provider.ts";
+import { models, type ModelCollection } from 'aimodels';
+import { OpenAILang } from "./openai/openai-lang.js";
+import type { OpenAILangOptions } from "./openai/responses/openai-responses-lang.js";
+import { AnthropicLang, type AnthropicLangOptions } from "./anthropic/anthropic-lang.js";
+import { OllamaLang, type OllamaLangOptions } from "./ollama/ollama-lang.js";
+import { GroqLang, type GroqLangOptions } from "./groq/groq-lang.js";
+import { DeepSeekLang, type DeepSeekLangOptions } from "./deepseek/deepseek-lang.js";
+import { KimiLang, type KimiLangOptions } from "./kimi/kimi-lang.js";
+import { XAILang, type XAILangOptions } from "./xai/xai-lang.js";
+import { GoogleLang, type GoogleLangOptions } from "./google/google-lang.js";
+import { CohereLang, type CohereLangOptions } from "./cohere/cohere-lang.js";
+import { OpenRouterLang, type OpenRouterLangOptions } from "./openrouter/openrouter-lang.js";
+import { MistralLang, type MistralLangOptions } from "./mistral/mistral-lang.js";
+import { OpenAIChatCompletionsLang } from "./openai/openai-chat-completions-lang.js";
+import { MockOpenAILikeLang, type MockOpenAILikeOptions } from "./mock/mock-openai-like-lang.js";
+import { MockResponseStreamLang, type MockResponseStreamOptions } from "./mock/mock-response-stream-lang.js";
+import type { LangOptions } from "./language-provider.js";
 
 /**
  * Lang is a factory class for using language models from different providers. 

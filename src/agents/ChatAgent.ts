@@ -1,6 +1,6 @@
-import { Agent } from "./agent";
-import { LangMessage, LangMessages, LanguageProvider } from "../lang/index.ts";
-import { LangMessageItem, LangMessageRole, LangTool } from "../lang/messages";
+import { Agent } from "./agent.js";
+import { LangMessage, LangMessages, LanguageProvider } from "../lang/index.js";
+import type { LangMessageItem, LangMessageRole, LangTool } from "../lang/messages.js";
 
 export interface ChatStreamingEvent {
   type: "streaming";

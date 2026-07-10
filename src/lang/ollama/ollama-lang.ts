@@ -1,15 +1,15 @@
-import { LangOptions, LangResult, LanguageProvider } from "../language-provider.ts";
+import { LangResult, LanguageProvider } from "../language-provider.js";
+import type { LangOptions } from "../language-provider.js";
 import {
   fixToolResultsIfNeeded,
   LangMessage,
-  LangMessageItemTool,
   LangMessages,
-  LangToolWithHandler,
-} from "../messages.ts";
-import { httpRequestWithRetry as fetch } from "../../http-request.ts";
-import { processServerEvents } from "../../process-server-events.ts";
-import { models, Model } from 'aimodels';
-import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
+} from "../messages.js";
+import type { LangMessageItemTool, LangToolWithHandler } from "../messages.js";
+import { httpRequestWithRetry as fetch } from "../../http-request.js";
+import { processServerEvents } from "../../process-server-events.js";
+import { models, type Model } from 'aimodels';
+import { calculateModelResponseTokens } from "../utils/token-calculator.js";
 
 export type OllamaLangOptions = {
   model?: string;

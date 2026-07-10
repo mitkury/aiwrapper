@@ -1,34 +1,31 @@
-import { Lang } from "./lang.ts";
-import { MockOpenAILikeLang } from "./mock/mock-openai-like-lang.ts";
-import { MockResponseStreamLang } from "./mock/mock-response-stream-lang.ts";
-import { LangVecs } from "./lang-vecs.ts";
+import { Lang } from "./lang.js";
+import { MockOpenAILikeLang } from "./mock/mock-openai-like-lang.js";
+import { MockResponseStreamLang } from "./mock/mock-response-stream-lang.js";
 import {
   LanguageProvider,
   LangResult,
-  LangOptions,
-  LangResponseSchema,
   z
-} from "./language-provider.ts";
+} from "./language-provider.js";
+import type { LangOptions, LangResponseSchema } from "./language-provider.js";
 // Export classes
-export { Lang, LangVecs, LanguageProvider, LangResult, z, MockOpenAILikeLang, MockResponseStreamLang };
+export { Lang, LanguageProvider, LangResult, z, MockOpenAILikeLang, MockResponseStreamLang };
 
-export * from "./messages.ts";
+export * from "./messages.js";
 
 // Export types
 export type { LangOptions, LangResponseSchema };
-export type { LangToolWithHandler, ToolRequest, ToolResult, LangTool } from "./messages.ts";
-export type { MockOpenAILikeOptions } from "./mock/mock-openai-like-lang.ts";
-export type { MockResponseStreamOptions } from "./mock/mock-response-stream-lang.ts";
+export type { LangToolWithHandler, ToolRequest, ToolResult, LangTool } from "./messages.js";
+export type { MockOpenAILikeOptions } from "./mock/mock-openai-like-lang.js";
+export type { MockResponseStreamOptions } from "./mock/mock-response-stream-lang.js";
 
 // Re-export image and content part types
-export type { LangImageInput, LangContentPart, LangImageOutput } from "./language-provider.ts";
+export type { LangImageInput, LangContentPart, LangImageOutput } from "./language-provider.js";
 
 // Utils
-export * from "./utils/index.ts";
+export * from "./utils/index.js";
 
 // OpenAI-specific utilities
-export { applyDiff_v4a } from "./openai/utils/index.ts";
+export { applyDiff_v4a } from "./openai/utils/index.js";
 
 // Img API
-export { Img } from "../img/img.ts";
-
+export { Img } from "../img/img.js";
