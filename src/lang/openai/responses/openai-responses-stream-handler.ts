@@ -24,6 +24,7 @@ export class OpenAIResponseStreamHandler {
   items: OpenAIResponseItem[];
   itemIdToMessageItemIndex: Map<string, number> = new Map();
   itemIdToSummaryIndex: Map<string, number> = new Map();
+  providerManagedItemIds: Set<string> = new Set();
   newMessage: LangMessage;
   messages: LangMessages;
   onResult?: (result: LangMessage) => void;
@@ -35,11 +36,6 @@ export class OpenAIResponseStreamHandler {
   }
 
   handleEvent(data: any) {
-    if (!('type' in data)) {
-      console.warn('Unknown data from server:', data);
-      return;
-    }
-
     if (!('type' in data)) {
       console.warn('Unknown data from server:', data);
       return;
@@ -153,6 +149,19 @@ export class OpenAIResponseStreamHandler {
           this.newMessage.items.push(reasoningItem);
         }
         break;
+      case 'web_search_call':
+      case 'file_search_call':
+      case 'code_interpreter_call':
+      case 'computer_call':
+      case 'mcp_call':
+      case 'mcp_list_tools':
+      case 'mcp_approval_request':
+      case 'local_shell_call':
+      case 'shell_call':
+        // These tools execute on the provider. Their output is already reflected
+        // in the assistant response, so they do not map to a local tool request.
+        this.providerManagedItemIds.add(data.item.id);
+        return;
       default:
         console.warn('Unknown item type:', itemType);
         return;
@@ -166,6 +175,9 @@ export class OpenAIResponseStreamHandler {
 
     const messageIndex = this.itemIdToMessageItemIndex.get(itemFromResponse.id);
     if (messageIndex === undefined) {
+      if (this.providerManagedItemIds.delete(itemFromResponse.id)) {
+        return;
+      }
       console.warn('Unknown message index for item:', itemFromResponse);
       return;
     }

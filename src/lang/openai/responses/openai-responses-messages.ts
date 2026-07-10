@@ -1,4 +1,4 @@
-import { LangMessages, LangMessage, LangContentPart, LangContentImage, LangTool } from "../../messages";
+import { LangMessages, LangMessage, LangContentImage, LangTool } from "../../messages";
 
 export type BodyPartForOpenAIResponses = {
   input?: any[];
@@ -73,7 +73,7 @@ export function transformMessagesToResponsesInput(messages: LangMessages): any {
     switch (message.role) {
       case 'user':
       case 'assistant':
-        input.push(transformMessageToResponsesItems(message));
+        input.push(...transformMessageToResponsesItems(message));
         break;
       case 'tool-results':
         input.push(...transformToolResultsToResponsesItems(message));
@@ -85,30 +85,41 @@ export function transformMessagesToResponsesInput(messages: LangMessages): any {
 }
 
 /**
-* Transform a regular message (user/assistant) to Responses API format
-*/
-export function transformMessageToResponsesItems(message: LangMessage): any {
+ * Transform a regular message into one or more Responses API items.
+ *
+ * Function calls are top-level Responses items, not message content. Flush the
+ * surrounding message content so mixed text/tool messages retain their order.
+ */
+export function transformMessageToResponsesItems(message: LangMessage): any[] {
   const isAssistant = message.role === 'assistant';
-  const msgItems = message.items;
+  const responseItems: any[] = [];
+  let content: any[] = [];
 
-  const entry = {
-    role: message.role,
-    content: [] as any[]
+  const flushContent = () => {
+    if (content.length === 0) {
+      return;
+    }
+
+    responseItems.push({
+      role: message.role,
+      content
+    });
+    content = [];
   };
 
-  for (const msgItem of msgItems) {
+  for (const msgItem of message.items) {
 
     switch (msgItem.type) {
       case 'text':
-        entry.content.push({
+        content.push({
           type: isAssistant ? 'output_text' : 'input_text',
           text: msgItem.text
         });
         break;
 
       case 'tool':
-
-        entry.content.push({
+        flushContent();
+        responseItems.push({
           type: 'function_call',
           call_id: msgItem.callId,
           name: msgItem.name,
@@ -125,7 +136,9 @@ export function transformMessageToResponsesItems(message: LangMessage): any {
         }
 
         if (isAssistant) {
-          const revisedPrompt = "\n\nPrompt used to generate the image: " + msgItem.metadata.revisedPrompt;
+          const revisedPrompt = typeof msgItem.metadata?.revisedPrompt === 'string'
+            ? `\n\nPrompt used to generate the image: ${msgItem.metadata.revisedPrompt}`
+            : '';
 
           // We do this becase at the moment (nov 2025) OpenAI doesn't allow to send back images
           // from the assistant role. So the only way it works is if we have a working response id
@@ -133,14 +146,14 @@ export function transformMessageToResponsesItems(message: LangMessage): any {
           // has the generated image.
           // @TODO: reference a URL if we can so the assistant can decide to use a tool to see it if 
           // it needs to.
-          let text = `<revised>I generated an image but no longer have a reference to it.${revisedPrompt}</revised>`;
+          const text = `<revised>I generated an image but no longer have a reference to it.${revisedPrompt}</revised>`;
 
-          entry.content.push({
+          content.push({
             type: 'output_text',
             text
           })
         } else {
-          entry.content.push({
+          content.push({
             type: 'input_image',
             image_url: imageUrl
           });
@@ -152,43 +165,8 @@ export function transformMessageToResponsesItems(message: LangMessage): any {
 
   }
 
-  return entry;
-
-  /*
-  const entry = {
-    role: message.role,
-    content: [] as any[]
-  };
-
-  if (Array.isArray(msgItems)) {
-    // Handle multi-part content (text + images)
-    for (const part of msgItems as LangContentPart[]) {
-      if ((part as any).type === 'text') {
-        entry.content.push({
-          type: isAssistant ? 'output_text' : 'input_text',
-          text: (part as any).text
-        });
-      } else if ((part as any).type === 'image') {
-        if (isAssistant) {
-          // For assistant messages, images must be converted to output_text format
-          // (Responses API only supports output_text or refusal for assistant content)
-          entry.content.push(mapImageOutput((part as any).image));
-        } else {
-          // For user/system messages, use input_image format
-          entry.content.push(mapImageInput((part as any).image));
-        }
-      }
-    }
-  } else {
-    // Handle simple string content
-    entry.content.push({
-      type: isAssistant ? 'output_text' : 'input_text',
-      text: String(msgItems)
-    });
-  }
-
-  return entry;
-  */
+  flushContent();
+  return responseItems;
 }
 
 /**
@@ -231,54 +209,6 @@ export function transformToolResultsToResponsesItems(message: LangMessage): any 
   }
   return items;
 }
-
-/**
- * Transform tool call messages to function_call items
- */
-/*
-export function transformToolCallsToResponsesItems(message: LangMessage): any[] {
-  if (!Array.isArray(message.content)) {
-    return [];
-  }
-
-  const items: any[] = [];
-  for (const call of (message.content as any[])) {
-    items.push({
-      type: 'function_call',
-      call_id: call.callId,
-      name: call.name,
-      arguments: JSON.stringify(call.arguments || {})
-    });
-  }
-
-  return items;
-}
-*/
-
-/**
- * Transform tool result messages to function_call_output items
- * Also includes any previous raw output items that need to be preserved
- */
-/*
-export function transformToolResultsToResponsesItems(message: LangMessage): any[] {
-  const items: any[] = [];
-
-  // Add function_call_output items for each tool result
-  if (Array.isArray(message.content)) {
-    for (const toolResult of (message.content as any[])) {
-      items.push({
-        type: 'function_call_output',
-        call_id: toolResult.toolId,
-        output: typeof toolResult.result === 'string'
-          ? toolResult.result
-          : JSON.stringify(toolResult.result)
-      });
-    }
-  }
-
-  return items;
-}
-*/
 
 export function mapImageInput(image: LangContentImage): any {
   const kind: any = (image as any).kind;
