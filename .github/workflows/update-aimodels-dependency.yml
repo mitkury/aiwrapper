@@ -30,6 +30,9 @@ jobs:
       - name: Update aimodels dependency
         run: |
           npm install aimodels@${{ steps.version.outputs.version }}
+
+      - name: Build and test
+        run: npm test
       
       - name: Configure Git
         run: |
@@ -39,17 +42,17 @@ jobs:
       - name: Commit dependency update
         run: |
           git add package.json package-lock.json
-          git commit -m "chore: update aimodels to v${{ steps.version.outputs.version }}"
+          git commit -m "deps: update aimodels to v${{ steps.version.outputs.version }}"
           git push
       
       - name: Version patch and publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          npm version patch -m "chore: release patch version after aimodels update to v${{ steps.version.outputs.version }}"
+          npm version patch -m "deps: release patch after aimodels v${{ steps.version.outputs.version }}"
           git push --follow-tags
           npm publish
       
       - name: Output version info
         run: |
-          echo "Updated aimodels to version ${{ steps.version.outputs.version }} and published new patch version" 
+          echo "Updated aimodels to version ${{ steps.version.outputs.version }} and published new patch version"
