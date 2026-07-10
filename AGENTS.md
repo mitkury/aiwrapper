@@ -1,12 +1,12 @@
-Read [README.md] if you haven't.
+# AIWrapper
 
-Important dev rules to follow:
-- Print the docs tree for reference with `find docs -maxdepth 4 -print | sort`.
-- List the files in [docs/dev/rules] and read the relevant ones before working.
-- Do not treat the direct links below as a replacement for listing [docs/dev/rules]. They are just the rules that are easiest to miss and most likely to matter.
-- Read [docs/dev/rules/how-to-commit.md] before making commits or pushing.
-- Read [docs/dev/rules/how-to-code.md] before substantial code changes.
-- Read [docs/dev/rules/how-to-test.md] before running or changing tests.
-- If you're writing a proposal for a feature or major change, read [docs/dev/rules/how-to-write-proposals.md].
+AIWrapper is a small, npm-first AI wrapper for JavaScript and TypeScript.
 
-Adjust this doc if you spot any broken links or other rules worth adding here.
+Start with:
+
+- [README.md](README.md)
+- [docs/README.md](docs/README.md)
+- The relevant user and development docs linked from the documentation index
+- [docs/dev/rules](docs/dev/rules) — list all rules and read the ones relevant to the task before working
+
+Keep detailed guidance in the appropriate documentation file rather than duplicating it here.

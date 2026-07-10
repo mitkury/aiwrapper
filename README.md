@@ -2,8 +2,9 @@
 
 A small, npm-first AI wrapper for JavaScript and TypeScript.
 
-AIWrapper is an ESM package for modern Node.js. It keeps provider integrations
-behind one message and tool-calling API without introducing a framework.
+AIWrapper is an ESM package for modern JavaScript runtimes. It keeps provider
+integrations behind one message and tool-calling API without introducing a
+framework.
 
 > The API is evolving and may change between releases.
 
@@ -23,6 +24,16 @@ npm install aiwrapper
 ```
 
 Node.js 20 or newer is required.
+
+## Runtime support
+
+AIWrapper runs in Node.js 20+ and modern browsers. It uses standard web APIs
+such as `fetch`, streams, `Blob`, and `FormData`, so browser builds do not need
+Node.js polyfills.
+
+When calling a provider directly from a browser, that provider must allow the
+request through CORS. Do not ship long-lived or privileged provider API keys to
+the browser; proxy those requests through your server instead.
 
 ## Documentation
 

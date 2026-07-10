@@ -18,6 +18,9 @@ npm run test:img-out
 
 `npm test` builds first and runs deterministic unit tests. Files ending in `.integration.test.ts` use live providers and are excluded from the default test command.
 
+`npm run check:demo` type-checks and production-builds the Svelte browser demo
+against the local AIWrapper source.
+
 Use `PROVIDERS` to limit integration tests:
 
 ```bash
