@@ -14,7 +14,7 @@ export default defineConfig({
       'aiwrapper': path.resolve(__dirname, 'dist/index.js')
     }
   },
-  esbuild: {
+  oxc: {
     target: 'es2017'
   }
 });
