@@ -1,4 +1,4 @@
-import { LangMessages, LangMessage, LangContentImage, LangTool } from "../../messages";
+import { LangMessages, LangMessage, LangTool } from "../../messages";
 
 export type BodyPartForOpenAIResponses = {
   input?: any[];
@@ -144,8 +144,8 @@ export function transformMessageToResponsesItems(message: LangMessage): any[] {
           // from the assistant role. So the only way it works is if we have a working response id
           // and don't send the list of all messages but just reference messages where the assistant
           // has the generated image.
-          // @TODO: reference a URL if we can so the assistant can decide to use a tool to see it if 
-          // it needs to.
+          // If a durable URL becomes available, callers can store it on the image
+          // item and avoid this textual fallback.
           const text = `<revised>I generated an image but no longer have a reference to it.${revisedPrompt}</revised>`;
 
           content.push({
@@ -208,47 +208,6 @@ export function transformToolResultsToResponsesItems(message: LangMessage): any 
     }
   }
   return items;
-}
-
-export function mapImageInput(image: LangContentImage): any {
-  const kind: any = (image as any).kind;
-  if (kind === 'url') {
-    const url = (image as any).url as string;
-    return { type: 'input_image', image_url: url };
-  }
-  if (kind === 'base64') {
-    const base64 = (image as any).base64 as string;
-    const mimeType = (image as any).mimeType || 'image/png';
-    // Responses API expects image_url with a data URL for inline base64 images
-    const dataUrl = `data:${mimeType};base64,${base64}`;
-    return { type: 'input_image', image_url: dataUrl };
-  }
-  throw new Error('Unsupported image kind for Responses mapping');
-}
-
-/**
- * Maps assistant images to output_text format for Responses API.
- * Assistant messages can only contain output_text or refusal, not input_image.
- */
-export function mapImageOutput(image: LangContentImage): any {
-  const kind: any = (image as any).kind;
-  if (kind === 'url') {
-    const url = (image as any).url as string;
-    return {
-      type: 'output_text',
-      text: url
-    };
-  }
-  if (kind === 'base64') {
-    const base64 = (image as any).base64 as string;
-    const mimeType = (image as any).mimeType || 'image/png';
-    const dataUrl = `data:${mimeType};base64,${base64}`;
-    return {
-      type: 'output_text',
-      text: dataUrl
-    };
-  }
-  throw new Error(`Unsupported image kind '${kind}' for assistant messages in Responses API`);
 }
 
 export function transformToolsForProvider(tools: LangTool[]): any[] {

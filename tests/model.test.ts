@@ -102,9 +102,6 @@ describe.skipIf(!modelInfo || !providerId)("Testing a model " + modelInfo?.id + 
 
   // Determine which tests to run based on capabilities
   const hasChat = modelInfo.capabilities?.includes('chat') || false;
-  const hasVision = modelInfo.capabilities?.includes('img-in') || false;
-  const hasTools = modelInfo.capabilities?.includes('fn-out') || false;
-  const hasReasoning = modelInfo.capabilities?.includes('reason') || false;
   
   // Get API key from environment
   const apiKeyEnvMap: Record<string, string> = {

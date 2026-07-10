@@ -124,7 +124,7 @@ describe('httpRequestWithRetry', () => {
     try {
       await httpRequestWithRetry('https://example.com/api', {
         method: 'GET',
-        on400Error: async (res, error, options) => {
+        on400Error: async (res, _error, _options) => {
           on400ErrorCalled = true;
           // Read the response body (this would consume it)
           const text = await res.text();

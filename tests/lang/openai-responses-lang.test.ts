@@ -1,7 +1,6 @@
-import { describe, it, expect, assert } from 'vitest';
-import { LangMessage, LangMessages, LangOptions, LanguageProvider, ToolRequest, ToolResult, z } from 'aiwrapper';
+import { describe, it, expect } from 'vitest';
+import { LangMessages, LanguageProvider } from 'aiwrapper';
 import { createLangTestRunner, printAvailableProviders } from '../utils/lang-gatherer.js';
-import { readImageBase64 } from '../utils/test-images.ts';
 
 // Show available providers for debugging
 printAvailableProviders();

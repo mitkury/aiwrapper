@@ -49,14 +49,9 @@ export class CohereLang extends LanguageProvider {
     options?: LangOptions,
   ): Promise<LangResult> {
     const messages = new LangMessages();
-
-    if (this._systemPrompt) {
-      messages.push(new ConversationMessage("user", this._systemPrompt));
-    }
-
     messages.push(new ConversationMessage("user", prompt));
 
-    return await this.chat(messages, options);
+    return this.chat(messages, options);
   }
 
   async chat(
@@ -97,19 +92,29 @@ export class CohereLang extends LanguageProvider {
     };
 
     const onResult = resolvedOptions?.onResult;
+    let assistantMessage: ConversationMessage | undefined;
     const onData = (data: any) => {
       if (data.type === "message-end") {
         result.finished = true;
-        const last = result.length > 0 ? result[result.length - 1] : undefined;
-        if (last) onResult?.(last as any);
+        if (assistantMessage) onResult?.(assistantMessage);
         return;
       }
 
       // Handle Cohere's streaming format
       if (data.type === "content-delta" && data.delta?.message?.content?.text) {
         const text = data.delta.message.content.text;
-        //const msg = result.appendToAssistantText(text);
-        //onResult?.(msg);
+        if (!assistantMessage) {
+          assistantMessage = new ConversationMessage("assistant", []);
+          result.push(assistantMessage);
+        }
+
+        const lastItem = assistantMessage.items[assistantMessage.items.length - 1];
+        if (lastItem?.type === "text") {
+          lastItem.text += text;
+        } else {
+          assistantMessage.items.push({ type: "text", text });
+        }
+        onResult?.(assistantMessage);
       }
     };
 

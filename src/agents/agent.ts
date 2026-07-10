@@ -60,7 +60,7 @@ export abstract class Agent<TInput, TOutput, TCustomEvents = never> {
     };
   }
 
-  // Run the agent either with a new input or the provided in this.lastInput
+  // Run one agent lifecycle with optional input and cancellation.
   async run(input?: TInput, options?: { signal?: AbortSignal }): Promise<TOutput> {
     this.setState("running");
 

@@ -1,5 +1,11 @@
-import { LangOptions, LangResult, LanguageProvider, LangContentPart, LangMessage } from "../language-provider.ts";
-import { LangMessages, fixToolResultsIfNeeded } from "../messages.ts";
+import { LangOptions, LangResult, LanguageProvider } from "../language-provider.ts";
+import {
+  fixToolResultsIfNeeded,
+  LangMessage,
+  LangMessageItemTool,
+  LangMessages,
+  LangToolWithHandler,
+} from "../messages.ts";
 import { httpRequestWithRetry as fetch } from "../../http-request.ts";
 import { processServerEvents } from "../../process-server-events.ts";
 import { models, Model } from 'aimodels';
@@ -20,11 +26,20 @@ export type OllamaLangConfig = {
   baseURL: string;
 };
 
+type OllamaToolCall = {
+  id?: string;
+  function?: {
+    index?: number;
+    name?: string;
+    arguments?: Record<string, any> | string;
+  };
+};
+
 export class OllamaLang extends LanguageProvider {
   protected _config: OllamaLangConfig;
   protected modelInfo?: Model;
 
-  constructor(options: OllamaLangOptions) {
+  constructor(options: OllamaLangOptions = {}) {
     const modelName = options.model || "llama2:latest";
     super(modelName, options.defaultOptions);
 
@@ -35,229 +50,69 @@ export class OllamaLang extends LanguageProvider {
       baseURL: options.url || "http://localhost:11434",
     };
 
-    // Try to get model info from aimodels
+    // Ollama supports arbitrary local model names, so missing catalog metadata
+    // should never prevent a request.
     this.modelInfo = models.id(modelName);
-
-    // Print a warning if model is not in database, but don't block execution
-    // This allows users to use any Ollama model, even if it's not in our database
-    if (!this.modelInfo) {
-      //console.error(`Invalid Ollama model: ${modelName}. Model not found in aimodels database.`);
-    }
   }
 
-  protected transformBody(body: Record<string, unknown>): Record<string, unknown> {
-    // Ollama uses context_length instead of max_tokens
-    if (body.max_tokens) {
-      const { max_tokens, ...rest } = body;
-      return {
-        ...rest,
-        context_length: max_tokens
-      };
-    }
-    return body;
+  async ask(prompt: string, options?: LangOptions): Promise<LangResult> {
+    return this.chat(new LangMessages(prompt), options);
   }
 
-  async ask(
-    prompt: string,
+  async chat(
+    messages: LangMessage[] | LangMessages,
     options?: LangOptions,
   ): Promise<LangResult> {
     const resolvedOptions = this.resolveOptions(options);
-    const abortSignal = resolvedOptions?.signal;
-    // Create a proper message collection
-    const messages = new LangMessages();
-    messages.addUserMessage(prompt);
+    const result = new LangResult(
+      messages instanceof LangMessages ? messages : new LangMessages(messages),
+    );
 
-    const result = new LangResult(messages);
+    fixToolResultsIfNeeded(result);
 
-    // Try to get model info and calculate max tokens
     let requestMaxTokens = this._config.maxTokens;
-
     if (this.modelInfo) {
       requestMaxTokens = calculateModelResponseTokens(
         this.modelInfo,
-        [{ role: "user", text: prompt }],
-        this._config.maxTokens
+        result,
+        this._config.maxTokens,
       );
     }
 
-    // Variables to track streaming state for thinking extraction
+    let assistantMessage: LangMessage | undefined;
     let visibleContent = "";
-    let openThinkTagIndex = -1;
-    let pendingThinkingContent = "";
+    let explicitReasoning = "";
 
-    const onResult = resolvedOptions?.onResult;
     const onData = (data: any) => {
-      if (data.done) {
-        // Final check for thinking content when streaming is complete
-        const extracted = this.extractThinking(visibleContent);
-        if (extracted.thinking) {
-          /*
-          result.appendToAssistantThinking(extracted.thinking);
-          const msg = result.ensureAssistantTextMessage();
-          msg.content = extracted.answer;
-          */
-        }
+      const responseMessage = data?.message;
+      const contentDelta = typeof responseMessage?.content === "string"
+        ? responseMessage.content
+        : "";
+      const reasoningDelta = typeof responseMessage?.thinking === "string"
+        ? responseMessage.thinking
+        : "";
+      const toolCalls = Array.isArray(responseMessage?.tool_calls)
+        ? responseMessage.tool_calls as OllamaToolCall[]
+        : [];
 
+      visibleContent += contentDelta;
+      explicitReasoning += reasoningDelta;
+
+      const hasUpdate = contentDelta.length > 0 || reasoningDelta.length > 0 || toolCalls.length > 0;
+      if (hasUpdate) {
+        assistantMessage ??= this.createAssistantMessage(result);
+        this.renderAssistantContent(assistantMessage, visibleContent, explicitReasoning);
+        this.applyToolCalls(assistantMessage, toolCalls);
+        resolvedOptions?.onResult?.(assistantMessage);
+      }
+
+      if (data?.done) {
         result.finished = true;
-        const last = result.length > 0 ? result[result.length - 1] : undefined;
-        if (last) resolvedOptions?.onResult?.(last as any);
-        return;
-      }
-
-      if (data.response) {
-        const currentChunk = data.response;
-        visibleContent += currentChunk;
-
-        // Process the chunk for potential thinking content
-        this.processChunkForThinking(currentChunk, visibleContent, result, openThinkTagIndex, pendingThinkingContent);
-
-        // Update tracking variables based on current state
-        openThinkTagIndex = visibleContent.lastIndexOf("<think>");
-        if (openThinkTagIndex !== -1) {
-          const closeTagIndex = visibleContent.indexOf("</think>", openThinkTagIndex);
-          if (closeTagIndex === -1) {
-            // We have an open tag but no close tag yet
-            pendingThinkingContent = visibleContent.substring(openThinkTagIndex + 7); // +7 to skip "<think>"
-          }
+        if (!hasUpdate && assistantMessage) {
+          resolvedOptions?.onResult?.(assistantMessage);
         }
       }
-
-      const last = result.length > 0 ? result[result.length - 1] : undefined;
-      if (last) resolvedOptions?.onResult?.(last as any);
     };
-
-    try {
-      const response = await fetch(`${this._config.baseURL}/api/generate`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(resolvedOptions?.providerSpecificHeaders ?? {}),
-        },
-        body: JSON.stringify({
-          model: this._config.model,
-          prompt,
-          stream: true,
-          ...(requestMaxTokens && { num_predict: requestMaxTokens }),
-          ...(resolvedOptions?.providerSpecificBody ?? {}),
-        }),
-        signal: abortSignal,
-      })
-        .catch((err) => {
-          throw new Error(err);
-        });
-
-      await processServerEvents(response, onData, abortSignal);
-    } catch (error) {
-      if ((error as any)?.name === "AbortError") {
-        result.aborted = true;
-        (error as any).partialResult = result;
-      }
-      throw error;
-    }
-
-    // For non-streaming case, perform final extraction
-    if (!onResult) {
-      const extracted = this.extractThinking(result.answer);
-      if (extracted.thinking) {
-        /*
-        result.appendToAssistantThinking(extracted.thinking);
-        const msg = result.ensureAssistantTextMessage();
-        msg.content = extracted.answer;
-        */
-      }
-    }
-
-    return result;
-  }
-
-  async chat(messages: LangMessage[] | LangMessages, options?: LangOptions): Promise<LangResult> {
-    const resolvedOptions = this.resolveOptions(options);
-    const abortSignal = resolvedOptions?.signal;
-    const result = new LangResult(messages);
-    const messageCollection = result;
-
-    fixToolResultsIfNeeded(messageCollection);
-
-    // Try to get model info and calculate max tokens
-    let requestMaxTokens = this._config.maxTokens;
-
-    if (this.modelInfo) {
-      requestMaxTokens = calculateModelResponseTokens(
-        this.modelInfo,
-        messageCollection,
-        this._config.maxTokens
-      );
-    }
-
-    // Variables to track streaming state for thinking extraction
-    let visibleContent = "";
-    let openThinkTagIndex = -1;
-    let pendingThinkingContent = "";
-
-    const onResult = resolvedOptions?.onResult;
-    const onData = (data: any) => {
-      if (data.done) {
-        // Final check for thinking content when streaming is complete
-        const extracted = this.extractThinking(visibleContent);
-        if (extracted.thinking) {
-          /*
-          result.appendToAssistantThinking(extracted.thinking);
-          const msg = result.ensureAssistantTextMessage();
-          msg.content = extracted.answer;
-          */
-        }
-
-        result.finished = true;
-        const last = result.length > 0 ? result[result.length - 1] : undefined;
-        if (last) resolvedOptions?.onResult?.(last as any);
-        return;
-      }
-
-      if (data.message && data.message.content) {
-        const currentChunk = data.message.content;
-        visibleContent += currentChunk;
-
-        // Process the chunk for potential thinking content
-        this.processChunkForThinking(currentChunk, visibleContent, result, openThinkTagIndex, pendingThinkingContent);
-
-        // Update tracking variables based on current state
-        openThinkTagIndex = visibleContent.lastIndexOf("<think>");
-        if (openThinkTagIndex !== -1) {
-          const closeTagIndex = visibleContent.indexOf("</think>", openThinkTagIndex);
-          if (closeTagIndex === -1) {
-            // We have an open tag but no close tag yet
-            pendingThinkingContent = visibleContent.substring(openThinkTagIndex + 7); // +7 to skip "<think>"
-          }
-        }
-      }
-
-      const last = result.length > 0 ? result[result.length - 1] : undefined;
-      if (last) resolvedOptions?.onResult?.(last as any);
-    };
-
-    // Extract base64 images for models that support vision via images array.
-    const images: string[] = [];
-    const mappedMessages = messageCollection.map((m: any) => {
-      if (Array.isArray(m.content)) {
-        for (const part of m.content as LangContentPart[]) {
-          if (part.type === 'image') {
-            const img: any = part.image;
-            if (img.kind === 'base64') images.push(img.base64);
-            if (img.kind === 'url' && typeof img.url === 'string' && img.url.startsWith('data:')) {
-              const match = img.url.match(/^data:([^;]+);base64,(.*)$/);
-              if (match) images.push(match[2]);
-            }
-          }
-        }
-        // Replace structured parts with concatenated text for message content
-        const text = (m.content as LangContentPart[])
-          .filter(p => p.type === 'text')
-          .map(p => (p as any).text)
-          .join('\n');
-        return { role: m.role, content: text };
-      }
-      return m;
-    });
 
     try {
       const response = await fetch(`${this._config.baseURL}/api/chat`, {
@@ -268,19 +123,18 @@ export class OllamaLang extends LanguageProvider {
         },
         body: JSON.stringify({
           model: this._config.model,
-          messages: mappedMessages,
-          ...(images.length > 0 ? { images } : {}),
+          messages: this.transformMessagesForProvider(result),
+          tools: this.transformToolsForProvider(result.availableTools),
           stream: true,
-          ...(requestMaxTokens && { num_predict: requestMaxTokens }),
+          ...(requestMaxTokens
+            ? { options: { num_predict: requestMaxTokens } }
+            : {}),
           ...(resolvedOptions?.providerSpecificBody ?? {}),
         }),
-        signal: abortSignal,
-      })
-        .catch((err) => {
-          throw new Error(err);
-        });
+        signal: resolvedOptions?.signal,
+      });
 
-      await processServerEvents(response, onData, abortSignal);
+      await processServerEvents(response, onData, resolvedOptions?.signal);
     } catch (error) {
       if ((error as any)?.name === "AbortError") {
         result.aborted = true;
@@ -289,98 +143,188 @@ export class OllamaLang extends LanguageProvider {
       throw error;
     }
 
-    // For non-streaming case, perform final extraction
-    if (!onResult) {
-      const extracted = this.extractThinking(result.answer);
-      if (extracted.thinking) {
-        /*
-        result.appendToAssistantThinking(extracted.thinking);
-        const msg = result.ensureAssistantTextMessage();
-        msg.content = extracted.answer;
-        */
-      }
+    const toolResults = await result.executeRequestedTools();
+    if (toolResults) {
+      resolvedOptions?.onResult?.(toolResults);
     }
 
     return result;
   }
 
-  // Helper to extract thinking content from <think> tags
-  private extractThinking(content: string): { thinking: string, answer: string } {
-    const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
-    const matches = content.match(thinkRegex);
-
-    if (!matches || matches.length === 0) {
-      return { thinking: "", answer: content };
-    }
-
-    // Extract thinking content
-    const thinking = matches
-      .map((match: string) => match.replace(/<think>|<\/think>/g, "").trim())
-      .join("\n");
-
-    // Remove thinking tags for clean answer
-    const answer = content.replace(thinkRegex, "").trim();
-
-    return { thinking, answer };
+  private createAssistantMessage(messages: LangMessages): LangMessage {
+    const message = new LangMessage("assistant", []);
+    messages.push(message);
+    return message;
   }
 
-  // Process a chunk for thinking content during streaming
-  private processChunkForThinking(
-    currentChunk: string,
-    fullContent: string,
-    result: LangMessages,
-    openTagIndex: number,
-    pendingThinking: string
+  private renderAssistantContent(
+    message: LangMessage,
+    content: string,
+    explicitReasoning: string,
   ): void {
-    /*
-    // Check if we have a complete thinking section
-    const extracted = this.extractThinking(fullContent);
-    
-    if (extracted.thinking) {
-      // We have one or more complete thinking sections
-      result.appendToAssistantThinking(extracted.thinking);
-      const msg = result.ensureAssistantTextMessage();
-      msg.content = extracted.answer;
-      return;
+    const parsed = this.splitThinkingTags(content);
+    const toolItems = message.items.filter(
+      (item): item is LangMessageItemTool => item.type === "tool",
+    );
+
+    message.items.length = 0;
+
+    const reasoning = [explicitReasoning, parsed.reasoning]
+      .filter(part => part.length > 0)
+      .join("\n\n");
+    if (reasoning.length > 0) {
+      message.items.push({ type: "reasoning", text: reasoning });
     }
-    
-    // Check for partial thinking tags
-    if (fullContent.includes("<think>")) {
-      // We have at least an opening tag
-      const lastOpenTagIndex = fullContent.lastIndexOf("<think>");
-      const firstCloseTagIndex = fullContent.indexOf("</think>");
-      
-      if (firstCloseTagIndex === -1 || lastOpenTagIndex > firstCloseTagIndex) {
-        // We have an open tag without a closing tag
-        // Everything from the open tag to the end should be considered thinking
-        const beforeThinkingContent = fullContent.substring(0, lastOpenTagIndex).trim();
-        const potentialThinkingContent = fullContent.substring(lastOpenTagIndex + 7).trim();
-        
-        result.appendToAssistantThinking(potentialThinkingContent);
-        const msg = result.ensureAssistantTextMessage();
-        msg.content = beforeThinkingContent;
-        return;
-      }
-      
-      // If we have both tags but the regex didn't match (shouldn't happen but just in case)
-      // Extract the content manually
-      const startIndex = fullContent.indexOf("<think>") + 7;
-      const endIndex = fullContent.indexOf("</think>");
-      if (startIndex < endIndex) {
-        const thinkingContent = fullContent.substring(startIndex, endIndex).trim();
-        const beforeThinking = fullContent.substring(0, fullContent.indexOf("<think>")).trim();
-        const afterThinking = fullContent.substring(fullContent.indexOf("</think>") + 8).trim();
-        
-        result.appendToAssistantThinking(thinkingContent);
-        const msg = result.ensureAssistantTextMessage();
-        msg.content = (beforeThinking + " " + afterThinking).trim();
-      }
-    } else {
-      // No thinking tags yet, just update the answer
-      const msg = result.ensureAssistantTextMessage();
-      msg.content = fullContent;
+    if (parsed.answer.length > 0) {
+      message.items.push({ type: "text", text: parsed.answer });
     }
-    */
+
+    message.items.push(...toolItems);
   }
 
+  private splitThinkingTags(content: string): { reasoning: string; answer: string } {
+    const reasoning: string[] = [];
+    const answer: string[] = [];
+    let cursor = 0;
+
+    while (cursor < content.length) {
+      const openIndex = content.indexOf("<think>", cursor);
+      if (openIndex === -1) {
+        answer.push(content.slice(cursor));
+        break;
+      }
+
+      answer.push(content.slice(cursor, openIndex));
+      const thinkingStart = openIndex + "<think>".length;
+      const closeIndex = content.indexOf("</think>", thinkingStart);
+      if (closeIndex === -1) {
+        reasoning.push(content.slice(thinkingStart));
+        break;
+      }
+
+      reasoning.push(content.slice(thinkingStart, closeIndex));
+      cursor = closeIndex + "</think>".length;
+    }
+
+    return {
+      reasoning: reasoning.join("\n\n"),
+      answer: answer.join(""),
+    };
+  }
+
+  private applyToolCalls(message: LangMessage, calls: OllamaToolCall[]): void {
+    const currentToolItems = message.toolRequests;
+
+    for (let index = 0; index < calls.length; index++) {
+      const call = calls[index];
+      const fn = call?.function;
+      if (!fn?.name) continue;
+
+      const targetIndex = typeof fn.index === "number" ? fn.index : index;
+      let item = currentToolItems[targetIndex];
+      if (!item) {
+        item = {
+          type: "tool",
+          callId: call.id || `ollama_tool_${targetIndex}`,
+          name: fn.name,
+          arguments: {},
+        };
+        message.items.push(item);
+        currentToolItems[targetIndex] = item;
+      }
+
+      item.name = fn.name;
+      item.callId = call.id || item.callId;
+      item.arguments = this.parseToolArguments(fn.arguments);
+    }
+  }
+
+  private parseToolArguments(
+    args: Record<string, any> | string | undefined,
+  ): Record<string, any> {
+    if (!args) return {};
+    if (typeof args === "object") return args;
+
+    try {
+      return JSON.parse(args);
+    } catch {
+      return {};
+    }
+  }
+
+  private transformToolsForProvider(
+    tools: LangMessages["availableTools"],
+  ): any[] | undefined {
+    const toolDefinitions = (tools ?? [])
+      .filter((tool): tool is LangToolWithHandler => "handler" in tool)
+      .map(tool => ({
+        type: "function",
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters,
+        },
+      }));
+
+    return toolDefinitions.length > 0 ? toolDefinitions : undefined;
+  }
+
+  private transformMessagesForProvider(messages: LangMessages): any[] {
+    const providerMessages: any[] = [];
+    const systemPrompt = messages.instructions || this._config.systemPrompt;
+    if (systemPrompt) {
+      providerMessages.push({ role: "system", content: systemPrompt });
+    }
+
+    for (const message of messages) {
+      if (message.role === "tool-results") {
+        for (const result of message.toolResults) {
+          providerMessages.push({
+            role: "tool",
+            tool_name: result.name,
+            content: typeof result.result === "string"
+              ? result.result
+              : JSON.stringify(result.result),
+          });
+        }
+        continue;
+      }
+
+      const providerMessage: Record<string, any> = {
+        role: message.role,
+        content: message.text,
+      };
+
+      const images = message.images.map(image => {
+        if (image.base64) return image.base64;
+        if (image.url?.startsWith("data:")) {
+          return image.url.slice(image.url.indexOf(",") + 1);
+        }
+        throw new Error(
+          "Ollama image messages require base64 data or a data URL.",
+        );
+      });
+      if (images.length > 0) {
+        providerMessage.images = images;
+      }
+
+      if (message.reasoning) {
+        providerMessage.thinking = message.reasoning;
+      }
+
+      if (message.toolRequests.length > 0) {
+        providerMessage.tool_calls = message.toolRequests.map(tool => ({
+          type: "function",
+          function: {
+            name: tool.name,
+            arguments: tool.arguments,
+          },
+        }));
+      }
+
+      providerMessages.push(providerMessage);
+    }
+
+    return providerMessages;
+  }
 }

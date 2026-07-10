@@ -1,7 +1,6 @@
 import { describe, it, expect, assert } from 'vitest';
 import { LangMessages, LanguageProvider } from 'aiwrapper';
 import { createLangTestRunner } from '../utils/lang-gatherer.js';
-import { readImageBase64 } from '../utils/test-images.ts';
 import { writeFileSync } from 'fs';
 import { join } from 'path';
 
@@ -90,4 +89,3 @@ async function runTest(lang: LanguageProvider) {
 
   });
 }
-

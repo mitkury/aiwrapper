@@ -37,6 +37,12 @@ let _processServerEvents = (response: Response, onData: (data: any) => void, sig
       if (aborted) {
         return Promise.reject(abortError ?? new Error("AbortError"));
       }
+
+      rawData += decoder.decode();
+      if (rawData.trim().length > 0) {
+        processLinesFromStream(rawData, onData);
+        rawData = "";
+      }
       return Promise.resolve();
     }
 
@@ -44,7 +50,7 @@ let _processServerEvents = (response: Response, onData: (data: any) => void, sig
       stream: true,
     });
 
-    // Process each complete message (messages are devived by newlines)
+    // Process each complete message (messages are divided by newlines)
     let lastIndex = rawData.lastIndexOf("\n");
     if (lastIndex > -1) {
       processLinesFromStream(rawData.slice(0, lastIndex), onData);

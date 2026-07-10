@@ -70,16 +70,16 @@ describe.skipIf(!apiKey)('OpenAI Apply Patch Tool', () => {
     agent.messages.availableTools = [createTestApplyPatchTool(test2Path)];
 
     agent.messages.addUserMessage("Create a new markdown document with an h1 title 'Testing Apply Patch' and a paragraph 'This is the first paragraph.' in ./test-2.md; Don't add any other content");
-    let result = await agent.run();
+    await agent.run();
 
     agent.messages.addUserMessage("Now let's add an h2 subtitle to our paragraph - 'Subtitle 1' and then create a new paragpraph with an h2 subtitle: 'Subtitle 2' and a paragraph 'This is the second paragraph.' within the same document");
-    result = await agent.run();
+    await agent.run();
 
     agent.messages.addUserMessage("And let's make sure we have an empty line at the top and the bottom of each paragraph and subtitle, except the top and bottom of the document, no more than 2 lines");
-    result = await agent.run();
+    await agent.run();
 
     agent.messages.addUserMessage("And add a very last paragraph without a subtitle: 'This is the final paragraph.");
-    result = await agent.run();
+    await agent.run();
 
     const expectedFinalResult = `# Testing Apply Patch
 
@@ -133,4 +133,3 @@ This is the final paragraph.`;
   });
 
 });
-

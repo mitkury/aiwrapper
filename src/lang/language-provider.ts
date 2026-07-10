@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { LangMessages } from "./messages.ts";
-import type { LangMessage, LangMessageContent, LangMessageItem, LangMessageRole } from "./messages.ts";
+import type { LangMessage, LangMessageItem, LangMessageRole } from "./messages.ts";
 
 // Export zod for convenience
 export { z };
@@ -49,7 +49,14 @@ export interface LangOptions {
  */
 export class LangResult extends LangMessages {
   constructor(messages: LangMessages | LangMessage[]) {
-    super(Array.isArray(messages) ? messages as LangMessage[] : [...(messages as LangMessages)]);
+    super(messages);
+
+    if (messages instanceof LangMessages) {
+      this.availableTools = messages.availableTools;
+      this.instructions = messages.instructions;
+      this.finished = messages.finished;
+      this.aborted = messages.aborted;
+    }
   }
 
   get messages(): this {

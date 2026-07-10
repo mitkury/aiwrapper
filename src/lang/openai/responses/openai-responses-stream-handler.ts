@@ -11,8 +11,6 @@ import { MessageItem } from "../responses-stream-types";
 type OpenAIResponseItem = {
   id: string;
   type: string;
-  // We link our messages to items so we can mutate them as items are updated
-  targetMessage?: LangMessage;
   [key: string]: any;
 }
 
@@ -21,7 +19,6 @@ type OpenAIResponseItem = {
  */
 export class OpenAIResponseStreamHandler {
   id: string;
-  items: OpenAIResponseItem[];
   itemIdToMessageItemIndex: Map<string, number> = new Map();
   itemIdToSummaryIndex: Map<string, number> = new Map();
   providerManagedItemIds: Set<string> = new Set();
@@ -30,7 +27,6 @@ export class OpenAIResponseStreamHandler {
   onResult?: (result: LangMessage) => void;
 
   constructor(messages: LangMessages, onResult?: (result: LangMessage) => void) {
-    this.items = [];
     this.messages = messages;
     this.onResult = onResult;
   }
@@ -52,7 +48,7 @@ export class OpenAIResponseStreamHandler {
         this.handleItemFinished(data);
         break;
       case 'response.image_generation_call.partial_image':
-        //@TODO: handle partial image
+        // The final image is applied from response.output_item.done.
         break;
       case 'response.output_text.delta':
         this.applyTextDelta(data);
@@ -65,7 +61,9 @@ export class OpenAIResponseStreamHandler {
         break;
     }
 
-    this.onResult?.(this.newMessage);
+    if (this.newMessage) {
+      this.onResult?.(this.newMessage);
+    }
   }
 
   handleNewResponse(data: any) {
@@ -294,7 +292,6 @@ export class OpenAIResponseStreamHandler {
       return;
     }
 
-    const delta = data.delta as string;
     // Note: given that we keep arguments as objects, delta wouldn't work like that.
     // and in my experiments OpenaAI didn't stream arguments like it streamed text. 
     // Always returned {} and then the final arguments.

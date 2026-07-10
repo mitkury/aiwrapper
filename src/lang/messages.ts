@@ -1,9 +1,8 @@
 import extractJSON from "./json/extract-json";
 
-export type LangMessageRole = "user" | "assistant" | "tool-results"  /*| "tool" | "tool-results" | "system"*/;
+export type LangMessageRole = "user" | "assistant" | "tool-results";
 export type LangMessageContent = string | LangContentPart[] | ToolRequest[] | ToolResult[];
 export type LangMessageMeta = Record<string, any>;
-//export type LangMessageMetaValue = string | number | boolean | null | LangMessageMetaValue[];
 
 export type LangContentPart =
   | { type: "text"; text: string }
@@ -99,7 +98,7 @@ export type LangMessageItemTool = {
 }
 
 export type LangMessageItemToolResult = {
-  type: "tool-result"; // @TODO: consider to remove it
+  type: "tool-result";
   name: string;
   callId: string;
   result: any;
@@ -164,8 +163,7 @@ export class LangMessages extends Array<LangMessage> {
     initial?: string | { role: LangMessageRole; items: LangMessageItem[]; meta?: Record<string, any>; }[] | LangMessage[] | LangMessages,
     opts?: { tools?: LangTool[] }
   ) {
-    // When extending Array, call super with the initial elements if provided
-    super(...(Array.isArray(initial) ? [] : []));
+    super();
     if (typeof initial === "string") {
       this.addUserMessage(initial);
     } else if (initial instanceof LangMessages) {
@@ -307,7 +305,7 @@ export class LangMessages extends Array<LangMessage> {
     return this;
   }
 
-  async executeRequestedTools(meta?: Record<string, any>): Promise<LangMessage | null> {
+  async executeRequestedTools(): Promise<LangMessage | null> {
     // Only execute if the very last message is an assistant message that has tool in its items
     const last = this.length > 0 ? this[this.length - 1] : undefined;
     if (!last || last.role !== "assistant" || last.items.length === 0) {

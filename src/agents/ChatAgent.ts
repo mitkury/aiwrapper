@@ -2,11 +2,6 @@ import { Agent } from "./agent";
 import { LangMessage, LangMessages, LanguageProvider } from "../lang/index.ts";
 import { LangMessageItem, LangMessageRole, LangTool } from "../lang/messages";
 
-export type ChatOutput = {
-  answer: string;
-  messages: LangMessage[];
-};
-
 export interface ChatStreamingEvent {
   type: "streaming";
   data: { msg: LangMessage; idx: number };
@@ -49,7 +44,7 @@ export class ChatAgent
       throw new Error("Language provider not set");
     }
 
-    // Agentic loop. Will go in multiple cicles if it is using tools.
+    // Agentic loop. It continues while tool results need another model turn.
     let streamIdx = 0;
     while (true) {
       let lastRoleInRun: string | null = null;

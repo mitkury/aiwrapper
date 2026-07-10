@@ -1,7 +1,6 @@
 import { LangOptions, LanguageProvider } from "../language-provider.ts";
 import { httpRequestWithRetry as fetch } from "../../http-request.ts";
 import { models, Model } from "aimodels";
-import { LangContentPart, LangImageInput } from "../language-provider.ts";
 import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
 import { LangMessage, LangMessages, LangMessageItemImage, LangMessageItemTool, LangTool, fixToolResultsIfNeeded } from "../messages.ts";
 import { addInstructionAboutSchema } from "../prompt-for-json.ts";
@@ -160,30 +159,25 @@ export class GoogleLang extends LanguageProvider {
 
       const parts: any[] = [];
 
-      const legacyContent = (msg as any).content as any;
-      if (Array.isArray(legacyContent)) {
-        parts.push(...this.mapPartsToGemini(legacyContent as LangContentPart[]));
-      } else {
-        for (const item of msg.items) {
-          if (item.type === "text") {
-            parts.push({ text: item.text });
-          } else if (item.type === "image") {
-            const imagePart = this.mapImageItemToGemini(item as LangMessageItemImage);
-            if (imagePart) parts.push(imagePart);
-          } else if (item.type === "tool") {
-            const toolItem = item as LangMessageItemTool & { thoughtSignature?: string };
-            const part: any = {
-              function_call: {
-                name: toolItem.name,
-                args: toolItem.arguments ?? {},
-              },
-            };
-            // Include thoughtSignature at part level (required by Google Gemini API)
-            if (toolItem.thoughtSignature) {
-              part.thoughtSignature = toolItem.thoughtSignature;
-            }
-            parts.push(part);
+      for (const item of msg.items) {
+        if (item.type === "text") {
+          parts.push({ text: item.text });
+        } else if (item.type === "image") {
+          const imagePart = this.mapImageItemToGemini(item as LangMessageItemImage);
+          if (imagePart) parts.push(imagePart);
+        } else if (item.type === "tool") {
+          const toolItem = item as LangMessageItemTool & { thoughtSignature?: string };
+          const part: any = {
+            function_call: {
+              name: toolItem.name,
+              args: toolItem.arguments ?? {},
+            },
+          };
+          // Include thoughtSignature at part level (required by Google Gemini API)
+          if (toolItem.thoughtSignature) {
+            part.thoughtSignature = toolItem.thoughtSignature;
           }
+          parts.push(part);
         }
       }
 
@@ -198,43 +192,6 @@ export class GoogleLang extends LanguageProvider {
     }
 
     return mapped;
-  }
-
-  private mapPartsToGemini(parts: LangContentPart[]): any[] {
-    const out: any[] = [];
-    for (const p of parts) {
-      if (p.type === 'text') {
-        out.push({ text: p.text });
-      } else if (p.type === 'image') {
-        const inlineData = this.imageInputToGeminiInlineData(p.image);
-        out.push({ inlineData });
-      }
-    }
-    return out;
-  }
-
-  private imageInputToGeminiInlineData(image: LangImageInput): { mimeType: string; data: string } {
-    const kind: any = (image as any).kind;
-    if (kind === 'base64') {
-      const base64 = (image as any).base64 as string;
-      const mimeType = (image as any).mimeType || 'image/png';
-      return { mimeType, data: base64 };
-    }
-    if (kind === 'url') {
-      const url = (image as any).url as string;
-      if (url.startsWith('data:')) {
-        const match = url.match(/^data:([^;]+);base64,(.*)$/);
-        if (!match) throw new Error('Invalid data URL for Gemini image');
-        const mimeType = match[1];
-        const data = match[2];
-        return { mimeType, data };
-      }
-      throw new Error("Gemini inline image requires base64 or data URL. Provide base64+mimeType or a data: URL.");
-    }
-    if (kind === 'bytes' || kind === 'blob') {
-      throw new Error("Gemini image input requires base64. Convert bytes/blob to base64 first.");
-    }
-    throw new Error('Unknown image input kind for Gemini');
   }
 
   private mapImageItemToGemini(image: LangMessageItemImage): any | null {

@@ -1,8 +1,5 @@
-import {
-  LangOptions, LangResult,
-} from "../language-provider.ts";
+import { LangOptions } from "../language-provider.ts";
 import { OpenAIChatCompletionsLang } from "../openai/openai-chat-completions-lang.ts";
-import { models } from 'aimodels';
 
 export type XAILangOptions = {
   apiKey: string;
