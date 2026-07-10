@@ -158,7 +158,12 @@ export class HttpRequestError extends Error {
     public action: HttpResponseOnErrorAction,
     bodyData?: { json?: any; text?: string }
   ) {
-    super(message);
+    const responseMessage = bodyData?.json?.error?.message
+      ?? bodyData?.json?.message;
+    const detail = typeof responseMessage === "string"
+      ? responseMessage.trim().slice(0, 500)
+      : "";
+    super(detail ? `${message}: ${detail}` : message);
     
     if (bodyData) {
       this.body = bodyData.json;

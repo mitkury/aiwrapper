@@ -4,7 +4,9 @@ import { createLangTestRunner } from '../utils/lang-gatherer.js';
 import { readImageBase64 } from '../utils/test-images.ts';
 
 describe('ChatAgent', () => {
-  createLangTestRunner(runTest);
+  createLangTestRunner(runTest, {
+    overrideProviders: ['openai', 'openrouter', 'anthropic']
+  });
 });
 
 async function runTest(lang: LanguageProvider) {

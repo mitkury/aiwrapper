@@ -27,6 +27,7 @@ describe('httpRequestWithRetry', () => {
       // bodyText should also be available
       expect(httpError.bodyText).toBeDefined();
       expect(httpError.bodyText).toContain('message');
+      expect(httpError.message).toContain('Not Found');
       
       // Response should still be accessible
       expect(httpError.response).toBeDefined();
@@ -117,6 +118,7 @@ describe('httpRequestWithRetry', () => {
       expect(httpError.body?.error?.code).toBe('invalid_request');
       expect(httpError.bodyText).toBeDefined();
       expect(httpError.bodyText).toContain('invalid_request');
+      expect(httpError.message).toContain('Bad request');
     }
   });
 

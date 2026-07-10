@@ -214,9 +214,10 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     };
 
     try {
-      const response = await fetch(`${this._config.baseURL}/chat/completions`, commonRequest as any).catch((err) => {
-        throw new Error(err);
-      });
+      const response = await fetch(
+        `${this._config.baseURL}/chat/completions`,
+        commonRequest as any,
+      );
 
       await processServerEvents(response, onData, abortSignal);
     } catch (error) {
