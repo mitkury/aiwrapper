@@ -49,9 +49,14 @@ The current `Agent` abstraction represents one `run` lifecycle. A live voice
 session is different: it is long-lived, accepts many inputs, can listen while
 speaking, and creates multiple cancellable response generations.
 
-Introduce `LiveAgent` and `LiveAgentSession` as separate concepts. They can
-reuse `ChatAgent`, `LanguageProvider`, `LangMessage`, and `LangMessages`
-internally without changing the meaning of `Agent.run`.
+Introduce `LiveAgentSession` as a separate concept. Start with factory
+functions that return a session. Do not add a `LiveAgent` class until it has a
+clear responsibility beyond constructing sessions.
+
+The pipeline can reuse `LanguageProvider`, `LangMessage`, and `LangMessages`
+without changing the meaning of `Agent.run`. Applications that already own an
+agent loop, such as WorldAgents, should use `LanguageProvider` directly rather
+than nesting `ChatAgent` inside their runtime.
 
 ## Public shape
 
@@ -90,6 +95,15 @@ interface LiveAgentSession {
   subscribe(listener: (event: LiveAgentEvent) => void): () => void;
   close(): Promise<void>;
 }
+
+function createLivePipelineSession(options: {
+  language: LanguageProvider;
+  speechToText: SpeechToTextProvider;
+  textToSpeech: TextToSpeechProvider;
+  turnDetector?: TurnDetector;
+  tools?: LangTool[];
+  turnPolicy?: "interrupt" | "queue" | "reject";
+}): LiveAgentSession;
 ```
 
 `appendAudio` accepts audio without assuming that AIWrapper owns the transport.
@@ -99,6 +113,22 @@ call the same operation automatically.
 `sendText` bypasses transcription but uses the same language and speech output
 path. `sendImage` queues visual context for the next user turn instead of
 creating a video transport abstraction.
+
+## Lifecycle invariants
+
+The first implementation should enforce a few rules centrally:
+
+- `start` can run once and `close` is idempotent.
+- Input after `close` fails predictably.
+- A session has at most one active assistant generation.
+- Every generation has one `AbortController` shared by language, tools, and TTS.
+- Input and output queues are bounded.
+- Turn and generation ids remain stable across every related event.
+- Events from an interrupted generation can be identified and discarded.
+- No new events are emitted after the final `closed` state.
+
+Keeping these rules in the session orchestrator is more important than adding
+provider features early.
 
 ## Audio contract
 
@@ -177,9 +207,18 @@ type LangOptions = {
 The default remains `automatic`. The live pipeline can use automatic execution.
 An application-owned loop can select `manual`.
 
+In manual mode, a provider returns assistant tool requests without executing
+handlers or appending synthetic tool results. The caller appends matching
+`tool-results` items and calls the provider again.
+
 Tool handlers should also receive an optional context containing the call id,
 tool name, and turn `AbortSignal`. This allows applications to emit precise tool
 lifecycle events and cancel in-flight tools.
+
+`onResult` currently reports a mutable message snapshot rather than a text
+delta. The first adapters can derive a delta by comparing the latest text with
+the previously emitted text. A new public streaming event API is not required
+for the first implementation.
 
 ### Text to speech
 
@@ -188,16 +227,17 @@ Text-to-speech output must be cancellable and stream PCM frames.
 ```ts
 interface TextToSpeechProvider {
   speak(
-    text: AsyncIterable<string>,
+    text: string,
     options: { signal: AbortSignal; voice?: string },
   ): AsyncIterable<PcmAudioFrame>;
 }
 ```
 
 The pipeline should buffer language deltas into speakable segments rather than
-calling TTS for every token. Sentence boundaries are a reasonable default. A
-provider with native streaming text input can consume the same async text
-stream with less buffering.
+calling TTS for every token. Sentence boundaries are a reasonable default. It
+should call `speak` once for each complete segment and process segments in
+order. Streaming text input can be added later as an optional provider
+capability after a real adapter requires it.
 
 TTS adapters must stop producing frames promptly after cancellation. Every
 audio event includes a generation id so an application can discard late frames
@@ -243,8 +283,8 @@ STT, text-model, and TTS pipeline but still emit normalized transcripts, audio,
 tool calls, interruption, and lifecycle events.
 
 ```text
-LiveAgent.pipeline({ turnDetector, stt, language, tts })
-LiveAgent.realtime({ provider })
+createLivePipelineSession({ turnDetector, speechToText, language, textToSpeech })
+createLiveRealtimeSession({ provider })
 ```
 
 Do not stabilize the native realtime provider interface around a single model.
@@ -272,30 +312,44 @@ WorldAgents interrupt event
   -> liveSession.interrupt
 ```
 
-WorldAgents should continue to own its AgentStack registry, session runtime
-instructions, tools, triggers, persistence, reconnect behavior, and visual
-pipelines. AIWrapper supplies the reusable conversational media pipeline.
+WorldAgents should continue to own its AgentStack registry,
+`runTextAgentTurn`, session instructions, tools, triggers, persistence,
+reconnect behavior, and visual pipelines. AIWrapper supplies provider access
+and, later, the reusable conversational media pipeline.
 
-The first integration should use AIWrapper only for a WorldAgents text adapter.
-That proves provider switching, normalized messages, streaming, images, tools,
-and cancellation before audio complexity is added.
+The first integration should be a `createAIWrapperTextModelAdapter` behind the
+existing WorldAgents `streamTurn` contract. It should:
+
+- translate WorldAgents messages, image parts, and tool schemas to AIWrapper
+- call a `LanguageProvider` with `toolExecution: "manual"`
+- derive text deltas from `onResult` snapshots
+- return normalized tool requests to the existing WorldAgents tool loop
+- translate WorldAgents tool results into the next `LangMessages` call
+
+Do not put `ChatAgent` inside WorldAgents. Both systems would otherwise own the
+same loop, iteration limits, tool execution, and message history.
+
+This text adapter proves the package boundary before audio complexity is added.
+The WorldAgents AgentStack can then select it as a text runtime while keeping
+API keys and provider construction on the server.
 
 ## Suggested implementation stages
 
 ### Stage 1: language loop readiness
 
 - add manual tool execution to `LangOptions`
-- pass tool call context and cancellation to handlers
-- add normalized streaming events or a reliable delta adapter
-- use the configurable `ChatAgent` iteration limit to bound each text turn
-- test automatic and application-owned tool loops
+- test automatic and manual tool loops with mock providers
+- publish an AIWrapper version containing the new contract
+- add the thin WorldAgents text-model adapter and an end-to-end mock test
+- prove one non-Google provider through the existing WorldAgents text endpoint
 
 ### Stage 2: live core and mocks
 
 - add audio and event types under `src/live`
-- add `LiveAgent` and `LiveAgentSession`
+- add `createLivePipelineSession` and `LiveAgentSession`
 - implement explicit audio commit and text input
 - implement bounded queues and generation cancellation
+- pass call context and the generation signal to automatic tool handlers
 - add mock STT and TTS providers
 - test ordering, interruption, stale-frame rejection, and cleanup
 
@@ -305,6 +359,7 @@ and cancellation before audio complexity is added.
 - add one PCM-streaming TTS adapter
 - combine them with any existing `LanguageProvider`
 - add a Node example that accepts explicit utterance boundaries
+- keep TTS input segment-based until a provider needs streaming text input
 - keep provider integration tests credential-gated
 
 An OpenAI transcription and speech pair is a reasonable first implementation
@@ -354,11 +409,13 @@ credentials are missing.
 - replacing the existing text `Agent` and `ChatAgent` APIs
 - copying product-specific AgentStack configuration into AIWrapper
 
-## Decisions to confirm
+## Decisions
 
 - Use explicit audio commits as the first turn-boundary mechanism.
 - Use mono `Int16Array` PCM as the public audio representation.
 - Keep VAD implementations optional.
 - Keep WebRTC and playback outside AIWrapper.
 - Add manual tool execution before building the live pipeline.
+- Start with session factory functions, not a `LiveAgent` class hierarchy.
+- Start TTS with complete speakable text segments, not streaming text input.
 - Build the composable STT to language to TTS pipeline before native realtime providers.
