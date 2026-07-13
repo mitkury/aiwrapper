@@ -7,6 +7,7 @@ import {
 } from "../messages.js";
 import type { LangMessageItem, LangMessageRole } from "../messages.js";
 import { OpenAIResponseStreamHandler } from "../openai/responses/openai-responses-stream-handler.js";
+import { attachPartialResult } from "../../errors.js";
 
 type MessageFactory = string | (() => string);
 
@@ -206,10 +207,9 @@ export class MockResponseStreamLang extends LanguageProvider {
 
       if (aborted) {
         messages.aborted = true;
-        const err = abortError ?? new Error("AbortError");
-        err.name = err.name || "AbortError";
-        (err as any).partialResult = messages;
-        throw err;
+        const error = abortError ?? new Error("The operation was aborted");
+        error.name = "AbortError";
+        throw attachPartialResult(error, messages);
       }
 
       handler.handleEvent({

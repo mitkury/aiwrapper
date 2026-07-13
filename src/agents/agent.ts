@@ -1,3 +1,5 @@
+import { isAbortError, normalizeError, partialResultFrom } from "../errors.js";
+
 // Agent state
 export type AgentState = "idle" | "running";
 
@@ -71,14 +73,10 @@ export abstract class Agent<TInput, TOutput, TCustomEvents = never> {
     try {
       return await this.runInternal(input, options);
     } catch (error) {
-      const normalizedError = error instanceof Error
-        ? error
-        : new Error(String(error));
+      const normalizedError = normalizeError(error);
 
-      if (normalizedError.name === "AbortError") {
-        const partial = "partialResult" in normalizedError
-          ? normalizedError.partialResult as TOutput | undefined
-          : undefined;
+      if (isAbortError(error)) {
+        const partial = partialResultFrom<TOutput>(error);
         this.emit({ type: "aborted", error: normalizedError, partial });
         if (partial !== undefined) return partial;
         throw normalizedError;

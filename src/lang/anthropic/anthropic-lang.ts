@@ -8,6 +8,7 @@ import {
 import type { LangMessage, LangOptions } from "../language-provider.js";
 import { models } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.js";
+import { attachPartialResult, isAbortError } from "../../errors.js";
 import {
   LangMessages,
   fixToolResultsIfNeeded,
@@ -130,7 +131,7 @@ export class AnthropicLang extends LanguageProvider {
         },
         body: JSON.stringify(requestBody),
         signal: abortSignal,
-      } as any).catch((err) => { throw new Error(err); });
+      });
 
       const streamHandler = new AnthropicStreamHandler(result, resolvedOptions?.onResult);
 
@@ -138,9 +139,9 @@ export class AnthropicLang extends LanguageProvider {
         streamHandler.handleEvent(data);
       }, abortSignal);
     } catch (error) {
-      if ((error as any)?.name === "AbortError") {
+      if (isAbortError(error)) {
         result.aborted = true;
-        (error as any).partialResult = result;
+        throw attachPartialResult(error, result);
       }
       throw error;
     }

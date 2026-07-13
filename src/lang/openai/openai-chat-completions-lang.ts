@@ -20,6 +20,7 @@ import { models, type Model } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.js";
 import { addInstructionAboutSchema } from "../prompt-for-json.js";
 import { OpenAIChatCompletionsStreamHandler } from "./openai-chat-completions-stream-handler.js";
+import { attachPartialResult, isAbortError } from "../../errors.js";
 
 export type ReasoningEffort = "low" | "medium" | "high";
 
@@ -216,14 +217,14 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     try {
       const response = await fetch(
         `${this._config.baseURL}/chat/completions`,
-        commonRequest as any,
+        commonRequest,
       );
 
       await processServerEvents(response, onData, abortSignal);
     } catch (error) {
-      if ((error as any)?.name === "AbortError") {
+      if (isAbortError(error)) {
         result.aborted = true;
-        (error as any).partialResult = result;
+        throw attachPartialResult(error, result);
       }
       throw error;
     }

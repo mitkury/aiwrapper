@@ -10,6 +10,7 @@ import { httpRequestWithRetry as fetch } from "../../http-request.js";
 import { processServerEvents } from "../../process-server-events.js";
 import { models, type Model } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.js";
+import { attachPartialResult, isAbortError } from "../../errors.js";
 
 export type OllamaLangOptions = {
   model?: string;
@@ -136,9 +137,9 @@ export class OllamaLang extends LanguageProvider {
 
       await processServerEvents(response, onData, resolvedOptions?.signal);
     } catch (error) {
-      if ((error as any)?.name === "AbortError") {
+      if (isAbortError(error)) {
         result.aborted = true;
-        (error as any).partialResult = result;
+        throw attachPartialResult(error, result);
       }
       throw error;
     }

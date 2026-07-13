@@ -10,6 +10,7 @@ import type { LangMessage, LangOptions } from "../language-provider.js";
 import { LangMessages, LangMessage as ConversationMessage, fixToolResultsIfNeeded } from "../messages.js";
 import { models, type Model } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.js";
+import { attachPartialResult, isAbortError } from "../../errors.js";
 
 export type CohereLangOptions = {
   apiKey: string;
@@ -128,15 +129,13 @@ export class CohereLang extends LanguageProvider {
         },
         body: JSON.stringify(requestBody),
         signal: abortSignal,
-      }).catch((err) => {
-        throw new Error(err);
       });
 
       await processServerEvents(response, onData, abortSignal);
     } catch (error) {
-      if ((error as any)?.name === "AbortError") {
+      if (isAbortError(error)) {
         result.aborted = true;
-        (error as any).partialResult = result;
+        throw attachPartialResult(error, result);
       }
       throw error;
     }

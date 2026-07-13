@@ -6,6 +6,7 @@ import { calculateModelResponseTokens } from "../utils/token-calculator.js";
 import { LangMessage, LangMessages, fixToolResultsIfNeeded } from "../messages.js";
 import type { LangMessageItemImage, LangMessageItemTool, LangTool } from "../messages.js";
 import { addInstructionAboutSchema } from "../prompt-for-json.js";
+import { attachPartialResult, isAbortError } from "../../errors.js";
 
 export type GoogleLangOptions = {
   apiKey: string;
@@ -113,9 +114,9 @@ export class GoogleLang extends LanguageProvider {
       const data = await response.json();
       this.applyCandidates(data?.candidates, messageCollection, resolvedOptions?.onResult);
     } catch (error) {
-      if ((error as any)?.name === "AbortError") {
+      if (isAbortError(error)) {
         messageCollection.aborted = true;
-        (error as any).partialResult = messageCollection;
+        throw attachPartialResult(error, messageCollection);
       }
       throw error;
     }

@@ -41,6 +41,27 @@ describe("provider streaming", () => {
     expect(streamed[streamed.length - 1]).toBe("Hello world");
   });
 
+  it("preserves partial Cohere messages when a stream is aborted", async () => {
+    setHttpRequestImpl(async () => new Response(
+      new ReadableStream<Uint8Array>({}),
+      {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      },
+    ));
+
+    const controller = new AbortController();
+    const lang = new CohereLang({ apiKey: "test", model: "command-r-plus-08-2024" });
+    const pending = lang.ask("Wait", { signal: controller.signal });
+    controller.abort();
+
+    const error = await pending.catch(caught => caught);
+
+    expect(error).toMatchObject({ name: "AbortError" });
+    expect(error.partialResult).toBeInstanceOf(LangMessages);
+    expect(error.partialResult.aborted).toBe(true);
+  });
+
   it("serializes and accumulates Ollama chat streams", async () => {
     let requestBody: any;
     setHttpRequestImpl(async (_url, options: any) => {

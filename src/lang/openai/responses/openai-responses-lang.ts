@@ -11,6 +11,7 @@ import {
   httpRequestWithRetry as fetch,
 } from "../../../http-request.js";
 import type { HttpResponseWithRetries } from "../../../http-request.js";
+import { attachPartialResult, isAbortError } from "../../../errors.js";
 
 
 /**
@@ -187,9 +188,9 @@ export class OpenAIResponsesLang extends LanguageProvider {
       const response = await fetch(`${this.baseURL}/responses`, req);
       await processServerEvents(response, (data) => streamHander.handleEvent(data), abortSignal);
     } catch (error) {
-      if ((error as any)?.name === "AbortError") {
+      if (isAbortError(error)) {
         msgCollection.aborted = true;
-        (error as any).partialResult = msgCollection;
+        throw attachPartialResult(error, msgCollection);
       }
       throw error;
     }
