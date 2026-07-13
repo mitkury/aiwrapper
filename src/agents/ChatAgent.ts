@@ -7,46 +7,61 @@ export interface ChatStreamingEvent {
   data: { msg: LangMessage; idx: number };
 }
 
+export type ChatAgentInput =
+  | { role: LangMessageRole; items: LangMessageItem[] }[]
+  | LangMessages
+  | LangMessage[];
+
+export interface ChatAgentOptions {
+  tools?: LangTool[];
+  /** Maximum number of model turns allowed in one run. */
+  maxIterations?: number;
+}
+
 export class ChatAgent
   extends Agent<
-    | { role: LangMessageRole; items: LangMessageItem[] }[]
-    | LangMessages
-    | LangMessage[],
+    ChatAgentInput,
     LangMessages,
     ChatStreamingEvent
   > {
+  static readonly defaultMaxIterations = 8;
+
   private lang?: LanguageProvider;
+  private readonly maxIterations: number;
   messages: LangMessages;
 
-  constructor(lang?: LanguageProvider, options?: { tools?: LangTool[] }) {
+  constructor(lang?: LanguageProvider, options: ChatAgentOptions = {}) {
     super();
     this.lang = lang;
+    this.maxIterations = options.maxIterations
+      ?? ChatAgent.defaultMaxIterations;
+
+    if (!Number.isInteger(this.maxIterations) || this.maxIterations < 1) {
+      throw new RangeError("ChatAgent maxIterations must be a positive integer");
+    }
 
     this.messages = new LangMessages([], {
-      tools: options?.tools,
+      tools: options.tools,
     });
   }
 
   protected async runInternal(
-    input:
-      | { role: LangMessageRole; items: LangMessageItem[] }[]
-      | LangMessages
-      | LangMessage[],
+    input?: ChatAgentInput,
     options?: { signal?: AbortSignal },
   ): Promise<LangMessages> {
-    if (input instanceof LangMessages) {
-      this.messages = input;
-    } else {
-      this.messages.push(...new LangMessages(input));
-    }
-
     if (!this.lang) {
       throw new Error("Language provider not set");
     }
 
+    if (input instanceof LangMessages) {
+      this.messages = input;
+    } else if (input) {
+      this.messages.push(...new LangMessages(input));
+    }
+
     // Agentic loop. It continues while tool results need another model turn.
     let streamIdx = 0;
-    while (true) {
+    for (let iteration = 0; iteration < this.maxIterations; iteration++) {
       let lastRoleInRun: string | null = null;
       const response = await this.lang.chat(this.messages, {
         onResult: (msg) => {
@@ -70,16 +85,17 @@ export class ChatAgent
       const lastMessageHasToolResults = lastMessage &&
         lastMessage.toolResults.length > 0;
       if (!lastMessageHasToolResults) {
-        break;
+        this.emit({ type: "finished", output: this.messages });
+        return this.messages;
       }
 
       // Increment index for the next iteration since we'll be starting with new messages
       streamIdx++;
     }
 
-    this.emit({ type: "finished", output: this.messages });
-
-    return this.messages;
+    throw new Error(
+      `ChatAgent reached its ${this.maxIterations}-iteration limit before producing a final response`,
+    );
   }
 
   getMessages(): LangMessages {

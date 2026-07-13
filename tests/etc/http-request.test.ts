@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
 import { httpRequestWithRetry, HttpRequestError, setHttpRequestImpl } from '../../src/http-request.ts';
+
+const nativeFetch = globalThis.fetch;
+
+afterEach(() => {
+  setHttpRequestImpl((url, options) => nativeFetch(url, options));
+});
 
 describe('httpRequestWithRetry', () => {
   it('should parse response body in error for 404', async () => {
@@ -85,6 +91,88 @@ describe('httpRequestWithRetry', () => {
     expect(attemptCount).toBe(2); // Initial + 1 retry
   });
 
+  it('retries network errors', async () => {
+    let attemptCount = 0;
+
+    setHttpRequestImpl(async () => {
+      attemptCount++;
+      if (attemptCount === 1) {
+        throw new TypeError('fetch failed');
+      }
+      return new Response('OK');
+    });
+
+    const response = await httpRequestWithRetry('https://example.com/api', {
+      retries: 1,
+      backoffMs: 0,
+    });
+
+    expect(response.ok).toBe(true);
+    expect(attemptCount).toBe(2);
+  });
+
+  it('keeps retry bookkeeping local when options are reused', async () => {
+    let attemptCount = 0;
+    const forwardedOptions: RequestInit[] = [];
+
+    setHttpRequestImpl(async (_url, options) => {
+      attemptCount++;
+      forwardedOptions.push(options);
+      if (attemptCount % 2 === 1) {
+        return new Response('Temporary failure', { status: 503 });
+      }
+      return new Response('OK');
+    });
+
+    const options = {
+      method: 'GET',
+      retries: 1,
+      backoffMs: 0,
+      maxBackoffMs: 0,
+    };
+
+    await httpRequestWithRetry('https://example.com/api', options);
+    await httpRequestWithRetry('https://example.com/api', options);
+
+    expect(attemptCount).toBe(4);
+    expect(options).toEqual({
+      method: 'GET',
+      retries: 1,
+      backoffMs: 0,
+      maxBackoffMs: 0,
+    });
+    expect(forwardedOptions).toHaveLength(4);
+    for (const forwarded of forwardedOptions) {
+      expect(forwarded).toEqual({ method: 'GET' });
+    }
+  });
+
+  it('uses request fixes made by on400Error on the next attempt', async () => {
+    let attemptCount = 0;
+
+    setHttpRequestImpl(async (_url, options) => {
+      attemptCount++;
+      if (options.body !== 'fixed') {
+        return new Response('Bad body', { status: 400 });
+      }
+      return new Response('OK');
+    });
+
+    const response = await httpRequestWithRetry('https://example.com/api', {
+      method: 'POST',
+      body: 'broken',
+      retries: 1,
+      backoffMs: 0,
+      on400Error: async (_response, _error, options) => {
+        options.body = 'fixed';
+        return { retry: true };
+      },
+    });
+
+    expect(response.ok).toBe(true);
+    expect(attemptCount).toBe(2);
+  });
+
   it('should have body available even when on400Error reads response', async () => {
     let on400ErrorCalled = false;
     
@@ -168,6 +256,26 @@ describe('httpRequestWithRetry', () => {
     setTimeout(() => ac.abort(), 10);
 
     await expect(promise).rejects.toMatchObject({ name: "AbortError" });
+    expect(attemptCount).toBe(1);
+  });
+
+  it('aborts while waiting to retry', async () => {
+    let attemptCount = 0;
+    setHttpRequestImpl(async () => {
+      attemptCount++;
+      throw new TypeError('fetch failed');
+    });
+
+    const controller = new AbortController();
+    const pending = httpRequestWithRetry('https://example.com/api', {
+      retries: 2,
+      backoffMs: 100,
+      signal: controller.signal,
+    });
+
+    setTimeout(() => controller.abort(), 5);
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
     expect(attemptCount).toBe(1);
   });
 });

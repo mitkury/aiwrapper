@@ -39,7 +39,9 @@ export type LangImageOutput = {
   mimeType?: string;
   width?: number;
   height?: number;
-  metadata?: Record<string, any>;
+  provider?: string;
+  model?: string;
+  metadata?: Record<string, unknown>;
 };
 
 /**
@@ -61,7 +63,7 @@ export type LangToolWithHandler = {
   description: string;
   parameters: Record<string, any>;
   handler: (args: Record<string, any>) => any | Promise<any>;
-}
+};
 
 export type LangMessageItem =
   | LangMessageItemText
@@ -73,48 +75,42 @@ export type LangMessageItem =
 export type LangMessageItemText = {
   type: "text";
   text: string;
-}
+};
 
 export type LangMessageItemReasoning = {
   type: "reasoning";
   text: string;
-}
+};
 
-export type LangMessageItemImage = {
+export type LangMessageItemImage = LangImageOutput & {
   type: "image";
-  url?: string;
-  base64?: string;
-  mimeType?: string;
-  width?: number;
-  height?: number;
-  metadata?: Record<string, any>;
-}
+};
 
 export type LangMessageItemTool = {
   type: "tool";
   name: string;
   callId: string;
   arguments: Record<string, any>;
-}
+};
 
 export type LangMessageItemToolResult = {
   type: "tool-result";
   name: string;
   callId: string;
   result: any;
-}
+};
 
 export class LangMessage {
   role: LangMessageRole;
   items: LangMessageItem[];
-  meta?: Record<string, any>;
+  meta?: LangMessageMeta;
 
-  constructor(role: LangMessageRole, text: string, meta?: Record<string, any>);
-  constructor(role: LangMessageRole, items: LangMessageItem[], meta?: Record<string, any>);
+  constructor(role: LangMessageRole, text: string, meta?: LangMessageMeta);
+  constructor(role: LangMessageRole, items: LangMessageItem[], meta?: LangMessageMeta);
   constructor(
-    role: "user" | "assistant",
+    role: LangMessageRole,
     init: string | LangMessageItem[],
-    meta?: Record<string, any>
+    meta?: LangMessageMeta
   ) {
     this.role = role;
     this.items = Array.isArray(init) ? init : [{ type: "text", text: init }];
@@ -136,15 +132,21 @@ export class LangMessage {
   }
 
   get toolRequests(): LangMessageItemTool[] {
-    return this.items.filter(item => item.type === "tool").map(item => item as LangMessageItemTool);
+    return this.items.filter(
+      (item): item is LangMessageItemTool => item.type === "tool",
+    );
   }
 
   get toolResults(): LangMessageItemToolResult[] {
-    return this.items.filter(item => item.type === "tool-result").map(item => item as LangMessageItemToolResult);
+    return this.items.filter(
+      (item): item is LangMessageItemToolResult => item.type === "tool-result",
+    );
   }
 
   get images(): LangMessageItemImage[] {
-    return this.items.filter(item => item.type === "image").map(item => item as LangMessageItemImage);
+    return this.items.filter(
+      (item): item is LangMessageItemImage => item.type === "image",
+    );
   }
 }
 
@@ -170,12 +172,12 @@ export class LangMessages extends Array<LangMessage> {
       for (const m of initial) {
         this.push(m);
       }
-      if (opts?.tools) {
-        this.availableTools = opts.tools;
-      } else if (initial.availableTools) {
-        // Share the same tools array reference intentionally
-        this.availableTools = initial.availableTools;
-      }
+      this.instructions = initial.instructions;
+      this.finished = initial.finished;
+      this.aborted = initial.aborted;
+      // Messages and tools are shared intentionally. This is a shallow copy of
+      // the conversation container, not a clone of user-owned values.
+      this.availableTools = initial.availableTools;
     } else if (Array.isArray(initial)) {
       for (const m of initial) {
         if (m instanceof LangMessage) {
@@ -306,20 +308,24 @@ export class LangMessages extends Array<LangMessage> {
   }
 
   async executeRequestedTools(): Promise<LangMessage | null> {
-    // Only execute if the very last message is an assistant message that has tool in its items
+    // Only execute tool requests from the last assistant message.
     const last = this.length > 0 ? this[this.length - 1] : undefined;
     if (!last || last.role !== "assistant" || last.items.length === 0) {
       return null;
     }
 
     const toolRequests = last.toolRequests;
+    if (toolRequests.length === 0) {
+      return null;
+    }
 
     const toolsWithHandlers = (this.availableTools || []).filter(
-      (t): t is LangToolWithHandler => 'handler' in t
+      (tool): tool is LangToolWithHandler =>
+        'handler' in tool && typeof tool.handler === "function"
     );
 
     // Execute requested tools from the last message only
-    const toolResults: ToolResult[] = [];
+    const toolResults: LangMessageItemToolResult[] = [];
     for (const requestedTool of toolRequests) {
       const toolName = requestedTool.name as string | undefined;
       if (!toolName) continue;
@@ -329,7 +335,8 @@ export class LangMessages extends Array<LangMessage> {
         // Tool was requested but not found - add error result so LLM can respond
         const id = requestedTool.callId;
         toolResults.push({
-          toolId: id,
+          type: "tool-result",
+          callId: id,
           name: toolName,
           result: {
             error: true,
@@ -348,23 +355,25 @@ export class LangMessages extends Array<LangMessage> {
           ? error
           : new Error(String(error));
         result = {
+          ...Object.fromEntries(Object.entries(normalizedError)),
           error: true,
           name: normalizedError.name,
           message: normalizedError.message,
-          ...Object.fromEntries(Object.entries(normalizedError)),
-        }
+        };
       }
 
       const id = requestedTool.callId;
-      toolResults.push({ toolId: id, name: toolName, result });
+      toolResults.push({
+        type: "tool-result",
+        callId: id,
+        name: toolName,
+        result,
+      });
     }
 
-    if (toolResults.length > 0) {
-      // Create a new message with the tool results
-      this.addToolResultsMessage(toolResults.map(result => ({ type: "tool-result", name: result.name, callId: result.toolId, result: result.result })));
-    }
+    if (toolResults.length === 0) return null;
 
-    // We return the tool results message we've just added
+    this.addToolResultsMessage(toolResults);
     return this[this.length - 1];
   }
 

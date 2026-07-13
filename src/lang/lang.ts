@@ -108,19 +108,4 @@ export abstract class Lang {
     return new MockResponseStreamLang(options);
   }
 
-  // Dynamic provider access
-  static [Symbol.iterator](): Iterator<any> {
-    const providers = models.providers.reduce((acc: Record<string, Function>, provider: any) => {
-      // Handle provider as object with id property (new aimodels behavior)
-      const providerId = typeof provider === 'object' && provider !== null ? provider.id : provider;
-      if (providerId in this) {
-        acc[providerId] = this[providerId];
-      }
-      return acc;
-    }, {});
-    return Object.values(providers)[Symbol.iterator]();
-  }
-
-  // Array-like access to providers
-  static [key: string]: any;
 }

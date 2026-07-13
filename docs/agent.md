@@ -1,6 +1,6 @@
 # Agents
 
-Agents add orchestration and events around language providers. `ChatAgent` is the built-in conversational agent. It keeps message history, streams updates, and continues calling the model until locally handled tools are resolved.
+Agents add orchestration and events around language providers. `ChatAgent` is the built-in conversational agent. It keeps message history, streams updates, and continues calling the model until locally handled tools are resolved or its iteration limit is reached.
 
 ## ChatAgent
 
@@ -26,6 +26,7 @@ Pass locally executed tools to the constructor:
 
 ```ts
 const agent = new ChatAgent(lang, {
+  maxIterations: 8,
   tools: [
     {
       name: "get_weather",
@@ -48,6 +49,8 @@ const result = await agent.run([
 ```
 
 `ChatAgent` sends available tools to the provider, executes requested handlers, appends `tool-results` messages, and asks the provider to continue until it produces a final response.
+
+One run allows up to eight model turns by default. Set `maxIterations` when a workflow needs a different limit. The run rejects if the limit is reached while the model is still requesting tools. This prevents a broken tool or model response from creating an endless loop.
 
 ## Events
 
@@ -97,6 +100,8 @@ const partial = await pending;
 ```
 
 When a provider can return partial messages, `ChatAgent` emits an `aborted` event and resolves with that partial result. If no partial result exists, it rethrows the `AbortError`.
+
+An agent accepts one active `run` at a time. A second call made while the first is running rejects immediately so both calls cannot mutate the same history. Create separate agents or add an explicit queue in your application when work should run concurrently.
 
 ## Custom agents
 

@@ -50,8 +50,8 @@ export class OpenAIImg {
       body: JSON.stringify(body),
     });
 
-    const json: any = await response.json();
-    return this.applyImageResponse(result, json?.data);
+    const json = await response.json() as { data?: OpenAIImageData[] };
+    return this.applyImageResponse(result, json.data);
   }
 
   async edit(params: { prompt: string; image: LangImageInput; mask?: LangImageInput; size?: '1024x1024' | '1024x1536' | '1536x1024' | 'auto'; n?: number; quality?: 'standard' | 'hd'; responseFormat?: 'url' | 'b64_json' }): Promise<LangMessages> {
@@ -73,11 +73,11 @@ export class OpenAIImg {
     const response = await fetch(`${this._baseURL}/images/edits`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${this._apiKey}` },
-      body: form as any,
+      body: form,
     });
 
-    const json: any = await response.json();
-    return this.applyImageResponse(result, json?.data);
+    const json = await response.json() as { data?: OpenAIImageData[] };
+    return this.applyImageResponse(result, json.data);
   }
 
   async vary(params: { image: LangImageInput; size?: '1024x1024' | '1024x1536' | '1536x1024' | 'auto'; n?: number; quality?: 'standard' | 'hd'; responseFormat?: 'url' | 'b64_json' }): Promise<LangMessages> {
@@ -97,11 +97,11 @@ export class OpenAIImg {
     const response = await fetch(`${this._baseURL}/images/variations`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${this._apiKey}` },
-      body: form as any,
+      body: form,
     });
 
-    const json: any = await response.json();
-    return this.applyImageResponse(result, json?.data);
+    const json = await response.json() as { data?: OpenAIImageData[] };
+    return this.applyImageResponse(result, json.data);
   }
 
   private applyImageResponse(
@@ -149,11 +149,11 @@ export class OpenAIImg {
     form.append('model', args.model);
     form.append('prompt', args.prompt);
     const img = await this.imageInputToBlob(args.image);
-    form.append('image', img as any, this.blobFilename(img.type));
+    form.append('image', img, this.blobFilename(img.type));
     if (args.mask) {
       const mask = await this.imageInputToBlob(args.mask);
       if (mask.type !== 'image/png') throw new Error('Mask must be PNG with transparency');
-      form.append('mask', mask as any, this.blobFilename(mask.type));
+      form.append('mask', mask, this.blobFilename(mask.type));
     }
     if (args.size) form.append('size', args.size);
     if (args.n) form.append('n', String(args.n));
@@ -166,7 +166,7 @@ export class OpenAIImg {
     const form = new FormData();
     form.append('model', args.model);
     const img = await this.imageInputToBlob(args.image);
-    form.append('image', img as any, this.blobFilename(img.type));
+    form.append('image', img, this.blobFilename(img.type));
     if (args.size) form.append('size', args.size);
     if (args.n) form.append('n', String(args.n));
     if (args.quality) form.append('quality', args.quality);
@@ -175,32 +175,37 @@ export class OpenAIImg {
   }
 
   private async imageInputToBlob(image: LangImageInput): Promise<Blob> {
-    const kind: any = (image as any).kind;
-    if (kind === 'url') {
-      const url = (image as any).url as string;
-      const res = await fetch(url, { method: 'GET' } as any);
-      const arrayBuffer = await res.arrayBuffer();
-      const contentType = (res as any).headers?.get?.('content-type') || this.guessMimeFromUrl(url) || 'image/png';
-      return new Blob([arrayBuffer], { type: contentType });
+    switch (image.kind) {
+      case 'url': {
+        const response = await fetch(image.url, { method: 'GET' });
+        const contentType = response.headers.get('content-type')
+          || this.guessMimeFromUrl(image.url)
+          || 'image/png';
+        return new Blob([await response.arrayBuffer()], { type: contentType });
+      }
+      case 'base64':
+        return new Blob([this.decodeBase64(image.base64)], {
+          type: image.mimeType || 'image/png',
+        });
+      case 'bytes': {
+        const source = image.bytes instanceof Uint8Array
+          ? image.bytes
+          : new Uint8Array(image.bytes);
+        const bytes = new Uint8Array(source.byteLength);
+        bytes.set(source);
+        return new Blob([bytes], {
+          type: image.mimeType || 'application/octet-stream',
+        });
+      }
+      case 'blob': {
+        const mimeType = image.mimeType
+          || image.blob.type
+          || 'application/octet-stream';
+        return mimeType === image.blob.type
+          ? image.blob
+          : new Blob([image.blob], { type: mimeType });
+      }
     }
-    if (kind === 'base64') {
-      const base64 = (image as any).base64 as string;
-      const mimeType = (image as any).mimeType || 'image/png';
-      return new Blob([this.decodeBase64(base64)], { type: mimeType });
-    }
-    if (kind === 'bytes') {
-      const bytes = (image as any).bytes as ArrayBuffer | Uint8Array;
-      const mimeType = (image as any).mimeType || 'application/octet-stream';
-      const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-      const arrayBuffer = arr.buffer.slice(arr.byteOffset, arr.byteOffset + arr.byteLength);
-      return new Blob([arrayBuffer as any], { type: mimeType });
-    }
-    if (kind === 'blob') {
-      const blob = (image as any).blob as Blob;
-      const mimeType = (image as any).mimeType || (blob as any).type || 'application/octet-stream';
-      return mimeType && mimeType !== (blob as any).type ? new Blob([await blob.arrayBuffer()], { type: mimeType }) : blob;
-    }
-    throw new Error('Unknown LangImageInput kind');
   }
 
   private blobFilename(mime: string): string {

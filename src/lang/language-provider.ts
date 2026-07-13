@@ -11,21 +11,12 @@ export { z };
 export type LangResponseSchema = z.ZodType | Record<string, unknown>;
 
 // Re-export message types from messages.ts to keep public API stable
-export type { LangMessage, LangContentPart, LangContentImage as LangImageInput } from "./messages.js";
-
-/**
- * Image output type for providers that can generate images
- */
-export type LangImageOutput = {
-  url?: string;
-  base64?: string;
-  mimeType?: string;
-  width?: number;
-  height?: number;
-  provider?: string;
-  model?: string;
-  metadata?: Record<string, unknown>;
-};
+export type {
+  LangMessage,
+  LangContentPart,
+  LangContentImage as LangImageInput,
+  LangImageOutput,
+} from "./messages.js";
 
 /**
  * Options that can be passed to language model methods
@@ -50,13 +41,6 @@ export interface LangOptions {
 export class LangResult extends LangMessages {
   constructor(messages: LangMessages | LangMessage[]) {
     super(messages);
-
-    if (messages instanceof LangMessages) {
-      this.availableTools = messages.availableTools;
-      this.instructions = messages.instructions;
-      this.finished = messages.finished;
-      this.aborted = messages.aborted;
-    }
   }
 
   get messages(): this {

@@ -62,24 +62,32 @@ export abstract class Agent<TInput, TOutput, TCustomEvents = never> {
 
   // Run one agent lifecycle with optional input and cancellation.
   async run(input?: TInput, options?: { signal?: AbortSignal }): Promise<TOutput> {
+    if (this.state === "running") {
+      throw new Error("This agent is already running");
+    }
+
     this.setState("running");
 
-    try {      
-      const result = await this.runInternal(input, options);
-      this.setState("idle");
-      return result;
+    try {
+      return await this.runInternal(input, options);
     } catch (error) {
-      if ((error as any)?.name === "AbortError") {
-        const partial = (error as any)?.partialResult as TOutput | undefined;
-        this.emit({ type: "aborted", error: error as Error, partial });
-        this.setState("idle");
+      const normalizedError = error instanceof Error
+        ? error
+        : new Error(String(error));
+
+      if (normalizedError.name === "AbortError") {
+        const partial = "partialResult" in normalizedError
+          ? normalizedError.partialResult as TOutput | undefined
+          : undefined;
+        this.emit({ type: "aborted", error: normalizedError, partial });
         if (partial !== undefined) return partial;
-        throw error;
+        throw normalizedError;
       }
 
-      this.emit({ type: "error", error: error as Error });
+      this.emit({ type: "error", error: normalizedError });
+      throw normalizedError;
+    } finally {
       this.setState("idle");
-      throw error;
     }
   }
 

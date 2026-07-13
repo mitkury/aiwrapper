@@ -287,7 +287,7 @@ and cancellation before audio complexity is added.
 - add manual tool execution to `LangOptions`
 - pass tool call context and cancellation to handlers
 - add normalized streaming events or a reliable delta adapter
-- add configurable iteration limits to `ChatAgent`
+- use the configurable `ChatAgent` iteration limit to bound each text turn
 - test automatic and application-owned tool loops
 
 ### Stage 2: live core and mocks
