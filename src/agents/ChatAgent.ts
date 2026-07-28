@@ -28,11 +28,13 @@ export class ChatAgent
 
   private lang?: LanguageProvider;
   private readonly maxIterations: number;
+  private readonly configuredTools?: LangTool[];
   messages: LangMessages;
 
   constructor(lang?: LanguageProvider, options: ChatAgentOptions = {}) {
     super();
     this.lang = lang;
+    this.configuredTools = options.tools;
     this.maxIterations = options.maxIterations
       ?? ChatAgent.defaultMaxIterations;
 
@@ -55,6 +57,7 @@ export class ChatAgent
 
     if (input instanceof LangMessages) {
       this.messages = input;
+      this.messages.availableTools ??= this.configuredTools;
     } else if (input) {
       this.messages.push(...new LangMessages(input));
     }

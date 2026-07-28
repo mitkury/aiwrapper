@@ -33,6 +33,118 @@ export type LangContentImage =
   | { kind: "bytes"; bytes: ArrayBuffer | Uint8Array; mimeType?: string }
   | { kind: "blob"; blob: Blob; mimeType?: string };
 
+export type LangToolResultTextPart = {
+  type: "text";
+  text: string;
+};
+
+type LangToolResultImagePartBase = {
+  type: "image";
+  mimeType?: string;
+  detail?: "auto" | "low" | "high" | "original";
+};
+
+export type LangToolResultImagePart = LangToolResultImagePartBase & (
+  | { url: string; base64?: never; bytes?: never }
+  | { base64: string; url?: never; bytes?: never }
+  | { bytes: ArrayBuffer | Uint8Array; url?: never; base64?: never }
+);
+
+export type LangToolResultPart =
+  | LangToolResultTextPart
+  | LangToolResultImagePart;
+
+/**
+ * Explicit multimodal content returned by a local tool handler.
+ *
+ * Plain handler return values retain their existing JSON/text behavior. Use
+ * `toolResult` only when the provider should receive content parts directly.
+ */
+export type LangToolResultContent = {
+  type: "tool-content";
+  content: LangToolResultPart[];
+};
+
+type NormalizedLangToolResultImage =
+  | { kind: "url"; url: string }
+  | { kind: "base64"; base64: string; mimeType: string };
+
+export function toolResult(
+  content: LangToolResultPart | LangToolResultPart[],
+): LangToolResultContent {
+  const parts = Array.isArray(content) ? [...content] : [content];
+  if (parts.length === 0) {
+    throw new Error("A multimodal tool result must contain at least one content part.");
+  }
+  return { type: "tool-content", content: parts };
+}
+
+export function isLangToolResultContent(value: unknown): value is LangToolResultContent {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<LangToolResultContent>;
+  return candidate.type === "tool-content" && Array.isArray(candidate.content);
+}
+
+export function normalizeLangToolResultImage(
+  image: LangToolResultImagePart,
+): NormalizedLangToolResultImage {
+  if (typeof image.url === "string" && image.url.length > 0) {
+    if (!image.url.startsWith("data:")) {
+      return { kind: "url", url: image.url };
+    }
+
+    const match = image.url.match(/^data:([^;,]+);base64,(.*)$/s);
+    if (!match || match[2].length === 0) {
+      throw new Error("Tool result image contains an invalid base64 data URL.");
+    }
+    return { kind: "base64", mimeType: match[1], base64: match[2] };
+  }
+
+  if (typeof image.base64 === "string" && image.base64.length > 0) {
+    return {
+      kind: "base64",
+      base64: image.base64,
+      mimeType: image.mimeType || "image/png",
+    };
+  }
+
+  if (image.bytes instanceof ArrayBuffer || image.bytes instanceof Uint8Array) {
+    return {
+      kind: "base64",
+      base64: encodeBytesAsBase64(image.bytes),
+      mimeType: image.mimeType || "image/png",
+    };
+  }
+
+  throw new Error("Tool result image must include a non-empty URL, base64 value, or byte array.");
+}
+
+function encodeBytesAsBase64(bytes: ArrayBuffer | Uint8Array): string {
+  const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+
+  const globalObject: any = typeof globalThis !== "undefined" ? globalThis : {};
+
+  if (globalObject.Buffer) {
+    return globalObject.Buffer.from(view).toString("base64");
+  }
+
+  const btoaFn: ((data: string) => string) | undefined = typeof globalObject.btoa === "function"
+    ? globalObject.btoa.bind(globalObject)
+    : undefined;
+
+  if (btoaFn) {
+    let binary = "";
+    const chunkSize = 0x8000;
+    for (let i = 0; i < view.length; i += chunkSize) {
+      const chunk = view.subarray(i, i + chunkSize);
+      binary += String.fromCharCode(...chunk);
+    }
+    return btoaFn(binary);
+  }
+
+  throw new Error("Unable to convert byte images to base64 in this environment. Provide base64 or a URL instead.");
+}
+
 export type LangImageOutput = {
   url?: string;
   base64?: string;
@@ -263,7 +375,7 @@ export class LangMessages extends Array<LangMessage> {
       case "bytes":
         return {
           type: "image",
-          base64: LangMessages.encodeBytesAsBase64(image.bytes),
+          base64: encodeBytesAsBase64(image.bytes),
           mimeType: image.mimeType
         };
       case "blob":
@@ -271,30 +383,6 @@ export class LangMessages extends Array<LangMessage> {
       default:
         throw new Error("Unsupported image input type.");
     }
-  }
-
-  private static encodeBytesAsBase64(bytes: ArrayBuffer | Uint8Array): string {
-    const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-
-    const globalObject: any = typeof globalThis !== "undefined" ? globalThis : {};
-
-    if (globalObject.Buffer) {
-      return globalObject.Buffer.from(view).toString("base64");
-    }
-
-    const btoaFn: ((data: string) => string) | undefined = typeof globalObject.btoa === "function" ? globalObject.btoa.bind(globalObject) : undefined;
-
-    if (btoaFn) {
-      let binary = "";
-      const chunkSize = 0x8000;
-      for (let i = 0; i < view.length; i += chunkSize) {
-        const chunk = view.subarray(i, i + chunkSize);
-        binary += String.fromCharCode(...chunk);
-      }
-      return btoaFn(binary);
-    }
-
-    throw new Error("Unable to convert byte images to base64 in this environment. Provide base64 or URL images instead.");
   }
 
   addAssistantMessage(content: string, meta?: Record<string, any>): this {
@@ -398,19 +486,32 @@ export function fixToolResultsIfNeeded(messages: LangMessages | LangMessage[]): 
     if (toolRequests.length === 0) continue;
 
     const nextMessage = messages[i + 1];
-    if (nextMessage && nextMessage.role === "tool-results") continue;
+    const completedCallIds = new Set(
+      nextMessage?.role === "tool-results"
+        ? nextMessage.toolResults.map(result => result.callId)
+        : [],
+    );
+    const missingToolRequests = toolRequests.filter(
+      toolRequest => !completedCallIds.has(toolRequest.callId),
+    );
+    if (missingToolRequests.length === 0) continue;
 
-    const toolResultItems: LangMessageItemToolResult[] = toolRequests.map((toolRequest) => ({
+    const missingResults: LangMessageItemToolResult[] = missingToolRequests.map((toolRequest) => ({
       type: "tool-result",
       name: toolRequest.name,
       callId: toolRequest.callId,
       result: "aborted",
     }));
 
-    const toolResultsMessage = new LangMessage("tool-results", toolResultItems);
-    (messages as LangMessage[]).splice(i + 1, 0, toolResultsMessage);
-    i += 1;
+    if (nextMessage?.role === "tool-results") {
+      nextMessage.items.push(...missingResults);
+    } else {
+      const toolResultsMessage = new LangMessage("tool-results", missingResults);
+      (messages as LangMessage[]).splice(i + 1, 0, toolResultsMessage);
+      i += 1;
+    }
 
-    console.warn(`Inserted missing tool-results message after assistant tool call for tool "${toolRequests[0].name}".`);
+    const toolNames = missingToolRequests.map(tool => `"${tool.name}"`).join(", ");
+    console.warn(`Inserted missing tool results for ${toolNames}.`);
   }
 }

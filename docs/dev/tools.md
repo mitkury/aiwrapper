@@ -45,6 +45,43 @@ console.log(toolResults?.toolResults);
 
 Streaming providers assemble partial function arguments before invoking handlers. Handler errors are returned to the model as structured error results instead of escaping the tool loop.
 
+## Returning images from tools
+
+Use `toolResult` when a tool should return content parts instead of ordinary JSON or text. The image is sent to the model itself; AIWrapper does not replace it with a generated description.
+
+```ts
+import { Lang, LangMessages, toolResult } from "aiwrapper";
+
+const lang = Lang.openai({ apiKey: process.env.OPENAI_API_KEY });
+const messages = new LangMessages("Look through the camera and describe what you see", {
+  tools: [{
+    name: "capture_camera",
+    description: "Capture the current camera frame",
+    parameters: { type: "object", properties: {} },
+    handler: async () => {
+      const response = await fetch("https://camera.internal/frame.jpg");
+      const bytes = new Uint8Array(await response.arrayBuffer());
+
+      return toolResult([
+        { type: "text", text: "Current camera frame" },
+        { type: "image", bytes, mimeType: "image/jpeg" },
+      ]);
+    },
+  }],
+});
+
+const result = await lang.chat(messages);
+```
+
+Image parts accept exactly one of `url`, `base64`, or `bytes`, plus an optional MIME type. Plain handler return values keep their existing JSON/text behavior.
+
+Provider support differs:
+
+- `Lang.openai()` uses the Responses API and sends image parts in `function_call_output`.
+- Anthropic sends image parts inside `tool_result.content`.
+- Google sends inline image parts in `functionResponse`; this requires a Gemini 3-series model. URL images must be fetched by the handler and returned as base64 or bytes.
+- OpenAI-compatible Chat Completions providers and Ollama reject image tool results because their tool-message formats are text-only. For OpenAI, use `Lang.openai()` rather than `Lang.openaiLike()`.
+
 ## Built-in tools
 
 Built-in tools run at the provider and do not have a local handler.

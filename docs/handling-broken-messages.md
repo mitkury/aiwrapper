@@ -2,7 +2,7 @@
 
 A request can stop after an assistant asks to use a tool but before the tool result is added. Most providers reject a later request if a tool call has no matching result.
 
-Before sending a conversation, providers call `fixToolResultsIfNeeded`. It scans assistant tool requests and inserts a matching `tool-results` message when one is missing. The synthetic result is the string `"aborted"`.
+Before sending a conversation, providers call `fixToolResultsIfNeeded`. It scans assistant tool requests and inserts a matching `tool-results` message when one is missing. If the next message contains only some of the required results, the missing results are added to it. The synthetic result is the string `"aborted"`.
 
 This repair keeps the provider transcript valid. It does not execute the missing tool and does not pretend the original call succeeded. A warning is logged when a repair is made.
 

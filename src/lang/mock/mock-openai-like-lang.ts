@@ -51,9 +51,11 @@ export class MockOpenAILikeLang extends OpenAIChatCompletionsLang {
   ): Promise<LangMessages> {
     const resolvedOptions = this.resolveOptions(options);
     // Normalize to LangMessages
-    const messageCollection = messages instanceof LangMessages
-      ? messages
-      : new LangMessages(messages);
+    const messageCollection = this.beginRequest(
+      messages instanceof LangMessages
+        ? messages
+        : new LangMessages(messages),
+    );
 
     const result = messageCollection;
     const onResult = resolvedOptions?.onResult;

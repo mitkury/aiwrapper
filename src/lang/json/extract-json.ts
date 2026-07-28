@@ -1,92 +1,97 @@
 import { Jsonic } from "jsonic";
 
-/**
- * Gets something that resembles JSON from a string by finding the first "{" and the last "}" or the first "[" and the last "]".
- * @param str 
- * @returns string or null if failed to extract.
- */
-function tryToGetJSONFromText(str: string): string | null {
-  let startIndex = -1;
-  let endIndex = -1;
-  let expectedClosingBracket: string | undefined;
-  for (let i = 0; i < str.length; i++) {
-    if (str[i] === '{') {
-      expectedClosingBracket = '}';
-      startIndex = i;
-      break;
+function findContainerEnd(text: string, startIndex: number): number {
+  const brackets: string[] = [];
+  let quote: '"' | "'" | undefined;
+  let escaped = false;
+
+  for (let i = startIndex; i < text.length; i++) {
+    const character = text[i];
+
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === quote) {
+        quote = undefined;
+      }
+      continue;
     }
 
-    if (str[i] === '[') {
-      expectedClosingBracket = ']';
-      startIndex = i;
-      break;
-    }
-  }
-
-  if (expectedClosingBracket === undefined) {
-    return null;
-  }
-
-  for (let i = str.length - 1; i >= 0; i--) {
-    if (str[i] === expectedClosingBracket) {
-      endIndex = i;
-      break;
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
     }
 
-    if (i === 0) {
-      return null;
+    if (character === "{" || character === "[") {
+      brackets.push(character);
+      continue;
+    }
+
+    if (character !== "}" && character !== "]") continue;
+
+    const expectedOpening = character === "}" ? "{" : "[";
+    if (brackets.pop() !== expectedOpening) return -1;
+    if (brackets.length === 0) return i;
+  }
+
+  return -1;
+}
+
+function getJSONCandidates(text: string): string[] {
+  const candidates: string[] = [];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== "{" && text[i] !== "[") continue;
+
+    const endIndex = findContainerEnd(text, i);
+    if (endIndex >= 0) {
+      candidates.push(text.slice(i, endIndex + 1));
     }
   }
+  return candidates;
+}
 
-  if (startIndex === -1 || endIndex === -1) {
-    return null;
+function parseStrictJSON(candidates: string[]): object | null {
+  for (const candidate of candidates) {
+    try {
+      const value: unknown = JSON.parse(candidate);
+      if (typeof value === "object" && value !== null) return value;
+    } catch {
+      // Try the next balanced container before falling back to Jsonic.
+    }
   }
+  return null;
+}
 
-  return str.slice(startIndex, endIndex + 1);
+function parseRelaxedJSON(candidates: string[]): object | null {
+  for (const candidate of candidates) {
+    try {
+      const value: unknown = Jsonic(candidate);
+      if (typeof value === "object" && value !== null) return value;
+    } catch {
+      // Keep looking for another JSON-like container.
+    }
+  }
+  return null;
 }
 
 /**
  * Tries to extract JSON from a string.
- * Uses a strict JSON parser first, if it fails, tries to use "jsonic" which allows for more relaxed JSON syntax.
+ * Balanced containers are parsed strictly first, then retried with Jsonic.
  * @param str JSON along with other text
- * @returns returns an object or null if failed to extract.
+ * @returns An object or null if extraction fails
  */
 export default function extractJSON(
   str: string,
   verbose = false,
 ): object | null {
-  const possilbeJsonStr = tryToGetJSONFromText(str);
-  if (possilbeJsonStr === null) {
-    if (verbose) {
-      console.error("Failed to extract JSON from the string: " + str);
-    }
-    return null;
+  const candidates = getJSONCandidates(str);
+  const value = parseStrictJSON(candidates) ?? parseRelaxedJSON(candidates);
+
+  if (value === null && verbose) {
+    console.error("Failed to extract JSON from the string: " + str);
   }
 
-  let jsonObj;
-
-  try {
-    // First try to parse it with a strict JSON parser
-    jsonObj = JSON.parse(possilbeJsonStr);
-  } catch {
-    if (verbose) {
-      console.error("Failed to parse JSON");
-      console.log(possilbeJsonStr);
-      console.log(
-        "Will try to parse it with a less strict JSON parser (jsonic)",
-      );
-    }
-
-    try {
-      // If it fails, try to parse it with a less strict JSON parser
-      jsonObj = Jsonic(possilbeJsonStr);
-    } catch {
-      if (verbose) {
-        console.error("Failed to parse JSON with jsonic as well.");
-      }
-      jsonObj = null;
-    }
-  }
-
-  return jsonObj;
+  return value;
 }

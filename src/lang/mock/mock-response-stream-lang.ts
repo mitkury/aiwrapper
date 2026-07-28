@@ -79,9 +79,11 @@ export class MockResponseStreamLang extends LanguageProvider {
     options?: LangOptions,
   ): Promise<LangMessages> {
     const resolvedOptions = this.resolveOptions(options);
-    const messageCollection = messages instanceof LangMessages
-      ? messages
-      : new LangMessages(messages);
+    const messageCollection = this.beginRequest(
+      messages instanceof LangMessages
+        ? messages
+        : new LangMessages(messages),
+    );
 
     fixToolResultsIfNeeded(messageCollection);
 

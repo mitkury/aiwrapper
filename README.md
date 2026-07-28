@@ -156,7 +156,7 @@ await lang.ask("Hello, AI!", {
 ```javascript
 // In most cases - a prompt template should be just a function that returns a string
 function getPrompt(product) {
-  return `You are a naming consultant for new companies. What is a good name for a company that makes ${product}?     
+  return `You are a naming consultant for new companies. What is a good name for a company that makes ${product}?
 Write just the name. Nothing else aside from the name - no extra comments or characters that are not part of the name.`;
 }
 

@@ -3,9 +3,23 @@ import type { LangOptions } from "../language-provider.js";
 import { httpRequestWithRetry as fetch } from "../../http-request.js";
 import { models, type Model } from "aimodels";
 import { calculateModelResponseTokens } from "../utils/token-calculator.js";
-import { LangMessage, LangMessages, fixToolResultsIfNeeded } from "../messages.js";
-import type { LangMessageItemImage, LangMessageItemTool, LangTool } from "../messages.js";
-import { addInstructionAboutSchema } from "../prompt-for-json.js";
+import {
+  LangMessage,
+  LangMessages,
+  fixToolResultsIfNeeded,
+  isLangToolResultContent,
+  normalizeLangToolResultImage,
+} from "../messages.js";
+import type {
+  LangMessageItemImage,
+  LangMessageItemTool,
+  LangTool,
+  LangToolResultContent,
+} from "../messages.js";
+import {
+  addInstructionAboutSchema,
+  combineInstructions,
+} from "../prompt-for-json.js";
 import { attachPartialResult, isAbortError } from "../../errors.js";
 
 export type GoogleLangOptions = {
@@ -44,9 +58,6 @@ export class GoogleLang extends LanguageProvider {
     options?: LangOptions,
   ): Promise<LangMessages> {
     const messages = new LangMessages();
-    if (this._systemPrompt) {
-      messages.instructions = this._systemPrompt;
-    }
     messages.addUserMessage(prompt);
     return await this.chat(messages, options);
   }
@@ -56,9 +67,11 @@ export class GoogleLang extends LanguageProvider {
     options?: LangOptions,
   ): Promise<LangMessages> {
     const resolvedOptions = this.resolveOptions(options);
-    const messageCollection = messages instanceof LangMessages
-      ? messages
-      : new LangMessages(messages);
+    const messageCollection = this.beginRequest(
+      messages instanceof LangMessages
+        ? messages
+        : new LangMessages(messages),
+    );
 
     const instructions = this.buildInstructions(messageCollection, resolvedOptions);
 
@@ -135,6 +148,16 @@ export class GoogleLang extends LanguageProvider {
     for (const msg of messages) {
       if (msg.role === "tool-results") {
         const parts = msg.toolResults.map((tr) => {
+          if (isLangToolResultContent(tr.result)) {
+            return {
+              functionResponse: this.mapMultimodalToolResult(
+                tr.callId,
+                tr.name,
+                tr.result,
+              ),
+            };
+          }
+
           // Google API requires response to be an object, not an array
           // If result is an array, wrap it in an object
           let response: any;
@@ -147,6 +170,7 @@ export class GoogleLang extends LanguageProvider {
           }
           return {
             functionResponse: {
+              id: tr.callId,
               name: tr.name,
               response,
             },
@@ -172,6 +196,7 @@ export class GoogleLang extends LanguageProvider {
           const toolItem = item as LangMessageItemTool & { thoughtSignature?: string };
           const part: any = {
             function_call: {
+              id: toolItem.callId,
               name: toolItem.name,
               args: toolItem.arguments ?? {},
             },
@@ -195,6 +220,80 @@ export class GoogleLang extends LanguageProvider {
     }
 
     return mapped;
+  }
+
+  private mapMultimodalToolResult(
+    callId: string,
+    toolName: string,
+    result: LangToolResultContent,
+  ): Record<string, any> {
+    if (result.content.length === 0) {
+      throw new Error("Gemini tool content must contain at least one part.");
+    }
+
+    const imageParts = result.content.filter(part => part.type === "image");
+    if (imageParts.length > 0 && !this.supportsMultimodalFunctionResponses()) {
+      throw new Error(
+        `Gemini model "${this._model}" does not support multimodal function responses. Use a Gemini 3-series model.`,
+      );
+    }
+
+    const output: any[] = [];
+    const parts: any[] = [];
+    let imageIndex = 0;
+
+    for (const part of result.content) {
+      if (part.type === "text") {
+        output.push(part.text);
+        continue;
+      }
+
+      const image = normalizeLangToolResultImage(part);
+      if (image.kind === "url") {
+        throw new Error(
+          "Gemini multimodal function responses require base64 or byte image data. Fetch URL images inside the tool handler before returning them.",
+        );
+      }
+      if (!["image/jpeg", "image/png", "image/webp"].includes(image.mimeType)) {
+        throw new Error(
+          `Gemini multimodal function responses do not support MIME type "${image.mimeType}". Use image/jpeg, image/png, or image/webp.`,
+        );
+      }
+
+      const displayName = `tool-result-${imageIndex + 1}.${this.extensionForMimeType(image.mimeType)}`;
+      imageIndex += 1;
+      output.push({ $ref: displayName });
+      parts.push({
+        inlineData: {
+          displayName,
+          mimeType: image.mimeType,
+          data: image.base64,
+        },
+      });
+    }
+
+    return {
+      id: callId,
+      name: toolName,
+      response: { output },
+      ...(parts.length > 0 ? { parts } : {}),
+    };
+  }
+
+  private supportsMultimodalFunctionResponses(): boolean {
+    return /^gemini-3(?:[.-]|$)/.test(this._model);
+  }
+
+  private extensionForMimeType(mimeType: string): string {
+    switch (mimeType) {
+      case "image/jpeg":
+        return "jpg";
+      case "image/webp":
+        return "webp";
+      case "image/png":
+      default:
+        return "png";
+    }
   }
 
   private mapImageItemToGemini(image: LangMessageItemImage): any | null {
@@ -225,20 +324,13 @@ export class GoogleLang extends LanguageProvider {
   }
 
   private buildInstructions(messageCollection: LangMessages, options?: LangOptions): string {
-    let instructions = messageCollection.instructions || "";
-    if (this._systemPrompt) {
-      instructions = instructions
-        ? `${this._systemPrompt}\n\n${instructions}`
-        : this._systemPrompt;
-    }
-
-    if (options?.schema) {
-      const baseInstruction = instructions !== "" ? `${instructions}\n\n` : "";
-      instructions = baseInstruction + addInstructionAboutSchema(options.schema);
-      messageCollection.instructions = instructions;
-    }
-
-    return instructions;
+    return combineInstructions(
+      this._systemPrompt,
+      messageCollection.instructions,
+      options?.schema
+        ? addInstructionAboutSchema(options.schema)
+        : undefined,
+    );
   }
 
   private computeMaxTokens(messageCollection: LangMessages): number | undefined {
@@ -297,7 +389,10 @@ export class GoogleLang extends LanguageProvider {
       const funcCall = part.functionCall || part.function_call;
       if (funcCall) {
         const name = funcCall.name || `function_call_${toolIndex}`;
-        const callId = `function_call_${toolIndex++}`;
+        const fallbackCallId = `function_call_${toolIndex++}`;
+        const callId = typeof funcCall.id === "string" && funcCall.id.length > 0
+          ? funcCall.id
+          : fallbackCallId;
         const rawArgs = funcCall.args || funcCall.arguments;
         const args = this.parseFunctionArgs(rawArgs);
         const toolItem: any = {

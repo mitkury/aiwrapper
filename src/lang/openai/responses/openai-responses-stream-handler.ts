@@ -293,7 +293,7 @@ export class OpenAIResponseStreamHandler {
     }
 
     // Note: given that we keep arguments as objects, delta wouldn't work like that.
-    // and in my experiments OpenaAI didn't stream arguments like it streamed text. 
+    // and in my experiments OpenAI didn't stream arguments like it streamed text.
     // Always returned {} and then the final arguments.
     //messageItem.arguments = JSON.parse(messageItem.arguments + delta);
   }

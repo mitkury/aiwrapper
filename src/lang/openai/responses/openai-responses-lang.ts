@@ -12,6 +12,7 @@ import {
 } from "../../../http-request.js";
 import type { HttpResponseWithRetries } from "../../../http-request.js";
 import { attachPartialResult, isAbortError } from "../../../errors.js";
+import { combineInstructions } from "../../prompt-for-json.js";
 
 
 /**
@@ -38,6 +39,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
 
   private model: string;
   private apiKey: string;
+  private systemPrompt: string;
   private baseURL = "https://api.openai.com/v1";
   private reasoningEffort: "low" | "medium" | "high";
   private showReasoningSummary: boolean;
@@ -47,6 +49,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
 
     this.model = options.model || "gpt-5.4";
     this.apiKey = options.apiKey;
+    this.systemPrompt = options.systemPrompt || "";
     this.reasoningEffort = options.reasoningEffort ?? "medium";
     // Accounts without reasoning-summary access can disable it explicitly.
     this.showReasoningSummary = options.showReasoningSummary !== undefined ? options.showReasoningSummary : true;
@@ -61,9 +64,11 @@ export class OpenAIResponsesLang extends LanguageProvider {
 
   async chat(messages: { role: LangMessageRole; items: LangMessageItem[] }[] | LangMessage[] | LangMessages, options?: LangOptions): Promise<LangMessages> {
     const resolvedOptions = this.resolveOptions(options);
-    const msgCollection = messages instanceof LangMessages
-      ? messages
-      : new LangMessages(messages);
+    const msgCollection = this.beginRequest(
+      messages instanceof LangMessages
+        ? messages
+        : new LangMessages(messages),
+    );
 
     fixToolResultsIfNeeded(msgCollection);
 
@@ -99,11 +104,16 @@ export class OpenAIResponsesLang extends LanguageProvider {
   private buildRequestBody(msgCollection: LangMessages, options?: LangOptions): Record<string, unknown> {
     const structuredOutput = this.buildStructuredOutput(options?.schema);
     const bodyPart = prepareBodyPartForOpenAIResponsesAPI(msgCollection);
+    const instructions = combineInstructions(
+      this.systemPrompt,
+      msgCollection.instructions,
+    );
 
     const body: Record<string, unknown> = {
       model: this.model,
       ...{ stream: true },
       ...bodyPart,
+      ...(instructions ? { instructions } : {}),
       ...{ truncation: "auto" },
       ...structuredOutput,
       ...options?.providerSpecificBody,
@@ -183,10 +193,10 @@ export class OpenAIResponsesLang extends LanguageProvider {
       },
     };
 
-    const streamHander = new OpenAIResponseStreamHandler(msgCollection, options?.onResult);
+    const streamHandler = new OpenAIResponseStreamHandler(msgCollection, options?.onResult);
     try {
       const response = await fetch(`${this.baseURL}/responses`, req);
-      await processServerEvents(response, (data) => streamHander.handleEvent(data), abortSignal);
+      await processServerEvents(response, (data) => streamHandler.handleEvent(data), abortSignal);
     } catch (error) {
       if (isAbortError(error)) {
         msgCollection.aborted = true;

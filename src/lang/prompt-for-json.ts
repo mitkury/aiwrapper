@@ -1,11 +1,20 @@
 import type { LangResponseSchema } from "./language-provider.js";
 import { isZodSchema, zodToJsonSchema } from "./schema/schema-utils.js";
 
+export function combineInstructions(
+  ...instructions: Array<string | undefined>
+): string {
+  return instructions
+    .filter((instruction): instruction is string =>
+      typeof instruction === "string" && instruction.length > 0
+    )
+    .join("\n\n");
+}
+
 /**
  * Generate a prompt for extracting structured data based on a schema
  * This is a fallback for LLMs that don't support structured output in their API.
  * For example, we use it with Anthropic.
- * @param prompt The instruction for the LLM (e.g., "List all planets with their diameters")
  * @param schema The schema that the output should conform to
  * @returns A formatted prompt string
  */

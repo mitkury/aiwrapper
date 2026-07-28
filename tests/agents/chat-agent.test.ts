@@ -7,6 +7,7 @@ import {
   type LangMessageItem,
   type LangMessageRole,
   type LangOptions,
+  type LangTool,
 } from "../../src/lang/index.ts";
 
 type ChatInput =
@@ -69,6 +70,27 @@ class DeferredProvider extends LanguageProvider {
   }
 }
 
+class ToolCapturingProvider extends LanguageProvider {
+  availableTools?: LangTool[];
+
+  constructor() {
+    super("tool-capturing-provider");
+  }
+
+  ask(prompt: string): Promise<LangMessages> {
+    return this.chat(new LangMessages(prompt));
+  }
+
+  async chat(input: ChatInput): Promise<LangMessages> {
+    const messages = input instanceof LangMessages
+      ? input
+      : new LangMessages(input);
+    this.availableTools = messages.availableTools;
+    messages.addAssistantMessage("Done");
+    return messages;
+  }
+}
+
 describe("ChatAgent", () => {
   it("stops tool loops at the configured iteration limit", async () => {
     const provider = new LoopingToolProvider();
@@ -109,5 +131,40 @@ describe("ChatAgent", () => {
     expect(result.answer).toBe("Done");
     expect(result.some(message => message.text === "Second")).toBe(false);
     expect(agent.state).toBe("idle");
+  });
+
+  it("keeps configured tools when a LangMessages input has none", async () => {
+    const provider = new ToolCapturingProvider();
+    const tools: LangTool[] = [{
+      name: "clock",
+      description: "Read the clock",
+      parameters: { type: "object" },
+      handler: () => "12:00",
+    }];
+    const agent = new ChatAgent(provider, { tools });
+    const input = new LangMessages("What time is it?");
+
+    await agent.run(input);
+
+    expect(input.availableTools).toBe(tools);
+    expect(provider.availableTools).toBe(tools);
+  });
+
+  it("does not skip listeners when another listener unsubscribes", async () => {
+    const provider = new DeferredProvider();
+    const agent = new ChatAgent(provider);
+    let unsubscribeFirst = () => {};
+    unsubscribeFirst = agent.subscribe(() => unsubscribeFirst());
+
+    const states: string[] = [];
+    agent.subscribe(event => {
+      if (event.type === "state") states.push(event.state);
+    });
+
+    const run = agent.run([new LangMessage("user", "Hello")]);
+    provider.resolve();
+    await run;
+
+    expect(states).toEqual(["running", "idle"]);
   });
 });

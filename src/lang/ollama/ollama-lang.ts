@@ -2,6 +2,7 @@ import { LangResult, LanguageProvider } from "../language-provider.js";
 import type { LangOptions } from "../language-provider.js";
 import {
   fixToolResultsIfNeeded,
+  isLangToolResultContent,
   LangMessage,
   LangMessages,
 } from "../messages.js";
@@ -11,6 +12,7 @@ import { processServerEvents } from "../../process-server-events.js";
 import { models, type Model } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.js";
 import { attachPartialResult, isAbortError } from "../../errors.js";
+import { combineInstructions } from "../prompt-for-json.js";
 
 export type OllamaLangOptions = {
   model?: string;
@@ -65,8 +67,10 @@ export class OllamaLang extends LanguageProvider {
     options?: LangOptions,
   ): Promise<LangResult> {
     const resolvedOptions = this.resolveOptions(options);
-    const result = new LangResult(
-      messages instanceof LangMessages ? messages : new LangMessages(messages),
+    const result = this.beginRequest(
+      new LangResult(
+        messages instanceof LangMessages ? messages : new LangMessages(messages),
+      ),
     );
 
     fixToolResultsIfNeeded(result);
@@ -272,7 +276,10 @@ export class OllamaLang extends LanguageProvider {
 
   private transformMessagesForProvider(messages: LangMessages): any[] {
     const providerMessages: any[] = [];
-    const systemPrompt = messages.instructions || this._config.systemPrompt;
+    const systemPrompt = combineInstructions(
+      this._config.systemPrompt,
+      messages.instructions,
+    );
     if (systemPrompt) {
       providerMessages.push({ role: "system", content: systemPrompt });
     }
@@ -280,12 +287,19 @@ export class OllamaLang extends LanguageProvider {
     for (const message of messages) {
       if (message.role === "tool-results") {
         for (const result of message.toolResults) {
+          if (isLangToolResultContent(result.result)) {
+            if (result.result.content.some(part => part.type === "image")) {
+              throw new Error("Ollama does not support image content in tool result messages.");
+            }
+          }
           providerMessages.push({
             role: "tool",
             tool_name: result.name,
-            content: typeof result.result === "string"
-              ? result.result
-              : JSON.stringify(result.result),
+            content: isLangToolResultContent(result.result)
+              ? result.result.content.map(part => part.type === "text" ? part.text : "").join("\n")
+              : typeof result.result === "string"
+                ? result.result
+                : JSON.stringify(result.result),
           });
         }
         continue;

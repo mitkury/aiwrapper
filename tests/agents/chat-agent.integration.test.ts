@@ -21,7 +21,7 @@ async function runTest(lang: LanguageProvider) {
 
   it('should handle instructions', async () => {
     const agent = new ChatAgent(lang);
-  
+
     const messages = new LangMessages();
     messages.instructions = 'Respond with "instructions test passed" and nothing else';
     messages.addUserMessage('Test');
@@ -99,7 +99,7 @@ async function runTest(lang: LanguageProvider) {
   it('should emit streaming events', async () => {
     const agent = new ChatAgent(lang);
     const streamingEvents: any[] = [];
-    
+
     const unsubscribe = agent.subscribe(event => {
       if (event.type === 'streaming') {
         streamingEvents.push(event);
@@ -173,10 +173,10 @@ async function runTest(lang: LanguageProvider) {
     // Here we have a task that specifically asks to use all 3 provided tools. We expect the agent
     // to use those tools without breaking the agentic loop before finishing the task.
     // We are not testing how smart the agent is but rather whether it can use multiple tools in a loop.
-    const task = `Provide and summarize the current bug report status. To do that: 
+    const task = `Provide and summarize the current bug report status. To do that:
 1. Send an email to dev-team@company.com asking for the current status (keep it simple, just ask for the status)
 2. Wait for their status update with the wait_for_response tool
-3. Read the bug tracking URL they provide and summarize the current status here. 
+3. Read the bug tracking URL they provide and summarize the current status here.
 
 Make sure you use all 3 provided tools.`;
 
@@ -306,38 +306,5 @@ Make sure you use all 3 provided tools.`;
       expect(streamedMessagesByIdx.has(i)).toBe(true);
     }
 
-    // Verify the streamed messages exist in the final conversation
-    // Note: Streamed messages include tool requests, tool-results, and assistant responses
-    // They do NOT include the initial user message (it's input, not output from lang.chat())
-    const streamedMessagesInOrder = Array.from(streamedMessagesByIdx.entries())
-      .sort((a, b) => a[0] - b[0])
-      .map(([_, msg]) => msg);
-
-    const messages = agent.getMessages();
-
-    // Remove the first message (user message)
-    messages.shift();
-
-    if (streamedMessagesInOrder.length != messages.length) {
-      console.log('streamedMessagesInOrder.length', streamedMessagesInOrder.length);
-      console.log('messages.length', messages.length);
-    }
-
-    /*
-    // Compare the streamed messages with the final conversation.
-    expect(streamedMessagesInOrder.length).toBe(messages.length);
-
-    for (let i = 0; i < streamedMessagesInOrder.length; i++) {
-      const streamedMsg = streamedMessagesInOrder[i];
-      const finalMsg = messages[i];
-
-      expect(streamedMsg.role).toBe(finalMsg.role);
-      expect(streamedMsg.content).toBe(finalMsg.content);
-    }
-    */
   });
-
-  // @TODO: add a test that requires to use multiple tools with a single call (should finish with 4 messages in total):
-  // user message, tool call request, tool call results, final answer
 }
-

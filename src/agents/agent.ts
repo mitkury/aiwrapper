@@ -99,13 +99,15 @@ export abstract class Agent<TInput, TOutput, TCustomEvents = never> {
 
   // Emit events to all listeners
   protected emit(event: AgentEvent<TOutput, TCustomEvents>) {
-    this.listeners.forEach(listener => {
+    // Iterate over a snapshot so listeners can safely unsubscribe while an
+    // event is being dispatched without causing the next listener to be skipped.
+    for (const listener of [...this.listeners]) {
       try {
         listener(event);
       } catch (error) {
         console.error("Error in agent event listener:", error);
       }
-    });
+    }
   }
 
   // Abstract method to be implemented by concrete agents

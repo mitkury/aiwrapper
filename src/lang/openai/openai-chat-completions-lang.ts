@@ -4,6 +4,7 @@ import {
   LangMessages,
   LangMessage,
   fixToolResultsIfNeeded,
+  isLangToolResultContent,
 } from "../messages.js";
 import type {
   LangTool,
@@ -18,7 +19,10 @@ import {
 import { processServerEvents } from "../../process-server-events.js";
 import { models, type Model } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.js";
-import { addInstructionAboutSchema } from "../prompt-for-json.js";
+import {
+  addInstructionAboutSchema,
+  combineInstructions,
+} from "../prompt-for-json.js";
 import { OpenAIChatCompletionsStreamHandler } from "./openai-chat-completions-stream-handler.js";
 import { attachPartialResult, isAbortError } from "../../errors.js";
 
@@ -96,7 +100,13 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     requestMaxTokens: number,
     options?: LangOptions,
   ): Record<string, unknown> {
-    const providerMessages = this.transformMessagesForProvider(messageCollection);
+    const schemaInstructions = options?.schema
+      ? addInstructionAboutSchema(options.schema)
+      : undefined;
+    const providerMessages = this.transformMessagesForProvider(
+      messageCollection,
+      schemaInstructions,
+    );
     const base: Record<string, unknown> = {
       model: this._config.model,
       messages: providerMessages,
@@ -159,10 +169,6 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     options?: LangOptions,
   ): Promise<LangMessages> {
     const messages = new LangMessages();
-    if (this._config.systemPrompt) {
-      messages.push(new LangMessage("user", this._config.systemPrompt));
-    }
-
     messages.push(new LangMessage("user", prompt));
 
     return await this.chat(messages, options);
@@ -192,14 +198,11 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
   ): Promise<LangMessages> {
     const resolvedOptions = this.resolveOptions(options);
     const abortSignal = resolvedOptions?.signal;
-    const result = messages instanceof LangMessages
-      ? messages
-      : new LangMessages(messages);
-
-    if (resolvedOptions?.schema) {
-      const baseInstruction = result.instructions + '\n\n' || '';
-      result.instructions = baseInstruction + addInstructionAboutSchema(resolvedOptions.schema);
-    }
+    const result = this.beginRequest(
+      messages instanceof LangMessages
+        ? messages
+        : new LangMessages(messages),
+    );
 
     fixToolResultsIfNeeded(result);
 
@@ -249,21 +252,24 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     }));
   }
 
-  protected transformMessagesForProvider(messages: LangMessages): any[] {
+  protected transformMessagesForProvider(
+    messages: LangMessages,
+    additionalInstructions?: string,
+  ): any[] {
     const out: any[] = [];
 
-    if (this._config.systemPrompt) {
-      out.push({ role: "system", content: this._config.systemPrompt });
-    }
-    if (messages.instructions) {
-      out.push({ role: "system", content: messages.instructions });
+    const instructions = combineInstructions(
+      this._config.systemPrompt,
+      messages.instructions,
+      additionalInstructions,
+    );
+    if (instructions) {
+      out.push({ role: "system", content: instructions });
     }
 
     const pendingAssistantImages: LangMessageItemImage[] = [];
 
-    for (let i = 0; i < messages.length; i++) {
-      const msg = messages[i];
-
+    for (const msg of messages) {
       if (msg.role === "tool-results") {
         const toolMessages = this.mapToolResultsMessage(msg);
         out.push(...toolMessages);
@@ -278,17 +284,12 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
       if (!mapped) continue;
 
       if (msg.role === "user") {
-        const prev = i > 0 ? messages[i - 1] : undefined;
         if (pendingAssistantImages.length > 0) {
           const contentArray = this.ensureContentArray(mapped);
           for (const image of pendingAssistantImages) {
             contentArray.push(...this.mapImageItemToContentParts(image));
           }
           pendingAssistantImages.length = 0;
-        }
-
-        if (this.shouldAppendVisionHint(msg, prev) || this.payloadHasImageParts(mapped)) {
-          this.appendVisionHint(mapped);
         }
       } else if (msg.role === "assistant") {
         this.collectAssistantImages(msg, pendingAssistantImages);
@@ -403,9 +404,21 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
       if (item.type !== "tool-result") continue;
       const toolResult = item as LangMessageItemToolResult;
       const rawResult = toolResult.result;
-      const content = typeof rawResult === "string"
-        ? rawResult
-        : JSON.stringify(rawResult ?? {});
+      let content: string | { type: "text"; text: string }[];
+      if (isLangToolResultContent(rawResult)) {
+        content = rawResult.content.map(part => {
+          if (part.type === "image") {
+            throw new Error(
+              "Chat Completions-compatible APIs do not have a portable image format for tool messages. For OpenAI, use Lang.openai(), which uses the Responses API.",
+            );
+          }
+          return { type: "text", text: part.text };
+        });
+      } else {
+        content = typeof rawResult === "string"
+          ? rawResult
+          : JSON.stringify(rawResult ?? {});
+      }
       toolMessages.push({
         role: "tool",
         tool_call_id: toolResult.callId,
@@ -417,17 +430,10 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
   }
 
   private mapImageItemToContentParts(image: LangMessageItemImage): any[] {
-    const parts: any[] = [];
-
     let dataUrl: string | undefined;
 
     if (typeof image.base64 === "string" && image.base64.length > 0) {
       const mimeType = image.mimeType || "image/png";
-      parts.push({
-        type: "input_image",
-        image_base64: image.base64,
-        mime_type: mimeType,
-      });
       dataUrl = `data:${mimeType};base64,${image.base64}`;
     }
 
@@ -436,48 +442,14 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
         ? image.url
         : dataUrl;
 
-    if (url) {
-      parts.push({
-        type: "image_url",
-        image_url: { url },
-      });
-    }
-
-    return parts;
-  }
-
-  private shouldAppendVisionHint(message: LangMessage, previous?: LangMessage): boolean {
-    return this.messageHasImageItems(message) || this.messageHasImageItems(previous);
-  }
-
-  private messageHasImageItems(message?: LangMessage): boolean {
-    if (!message) return false;
-    return message.items?.some(item => item.type === "image") ?? false;
-  }
-
-  private appendVisionHint(payload: any): void {
-    const hintText = "Describe the visual details of the image, including the subject's fur color and explicitly name the surface or object it is on (for example, a table).";
-    const hintPart = { type: "text", text: hintText };
-
-    if (payload.content === undefined) {
-      payload.content = [hintPart];
-      return;
-    }
-
-    if (typeof payload.content === "string") {
-      payload.content = [
-        { type: "text", text: payload.content },
-        hintPart,
-      ];
-      return;
-    }
-
-    if (Array.isArray(payload.content)) {
-      payload.content.push(hintPart);
-      return;
-    }
-
-    payload.content = [payload.content, hintPart];
+    return url
+      ? [
+          {
+            type: "image_url",
+            image_url: { url },
+          },
+        ]
+      : [];
   }
 
   private collectAssistantImages(message: LangMessage, accumulator: LangMessageItemImage[]): void {
@@ -503,16 +475,6 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
 
     return payload.content;
   }
-
-  private payloadHasImageParts(payload: any): boolean {
-    if (!Array.isArray(payload.content)) return false;
-    return payload.content.some(
-      (part: any) =>
-        part?.type === "image_url" ||
-        part?.type === "input_image"
-    );
-  }
-
   setReasoningEffort(effort: ReasoningEffort): OpenAIChatCompletionsLang {
     this._config.reasoningEffort = effort;
     return this;

@@ -11,6 +11,10 @@ import { LangMessages, LangMessage as ConversationMessage, fixToolResultsIfNeede
 import { models, type Model } from 'aimodels';
 import { calculateModelResponseTokens } from "../utils/token-calculator.js";
 import { attachPartialResult, isAbortError } from "../../errors.js";
+import {
+  addInstructionAboutSchema,
+  combineInstructions,
+} from "../prompt-for-json.js";
 
 export type CohereLangOptions = {
   apiKey: string;
@@ -60,7 +64,7 @@ export class CohereLang extends LanguageProvider {
   ): Promise<LangResult> {
     const resolvedOptions = this.resolveOptions(options);
     const abortSignal = resolvedOptions?.signal;
-    const result = new LangResult(messages);
+    const result = this.beginRequest(new LangResult(messages));
     const messageCollection = result;
 
     fixToolResultsIfNeeded(messageCollection);
@@ -87,7 +91,13 @@ export class CohereLang extends LanguageProvider {
       stream: true,
       max_tokens: maxTokens,
       temperature: 0.7,
-      preamble_override: this._systemPrompt || undefined,
+      preamble_override: combineInstructions(
+        this._systemPrompt,
+        messageCollection.instructions,
+        resolvedOptions?.schema
+          ? addInstructionAboutSchema(resolvedOptions.schema)
+          : undefined,
+      ) || undefined,
       ...(resolvedOptions?.providerSpecificBody ?? {}),
     };
 

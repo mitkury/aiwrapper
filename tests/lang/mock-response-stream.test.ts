@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { LangMessages } from "../../src/lang/messages.ts";
 import { MockResponseStreamLang } from "../../src/lang/mock/mock-response-stream-lang.ts";
 import { MockOpenAILikeLang } from "../../src/lang/mock/mock-openai-like-lang.ts";
 
@@ -116,6 +117,18 @@ describe("MockResponseStreamLang", () => {
     expect(first.answer).toBe("tiny");
     expect(second.answer).toBe("smaller");
     expect(third.answer).toBe("little");
+  });
+
+  it("resets stale request state when continuing a conversation", async () => {
+    const messages = new LangMessages("Continue");
+    messages.finished = true;
+    messages.aborted = true;
+    const lang = new MockResponseStreamLang({ message: "Continued" });
+
+    const result = await lang.chat(messages);
+
+    expect(result.finished).toBe(true);
+    expect(result.aborted).toBe(false);
   });
 
   it("supports aborting mid-stream via signal", async () => {

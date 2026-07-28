@@ -1,10 +1,14 @@
-import { LangMessages, LangMessage } from "../../messages.js";
-import type { LangTool } from "../../messages.js";
+import {
+  isLangToolResultContent,
+  LangMessages,
+  LangMessage,
+  normalizeLangToolResultImage,
+} from "../../messages.js";
+import type { LangTool, LangToolResultPart } from "../../messages.js";
 
 export type BodyPartForOpenAIResponses = {
   input?: any[];
-  previous_response_id?: string
-  instructions?: string;
+  previous_response_id?: string;
   tools?: any[];
   tool_choice?: string;
 };
@@ -16,7 +20,6 @@ export function prepareBodyPartForOpenAIResponsesAPI(messages: LangMessages): Bo
 
   const tools = transformToolsForProvider(messages.availableTools || []);
   const bodyPart: BodyPartForOpenAIResponses = {
-    instructions: messages.instructions,
     tools,
   };
 
@@ -146,8 +149,8 @@ export function transformMessageToResponsesItems(message: LangMessage): any[] {
             ? `\n\nPrompt used to generate the image: ${msgItem.metadata.revisedPrompt}`
             : '';
 
-          // We do this becase at the moment (nov 2025) OpenAI doesn't allow to send back images
-          // from the assistant role. So the only way it works is if we have a working response id
+          // Responses does not accept input_image parts on assistant messages.
+          // The generated image remains available when we have a working response id
           // and don't send the list of all messages but just reference messages where the assistant
           // has the generated image.
           // If a durable URL becomes available, callers can store it on the image
@@ -207,13 +210,40 @@ export function transformToolResultsToResponsesItems(message: LangMessage): any 
       items.push({
         type: 'function_call_output',
         call_id: toolResult.callId,
-        output: typeof toolResult.result === 'string'
-          ? toolResult.result
-          : JSON.stringify(toolResult.result)
+        output: mapToolResultOutput(toolResult.result)
       });
     }
   }
   return items;
+}
+
+function mapToolResultOutput(result: unknown): string | any[] {
+  if (!isLangToolResultContent(result)) {
+    return typeof result === 'string' ? result : JSON.stringify(result ?? {});
+  }
+
+  if (result.content.length === 0) {
+    throw new Error('OpenAI Responses tool content must contain at least one part.');
+  }
+
+  return result.content.map(mapToolResultPart);
+}
+
+function mapToolResultPart(part: LangToolResultPart): any {
+  if (part.type === 'text') {
+    return { type: 'input_text', text: part.text };
+  }
+
+  const image = normalizeLangToolResultImage(part);
+  const imageUrl = image.kind === 'url'
+    ? image.url
+    : `data:${image.mimeType};base64,${image.base64}`;
+
+  return {
+    type: 'input_image',
+    image_url: imageUrl,
+    ...(part.detail ? { detail: part.detail } : {}),
+  };
 }
 
 export function transformToolsForProvider(tools: LangTool[]): any[] {

@@ -17,7 +17,7 @@
   - **Responses**: designed to unify modalities (text, image, etc.). When supported by the model, image outputs can appear in the response stream/body as output parts.
 
 - **Tools / structured output**
-  - Both support tools/function calling and structured output, but formats differ slightly. Responses leans toward a unified schema for multimodal outputs.
+  - Both support tools/function calling and structured output, but formats differ. Responses function outputs can contain text, image, and file parts. Chat Completions tool messages are text-only.
 
 - **Model support**
   - **Chat Completions**: works with legacy and many current chat models.

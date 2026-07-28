@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { LangMessage, LangMessages } from '../../src/lang/messages.ts';
+import { LangMessage, LangMessages, toolResult } from '../../src/lang/messages.ts';
 import {
   transformMessageToResponsesItems,
   transformMessagesToResponsesInput,
@@ -75,6 +75,72 @@ describe('OpenAI Responses message conversion', () => {
         ],
       },
     ]);
+  });
+
+  it('sends image tool results as native Responses content', () => {
+    const messages = new LangMessages([
+      new LangMessage('tool-results', [{
+        type: 'tool-result',
+        name: 'capture_camera',
+        callId: 'call_camera',
+        result: toolResult([
+          { type: 'text', text: 'Current camera frame' },
+          {
+            type: 'image',
+            bytes: new Uint8Array([104, 105]),
+            mimeType: 'image/jpeg',
+            detail: 'high',
+          },
+        ]),
+      }]),
+    ]);
+
+    expect(transformMessagesToResponsesInput(messages)).toEqual([{
+      type: 'function_call_output',
+      call_id: 'call_camera',
+      output: [
+        { type: 'input_text', text: 'Current camera frame' },
+        {
+          type: 'input_image',
+          image_url: 'data:image/jpeg;base64,aGk=',
+          detail: 'high',
+        },
+      ],
+    }]);
+  });
+
+  it('keeps ordinary structured tool results as JSON text', () => {
+    const messages = new LangMessages([
+      new LangMessage('tool-results', [{
+        type: 'tool-result',
+        name: 'get_weather',
+        callId: 'call_weather',
+        result: { temperature: 21, unit: 'C' },
+      }]),
+    ]);
+
+    expect(transformMessagesToResponsesInput(messages)).toEqual([{
+      type: 'function_call_output',
+      call_id: 'call_weather',
+      output: JSON.stringify({ temperature: 21, unit: 'C' }),
+    }]);
+  });
+
+  it('serializes an undefined tool result as an empty object', () => {
+    const messages = new LangMessages([
+      new LangMessage('tool-results', [{
+        type: 'tool-result',
+        name: 'no_result',
+        callId: 'call_empty',
+        result: undefined,
+      }]),
+    ]);
+
+    expect(transformMessagesToResponsesInput(messages)).toEqual([{
+      type: 'function_call_output',
+      call_id: 'call_empty',
+      output: '{}',
+    }]);
   });
 });
 

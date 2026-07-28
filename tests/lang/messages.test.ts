@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { LangMessages, type LangTool } from "../../src/lang/messages.ts";
+import {
+  fixToolResultsIfNeeded,
+  LangMessage,
+  LangMessages,
+  normalizeLangToolResultImage,
+  toolResult,
+  type LangTool,
+} from "../../src/lang/messages.ts";
 
 describe("LangMessages image inputs", () => {
   it("encodes byte images without the Node.js Buffer global", () => {
@@ -105,5 +112,85 @@ describe("LangMessages tool execution", () => {
         message: "plain failure",
       },
     }]);
+  });
+
+  it("preserves explicit multimodal tool content", async () => {
+    const content = toolResult({
+      type: "image",
+      bytes: new Uint8Array([104, 105]),
+      mimeType: "image/jpeg",
+    });
+    const messages = new LangMessages("Use the camera", {
+      tools: [{
+        name: "camera",
+        description: "Capture a frame",
+        parameters: { type: "object" },
+        handler: () => content,
+      }],
+    });
+    messages.addAssistantItems([{
+      type: "tool",
+      name: "camera",
+      callId: "call-camera",
+      arguments: {},
+    }]);
+
+    const result = await messages.executeRequestedTools();
+
+    expect(result?.toolResults[0].result).toBe(content);
+    const image = content.content[0];
+    expect(image.type).toBe("image");
+    if (image.type === "image") {
+      expect(normalizeLangToolResultImage(image)).toEqual({
+        kind: "base64",
+        base64: "aGk=",
+        mimeType: "image/jpeg",
+      });
+    }
+  });
+});
+
+describe("fixToolResultsIfNeeded", () => {
+  it("fills in results missing from a partial tool-results message", () => {
+    const messages = new LangMessages([
+      new LangMessage("assistant", [
+        {
+          type: "tool",
+          name: "first",
+          callId: "call-1",
+          arguments: {},
+        },
+        {
+          type: "tool",
+          name: "second",
+          callId: "call-2",
+          arguments: {},
+        },
+      ]),
+      new LangMessage("tool-results", [{
+        type: "tool-result",
+        name: "first",
+        callId: "call-1",
+        result: "done",
+      }]),
+    ]);
+
+    fixToolResultsIfNeeded(messages);
+
+    expect(messages).toHaveLength(2);
+    expect(messages[1].toolResults).toEqual([
+      {
+        type: "tool-result",
+        name: "first",
+        callId: "call-1",
+        result: "done",
+      },
+      {
+        type: "tool-result",
+        name: "second",
+        callId: "call-2",
+        result: "aborted",
+      },
+    ]);
   });
 });

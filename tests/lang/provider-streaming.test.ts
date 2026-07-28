@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { AnthropicLang } from "../../src/lang/anthropic/anthropic-lang.ts";
 import { CohereLang } from "../../src/lang/cohere/cohere-lang.ts";
 import { DeepSeekLang } from "../../src/lang/deepseek/deepseek-lang.ts";
+import { GoogleLang } from "../../src/lang/google/google-lang.ts";
 import { LangResult } from "../../src/lang/language-provider.ts";
 import { LangMessages } from "../../src/lang/messages.ts";
 import { OllamaLang } from "../../src/lang/ollama/ollama-lang.ts";
+import { OpenAIChatCompletionsLang } from "../../src/lang/openai/openai-chat-completions-lang.ts";
+import { OpenAILang } from "../../src/lang/openai/openai-lang.ts";
 import { setHttpRequestImpl } from "../../src/http-request.ts";
 
 const nativeFetch = globalThis.fetch;
@@ -13,28 +17,177 @@ afterEach(() => {
 });
 
 describe("provider streaming", () => {
+  it("sends OpenAI Responses constructor and conversation instructions once", async () => {
+    let requestBody: any;
+    setHttpRequestImpl(async (_url, options) => {
+      requestBody = JSON.parse(String(options.body));
+      return new Response("", {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    });
+
+    const messages = new LangMessages("Hello");
+    messages.instructions = "Conversation instructions";
+    const lang = new OpenAILang({
+      apiKey: "test",
+      systemPrompt: "Constructor instructions",
+    });
+
+    await lang.chat(messages);
+
+    expect(requestBody.instructions).toBe(
+      "Constructor instructions\n\nConversation instructions",
+    );
+  });
+
+  it("sends a Chat Completions system prompt as one system message", async () => {
+    let requestBody: any;
+    setHttpRequestImpl(async (_url, options) => {
+      requestBody = JSON.parse(String(options.body));
+      return new Response("", {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    });
+
+    const messages = new LangMessages("Hello");
+    messages.instructions = "Conversation instructions";
+    const lang = OpenAIChatCompletionsLang.custom({
+      model: "custom-model",
+      baseURL: "https://example.com/v1",
+      systemPrompt: "Constructor instructions",
+    });
+
+    await lang.chat(messages);
+
+    expect(requestBody.messages).toEqual([
+      {
+        role: "system",
+        content: "Constructor instructions\n\nConversation instructions",
+      },
+      { role: "user", content: "Hello" },
+    ]);
+  });
+
+  it("builds Chat Completions schema instructions without mutating the conversation", async () => {
+    const requestBodies: any[] = [];
+    setHttpRequestImpl(async (_url, options) => {
+      requestBodies.push(JSON.parse(String(options.body)));
+      return new Response("", {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    });
+
+    const lang = OpenAIChatCompletionsLang.custom({
+      model: "custom-model",
+      baseURL: "https://example.com/v1",
+    });
+    const messages = new LangMessages("Return an object");
+
+    const options = { schema: { type: "object", properties: {} } };
+    await lang.chat(messages, options);
+    await lang.chat(messages, options);
+
+    const systemMessage = requestBodies[1].messages.find(
+      (message: any) => message.role === "system",
+    );
+    expect(systemMessage.content).not.toContain("undefined");
+    expect(systemMessage.content.match(/<outputFormat>/g)).toHaveLength(1);
+    expect(messages.instructions).toBeUndefined();
+  });
+
+  it("composes Google instructions without mutating the conversation", async () => {
+    let requestBody: any;
+    setHttpRequestImpl(async (_url, options) => {
+      requestBody = JSON.parse(String(options.body));
+      return new Response(JSON.stringify({ candidates: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    const messages = new LangMessages("Hello");
+    messages.instructions = "Conversation instructions";
+    const lang = new GoogleLang({
+      apiKey: "test",
+      model: "gemini-2.5-pro",
+      systemPrompt: "Constructor instructions",
+    });
+
+    await lang.chat(messages, {
+      schema: { type: "object", properties: {} },
+    });
+
+    const instructions = requestBody.system_instruction.parts[0].text;
+    expect(instructions).toContain(
+      "Constructor instructions\n\nConversation instructions",
+    );
+    expect(instructions.match(/<outputFormat>/g)).toHaveLength(1);
+    expect(messages.instructions).toBe("Conversation instructions");
+  });
+
+  it("composes Anthropic constructor and conversation instructions", async () => {
+    let requestBody: any;
+    setHttpRequestImpl(async (_url, options) => {
+      requestBody = JSON.parse(String(options.body));
+      return new Response("", {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    });
+
+    const messages = new LangMessages("Hello");
+    messages.instructions = "Conversation instructions";
+    const lang = new AnthropicLang({
+      apiKey: "test",
+      model: "claude-sonnet-4-6",
+      systemPrompt: "Constructor instructions",
+    });
+
+    await lang.chat(messages);
+
+    expect(requestBody.system).toBe(
+      "Constructor instructions\n\nConversation instructions",
+    );
+  });
+
   it("accumulates Cohere content deltas", async () => {
-    setHttpRequestImpl(async () => new Response([
-      'event: message-start',
-      'data: {"type":"message-start","delta":{"message":{"role":"assistant"}}}',
-      'event: content-delta',
-      'data: {"type":"content-delta","delta":{"message":{"content":{"text":"Hello"}}}}',
-      'event: content-delta',
-      'data: {"type":"content-delta","delta":{"message":{"content":{"text":" world"}}}}',
-      'event: message-end',
-      'data: {"type":"message-end","delta":{"finish_reason":"COMPLETE"}}',
-      '',
-    ].join("\n"), {
-      status: 200,
-      headers: { "Content-Type": "text/event-stream" },
-    }));
+    let requestBody: any;
+    setHttpRequestImpl(async (_url, options) => {
+      requestBody = JSON.parse(String(options.body));
+      return new Response([
+        'event: message-start',
+        'data: {"type":"message-start","delta":{"message":{"role":"assistant"}}}',
+        'event: content-delta',
+        'data: {"type":"content-delta","delta":{"message":{"content":{"text":"Hello"}}}}',
+        'event: content-delta',
+        'data: {"type":"content-delta","delta":{"message":{"content":{"text":" world"}}}}',
+        'event: message-end',
+        'data: {"type":"message-end","delta":{"finish_reason":"COMPLETE"}}',
+        '',
+      ].join("\n"), {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    });
 
     const streamed: string[] = [];
-    const lang = new CohereLang({ apiKey: "test", model: "command-r-plus-08-2024" });
-    const result = await lang.ask("Say hello", {
+    const messages = new LangMessages("Say hello");
+    messages.instructions = "Conversation instructions";
+    const lang = new CohereLang({
+      apiKey: "test",
+      model: "command-r-plus-08-2024",
+      systemPrompt: "Constructor instructions",
+    });
+    const result = await lang.chat(messages, {
       onResult: message => streamed.push(message.text),
     });
 
+    expect(requestBody.preamble_override).toBe(
+      "Constructor instructions\n\nConversation instructions",
+    );
     expect(result.answer).toBe("Hello world");
     expect(result.finished).toBe(true);
     expect(streamed).toContain("Hello");
@@ -94,7 +247,11 @@ describe("provider streaming", () => {
     }];
 
     const streamed: string[] = [];
-    const lang = new OllamaLang({ model: "local-test-model", maxTokens: 50 });
+    const lang = new OllamaLang({
+      model: "local-test-model",
+      maxTokens: 50,
+      systemPrompt: "Base behavior.",
+    });
     const result = await lang.chat(messages, {
       onResult: message => streamed.push(message.text),
     });
@@ -106,7 +263,7 @@ describe("provider streaming", () => {
     expect(streamed[streamed.length - 1]).toBe("Hello world");
 
     expect(requestBody.messages).toEqual([
-      { role: "system", content: "Be concise." },
+      { role: "system", content: "Base behavior.\n\nBe concise." },
       {
         role: "user",
         content: "Describe this.",

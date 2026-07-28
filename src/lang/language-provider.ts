@@ -73,6 +73,15 @@ export abstract class LanguageProvider {
   }
 
   /**
+   * Reset per-request state when an existing conversation is sent again.
+   */
+  protected beginRequest<T extends LangMessages>(messages: T): T {
+    messages.finished = false;
+    messages.aborted = false;
+    return messages;
+  }
+
+  /**
    * Simple text generation
    */
   abstract ask(

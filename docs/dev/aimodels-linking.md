@@ -48,8 +48,9 @@ npm run aimodels:unlink
 
 **When unlinking:**
 1. The symlink is removed
-2. The published version from npm is reinstalled according to `package.json`
-3. Normal npm dependency resolution resumes
+2. `npm ci` reinstalls the published version recorded in `package-lock.json`
+3. `package.json` and `package-lock.json` remain unchanged
+4. Normal npm dependency resolution resumes
 
 ## Implementation
 
