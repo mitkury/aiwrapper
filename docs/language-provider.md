@@ -43,6 +43,10 @@ const result = await lang.ask("Hello", {
 
 `onResult` receives the current message as it is updated, not a standalone text delta.
 
+Provider integrations with substantial optional SDKs can use separate package
+entry points. For example, AWS Bedrock is available from
+`aiwrapper/bedrock`; see [bedrock.md](bedrock.md).
+
 ## Messages
 
 Use `LangMessage` and `LangMessages` when you need conversation history, images, tools, reasoning, or metadata.

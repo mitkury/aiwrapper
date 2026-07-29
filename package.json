@@ -16,6 +16,7 @@
   "keywords": [
     "AI",
     "AI Wrappers",
+    "AWS Bedrock",
     "OpenAI",
     "LLM",
     "Generative AI",
@@ -38,6 +39,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./bedrock": {
+      "types": "./dist/lang/bedrock/index.d.ts",
+      "import": "./dist/lang/bedrock/index.js"
     }
   },
   "engines": {
@@ -72,9 +77,18 @@
     "zod-to-json-schema": "^3.24.6"
   },
   "devDependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1098.0",
     "@types/node": "^20.11.16",
     "dotenv": "^16.4.1",
     "typescript": "^5.8.2",
     "vitest": "^4.1.10"
+  },
+  "peerDependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1098.0"
+  },
+  "peerDependenciesMeta": {
+    "@aws-sdk/client-bedrock-runtime": {
+      "optional": true
+    }
   }
 }

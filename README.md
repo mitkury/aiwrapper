@@ -11,8 +11,8 @@ framework.
 ## Features
 
 - Generate plain text or JSON objects with a simple API
-- Use different LLM providers: OpenAI, Anthropic, Groq, DeepSeek, Ollama and any
-  OpenAI-compatible services
+- Use different LLM providers: OpenAI, Anthropic, AWS Bedrock, Groq, DeepSeek,
+  Ollama and any OpenAI-compatible services
 - Output objects based on Zod schemas or JSON Schema
 - Swap models quickly or chain different models together
 - Use it with JavaScript or TypeScript from anywhere
@@ -115,6 +115,33 @@ const lang = Lang.openaiLike({
 const result = await lang.ask("Hello!");
 console.log(result.answer);
 ```
+
+### Use AWS Bedrock
+
+Install the optional AWS runtime client, then pass a configured client to the
+Bedrock provider:
+
+```bash
+npm install aiwrapper @aws-sdk/client-bedrock-runtime
+```
+
+```javascript
+import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
+import { BedrockLang } from "aiwrapper/bedrock";
+
+const client = new BedrockRuntimeClient({ region: "us-east-1" });
+const lang = new BedrockLang({
+  client,
+  model: "your-model-id-or-inference-profile-arn",
+});
+
+const result = await lang.ask("Say hi!");
+console.log(result.answer);
+```
+
+The AWS client handles credentials, region selection, retries, and request
+signing. See the [Bedrock provider guide](docs/bedrock.md) for supported
+features and compatibility notes.
 
 ### Use OpenRouter (Access 100+ Models)
 
