@@ -176,11 +176,22 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
 
   protected transformBody(body: Record<string, unknown>): Record<string, unknown> {
     const transformedBody = { ...body };
-    if (this._config.reasoningEffort && this.supportsReasoning()) {
+    const supportsReasoning = this.supportsReasoning();
+    if (this._config.reasoningEffort && supportsReasoning) {
       transformedBody.reasoning_effort = this._config.reasoningEffort;
     }
-    if (this._config.maxCompletionTokens !== undefined && this.supportsReasoning()) {
-      transformedBody.max_completion_tokens = this._config.maxCompletionTokens;
+    if (supportsReasoning) {
+      if (this._config.maxCompletionTokens !== undefined) {
+        transformedBody.max_completion_tokens = this._config.maxCompletionTokens;
+      } else if (
+        transformedBody.max_completion_tokens === undefined
+        && typeof transformedBody.max_tokens === "number"
+      ) {
+        transformedBody.max_completion_tokens = Math.max(
+          transformedBody.max_tokens,
+          25000,
+        );
+      }
     }
     return transformedBody;
   }
@@ -207,10 +218,6 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     fixToolResultsIfNeeded(result);
 
     const requestMaxTokens = this.computeRequestMaxTokens(result);
-    if (this.supportsReasoning() && this._config.maxCompletionTokens === undefined) {
-      this._config.maxCompletionTokens = Math.max(requestMaxTokens, 25000);
-    }
-
     const body = this.buildRequestBody(result, requestMaxTokens, resolvedOptions);
     const commonRequest = this.buildCommonRequest(body, resolvedOptions);
     const onData = (data: any) => {

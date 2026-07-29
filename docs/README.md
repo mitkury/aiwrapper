@@ -15,6 +15,7 @@ The root [README](../README.md) contains installation and introductory examples.
 - [Testing](../tests/README.md)
 - [Dependency updates](dev/dependency-updates.md)
 - [Linking a local aimodels package](dev/aimodels-linking.md)
+- [Agent actions](dev/actions-for-agents)
 - [Development rules](dev/rules)
 
 OpenAI-specific protocol notes and captured streams are indexed under [dev/lang/openai](dev/lang/openai).

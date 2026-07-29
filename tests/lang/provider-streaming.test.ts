@@ -41,6 +41,51 @@ describe("provider streaming", () => {
     );
   });
 
+  it("sends raw JSON Schema in the OpenAI Responses text format", async () => {
+    let requestBody: any;
+    setHttpRequestImpl(async (_url, options) => {
+      requestBody = JSON.parse(String(options.body));
+      return new Response([
+        "event: response.created",
+        'data: {"response":{"id":"resp_schema"}}',
+        "event: response.output_item.added",
+        'data: {"item":{"id":"msg_schema","type":"message","text":""}}',
+        "event: response.output_text.delta",
+        'data: {"item_id":"msg_schema","delta":"{\\"answer\\":\\"ok\\"}"}',
+        "event: response.output_item.done",
+        'data: {"item":{"id":"msg_schema","type":"message","content":[{"type":"output_text","text":"{\\"answer\\":\\"ok\\"}"}]}}',
+        "",
+      ].join("\n"), {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    });
+
+    const schema = {
+      type: "object",
+      properties: {
+        answer: { type: "string" },
+      },
+      required: ["answer"],
+      additionalProperties: false,
+    };
+    const lang = new OpenAILang({ apiKey: "test" });
+
+    const result = await lang.ask("Return an object", { schema });
+
+    expect(requestBody.text).toEqual({
+      format: {
+        type: "json_schema",
+        name: "response_schema",
+        strict: true,
+        schema,
+      },
+    });
+    expect(requestBody).not.toHaveProperty("json_schema");
+    expect(result.object).toEqual({ answer: "ok" });
+    expect(result.finished).toBe(true);
+  });
+
   it("sends a Chat Completions system prompt as one system message", async () => {
     let requestBody: any;
     setHttpRequestImpl(async (_url, options) => {
@@ -96,6 +141,35 @@ describe("provider streaming", () => {
     expect(systemMessage.content).not.toContain("undefined");
     expect(systemMessage.content.match(/<outputFormat>/g)).toHaveLength(1);
     expect(messages.instructions).toBeUndefined();
+  });
+
+  it("does not mutate Chat Completions token configuration during a request", async () => {
+    class TestReasoningLang extends OpenAIChatCompletionsLang {
+      override supportsReasoning(): boolean {
+        return true;
+      }
+    }
+
+    let requestBody: any;
+    setHttpRequestImpl(async (_url, options) => {
+      requestBody = JSON.parse(String(options.body));
+      return new Response("", {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    });
+
+    const lang = new TestReasoningLang({
+      model: "reasoning-model",
+      baseURL: "https://example.com/v1",
+      systemPrompt: "",
+      maxTokens: 1000,
+    });
+
+    await lang.ask("Think");
+
+    expect(requestBody.max_completion_tokens).toBe(25000);
+    expect(lang.getMaxCompletionTokens()).toBeUndefined();
   });
 
   it("composes Google instructions without mutating the conversation", async () => {

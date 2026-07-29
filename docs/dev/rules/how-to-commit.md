@@ -22,6 +22,8 @@ Product feature work: `feat(scope): description`
 
 Product fixes: `fix(scope): description`
 
+Behavior-preserving restructuring: `refactor(scope): description`
+
 Build, release, and CI changes: `ci: description`
 
 Tests: `tests: description`

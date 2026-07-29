@@ -103,6 +103,36 @@ describe("MockResponseStreamLang", () => {
     expect(streamed[streamed.length - 1]).toBe("Hello from default callback");
   });
 
+  it("executes handlers for configured OpenAI-like mock tool calls", async () => {
+    const lang = new MockOpenAILikeLang({
+      mockToolCalls: [{
+        name: "double",
+        argumentsChunks: ['{"value":', "21}"],
+      }],
+    });
+    const messages = new LangMessages("Double 21", {
+      tools: [{
+        name: "double",
+        description: "Double a number",
+        parameters: {
+          type: "object",
+          properties: { value: { type: "number" } },
+          required: ["value"],
+        },
+        handler: ({ value }) => value * 2,
+      }],
+    });
+
+    const result = await lang.chat(messages);
+
+    expect(result[result.length - 1].toolResults).toEqual([{
+      type: "tool-result",
+      name: "double",
+      callId: "call_0",
+      result: 42,
+    }]);
+  });
+
   it("rotates through preset messages when no explicit message provided", async () => {
     const presets = ["tiny", "smaller", "little"];
     const lang = new MockResponseStreamLang({

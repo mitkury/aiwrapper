@@ -15,17 +15,6 @@ import { attachPartialResult, isAbortError } from "../../../errors.js";
 import { combineInstructions } from "../../prompt-for-json.js";
 
 
-/**
- * OpenAI-specific built-in tools
- */
-export type OpenAIBuiltInTool =
-  | { name: "web_search" }
-  | { name: "file_search"; vector_store_ids: string[] }
-  | { name: "mcp"; server_label: string; server_description: string; server_url: string; require_approval: "never" | "always" | "if_needed" }
-  | { name: "image_generation" }
-  | { name: "code_interpreter" }
-  | { name: "computer_use" };
-
 export type OpenAILangOptions = {
   apiKey: string;
   model?: string;
@@ -82,23 +71,18 @@ export class OpenAIResponsesLang extends LanguageProvider {
       return undefined;
     }
 
-    if (isZodSchema(schema)) {
-      const jsonSchema = zodToJsonSchema(schema);
-      return {
-        text: {
-          format: {
-            type: "json_schema",
-            name: "response_schema",
-            schema: jsonSchema
-          }
-        }
-      };
-    } else {
-      return {
-        type: "json_schema",
-        json_schema: schema
-      };
-    }
+    const jsonSchema = isZodSchema(schema) ? zodToJsonSchema(schema) : schema;
+    return {
+      text: {
+        format: {
+          type: "json_schema",
+          name: "response_schema",
+          // OpenAI rejects schemas outside its supported subset in strict mode.
+          strict: true,
+          schema: jsonSchema,
+        },
+      },
+    };
   }
 
   private buildRequestBody(msgCollection: LangMessages, options?: LangOptions): Record<string, unknown> {

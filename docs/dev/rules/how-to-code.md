@@ -13,3 +13,14 @@ Be careful with new dependencies. Since this is a wrapper library, prefer lightw
 
 Public runtime code must not import Node.js built-ins or rely on unguarded Node
 globals. Keep browser and Node.js support in mind when changing shared code.
+
+Provider adapters should translate at the edge. Keep shared messages and tool
+results provider-neutral, and keep protocol field names inside the relevant
+provider module.
+
+Do not silently invent prompts, tool results, or provider capabilities. Preserve
+caller intent and fail with a specific error when a provider cannot represent a
+requested feature.
+
+Use lowercase, dash-separated names for new utility and provider files. Follow
+the established name when extending an existing public class module.

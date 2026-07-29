@@ -1,5 +1,5 @@
 import type { LangMessage, LangOptions } from "../language-provider.js";
-import { LangMessages } from "../messages.js";
+import { fixToolResultsIfNeeded, LangMessages } from "../messages.js";
 import { OpenAIChatCompletionsLang } from "../openai/openai-chat-completions-lang.js";
 
 export type MockOpenAILikeOptions = {
@@ -56,6 +56,7 @@ export class MockOpenAILikeLang extends OpenAIChatCompletionsLang {
         ? messages
         : new LangMessages(messages),
     );
+    fixToolResultsIfNeeded(messageCollection);
 
     const result = messageCollection;
     const onResult = resolvedOptions?.onResult;
@@ -76,6 +77,8 @@ export class MockOpenAILikeLang extends OpenAIChatCompletionsLang {
       }
       // Finished
       this.handleStreamData({ finished: true }, result, onResult);
+      const toolResults = await result.executeRequestedTools();
+      if (toolResults) onResult?.(toolResults);
       // Consume mockToolCalls so subsequent chats produce a normal answer
       this.mockConfig.mockToolCalls = [];
       return result;
@@ -92,7 +95,8 @@ export class MockOpenAILikeLang extends OpenAIChatCompletionsLang {
     }
 
     // Simulate streaming by splitting into chunks
-    const chunkSize = this.mockConfig.chunkSize || 16;
+    const configuredChunkSize = this.mockConfig.chunkSize ?? 16;
+    const chunkSize = configuredChunkSize > 0 ? configuredChunkSize : 16;
     const chunks: string[] = [];
     for (let i = 0; i < fullContent.length; i += chunkSize) {
       chunks.push(fullContent.slice(i, i + chunkSize));
