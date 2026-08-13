@@ -1,14 +1,14 @@
 <script lang="ts">
-  import { onMount, type Snippet } from "svelte";
-  import SecretsSetup from "./SecretsSetup.svelte";
-  import { getSecrets } from "$lib/secretsContext.svelte";
+	import { onMount, type Snippet } from 'svelte';
+	import { getSecrets } from '$lib/secretsContext.svelte';
 
-  const secrets = getSecrets();
+	const secrets = getSecrets();
 
-  const { children }: { children: Snippet } = $props();
+	const { children }: { children: Snippet } = $props();
 
-  onMount(() => {
-    secrets.loadSecrets();
-  });
+	onMount(() => {
+		secrets.loadSecrets();
+	});
 </script>
+
 {@render children()}

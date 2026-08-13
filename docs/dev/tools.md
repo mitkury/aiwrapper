@@ -33,6 +33,31 @@ const result = await lang.chat(messages);
 
 Providers execute requested local handlers after the response and append a `tool-results` message. Call `chat(result)` again to let the model use those results. `ChatAgent` performs that loop automatically.
 
+Handlers also receive call metadata and the request signal. Existing handlers
+that only accept `args` remain valid.
+
+```ts
+handler: async (args, { callId, name, signal }) => {
+  console.log({ callId, name });
+  return fetchToolResult(args, { signal });
+}
+```
+
+Use `tools` in the `chat()` options to narrow or replace tools for one request
+without mutating `messages.availableTools`. An empty array disables tools for
+that request.
+
+```ts
+await lang.chat(messages, {
+  tools: toolsAllowedForThisTurn,
+  signal: turnAbortController.signal,
+});
+```
+
+The same signal is passed to local tool handlers. An `AbortError` from a handler
+is propagated as request cancellation instead of being converted into a tool
+error for the model.
+
 ## Inspecting calls and results
 
 ```ts

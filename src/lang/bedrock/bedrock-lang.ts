@@ -29,6 +29,7 @@ import type {
   LangMessageItem,
   LangMessageItemImage,
   LangMessageRole,
+  LangTool,
   LangToolResultPart,
   LangToolWithHandler,
 } from "../messages.js";
@@ -144,7 +145,10 @@ export class BedrockLang extends LanguageProvider {
     }
 
     result.finished = true;
-    const toolResults = await result.executeRequestedTools();
+    const toolResults = await result.executeRequestedTools({
+      tools: this.resolveTools(result, resolvedOptions),
+      signal: resolvedOptions?.signal,
+    });
     if (toolResults) {
       resolvedOptions?.onResult?.(toolResults);
     }
@@ -199,7 +203,9 @@ export class BedrockLang extends LanguageProvider {
         ? { stopSequences: this.config.stopSequences }
         : {}),
     };
-    const toolConfig = this.mapTools(messages);
+    const toolConfig = this.mapTools(
+      this.resolveTools(messages, options),
+    );
 
     return {
       modelId: this.config.model,
@@ -363,10 +369,10 @@ export class BedrockLang extends LanguageProvider {
     }
   }
 
-  private mapTools(messages: LangMessages): Tool[] | undefined {
-    if (!messages.availableTools?.length) return undefined;
+  private mapTools(requestTools?: LangTool[]): Tool[] | undefined {
+    if (!requestTools?.length) return undefined;
 
-    const tools: Tool[] = messages.availableTools.map(tool => {
+    const tools: Tool[] = requestTools.map(tool => {
       if (!isHandlerTool(tool)) {
         throw new Error(
           `Bedrock tool "${tool.name}" must define description, parameters, and a handler.`,

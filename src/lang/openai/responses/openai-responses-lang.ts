@@ -87,7 +87,10 @@ export class OpenAIResponsesLang extends LanguageProvider {
 
   private buildRequestBody(msgCollection: LangMessages, options?: LangOptions): Record<string, unknown> {
     const structuredOutput = this.buildStructuredOutput(options?.schema);
-    const bodyPart = prepareBodyPartForOpenAIResponsesAPI(msgCollection);
+    const bodyPart = prepareBodyPartForOpenAIResponsesAPI(
+      msgCollection,
+      this.resolveTools(msgCollection, options) ?? [],
+    );
     const instructions = combineInstructions(
       this.systemPrompt,
       msgCollection.instructions,
@@ -123,8 +126,9 @@ export class OpenAIResponsesLang extends LanguageProvider {
     // If apply_patch is used as a tool, require that the user provides a handler for it.
     // This keeps the provider behavior (built-in apply_patch tool) while still allowing
     // users to supply a local patch harness.
-    if (msgCollection.availableTools) {
-      const tools = msgCollection.availableTools;
+    const requestTools = this.resolveTools(msgCollection, options);
+    if (requestTools) {
+      const tools = requestTools;
       const usesApplyPatch = tools.some(t => t.name === 'apply_patch');
       if (usesApplyPatch) {
         const hasHandler = tools.some((t: any) => t.name === 'apply_patch' && 'handler' in t);
@@ -200,7 +204,10 @@ export class OpenAIResponsesLang extends LanguageProvider {
     msgCollection.finished = true;
 
     // Automatically execute tools if the assistant requested them
-    const toolResults = await msgCollection.executeRequestedTools();
+    const toolResults = await msgCollection.executeRequestedTools({
+      tools: requestTools,
+      signal: abortSignal,
+    });
     if (options?.onResult && toolResults) {
       options.onResult(toolResults);
     }

@@ -12,6 +12,7 @@ npm run test:all
 npm run test:lang
 npm run test:tools
 npm run test:agents
+npm run test:speech
 npm run test:img-in
 npm run test:img-out
 ```
@@ -33,6 +34,11 @@ PROVIDERS=openai,anthropic npm run test:tools
 ```
 
 Provider tests are skipped when the corresponding API key is absent. A present but expired or invalid key still causes a provider failure.
+
+Speech integration tests use `OPENAI_API_KEY` for an OpenAI TTS-to-STT
+round trip. The ElevenLabs streaming test requires both `ELEVENLABS_API_KEY`
+and `ELEVENLABS_VOICE_ID`. Limit a run with `PROVIDERS=openai` or
+`PROVIDERS=elevenlabs`.
 
 ## Model check
 

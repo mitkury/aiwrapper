@@ -170,11 +170,20 @@ export type BuiltInLangTool = {
  */
 export type LangTool = LangToolWithHandler | BuiltInLangTool;
 
+export type LangToolHandlerContext = {
+  callId: string;
+  name: string;
+  signal?: AbortSignal;
+};
+
 export type LangToolWithHandler = {
   name: string;
   description: string;
   parameters: Record<string, any>;
-  handler: (args: Record<string, any>) => any | Promise<any>;
+  handler: (
+    args: Record<string, any>,
+    context: LangToolHandlerContext,
+  ) => any | Promise<any>;
 };
 
 export type LangMessageItem =
@@ -395,7 +404,10 @@ export class LangMessages extends Array<LangMessage> {
     return this;
   }
 
-  async executeRequestedTools(): Promise<LangMessage | null> {
+  async executeRequestedTools(options: {
+    tools?: LangTool[];
+    signal?: AbortSignal;
+  } = {}): Promise<LangMessage | null> {
     // Only execute tool requests from the last assistant message.
     const last = this.length > 0 ? this[this.length - 1] : undefined;
     if (!last || last.role !== "assistant" || last.items.length === 0) {
@@ -407,7 +419,7 @@ export class LangMessages extends Array<LangMessage> {
       return null;
     }
 
-    const toolsWithHandlers = (this.availableTools || []).filter(
+    const toolsWithHandlers = (options.tools ?? this.availableTools ?? []).filter(
       (tool): tool is LangToolWithHandler =>
         'handler' in tool && typeof tool.handler === "function"
     );
@@ -415,6 +427,8 @@ export class LangMessages extends Array<LangMessage> {
     // Execute requested tools from the last message only
     const toolResults: LangMessageItemToolResult[] = [];
     for (const requestedTool of toolRequests) {
+      throwIfAborted(options.signal);
+
       const toolName = requestedTool.name as string | undefined;
       if (!toolName) continue;
 
@@ -437,8 +451,20 @@ export class LangMessages extends Array<LangMessage> {
 
       let result: any;
       try {
-        result = await Promise.resolve(tool.handler(requestedTool.arguments || {}));
+        result = await Promise.resolve(tool.handler(
+          requestedTool.arguments || {},
+          {
+            callId: requestedTool.callId,
+            name: toolName,
+            signal: options.signal,
+          },
+        ));
+        throwIfAborted(options.signal);
       } catch (error) {
+        if (isAbortError(error) || options.signal?.aborted) {
+          this.aborted = true;
+          throw isAbortError(error) ? error : createAbortError();
+        }
         const normalizedError = error instanceof Error
           ? error
           : new Error(String(error));
@@ -472,6 +498,20 @@ export class LangMessages extends Array<LangMessage> {
     }
     return out.join("\n\n");
   }
+}
+
+function createAbortError(): Error {
+  const error = new Error("The operation was aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+function isAbortError(error: unknown): error is Error {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw createAbortError();
 }
 
 /**

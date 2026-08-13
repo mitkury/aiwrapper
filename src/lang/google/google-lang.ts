@@ -80,7 +80,8 @@ export class GoogleLang extends LanguageProvider {
     const contents = this.transformMessagesForProvider(messageCollection as any);
 
     const maxOutputTokens = this.computeMaxTokens(messageCollection);
-    const tools = this.buildTools(messageCollection.availableTools);
+    const requestTools = this.resolveTools(messageCollection, resolvedOptions);
+    const tools = this.buildTools(requestTools);
 
     const generationConfig: Record<string, any> = {};
     if (typeof maxOutputTokens === "number") {
@@ -136,7 +137,10 @@ export class GoogleLang extends LanguageProvider {
 
     messageCollection.finished = true;
 
-    const toolsResults = await messageCollection.executeRequestedTools();
+    const toolsResults = await messageCollection.executeRequestedTools({
+      tools: requestTools,
+      signal: resolvedOptions?.signal,
+    });
     if (resolvedOptions?.onResult && toolsResults) resolvedOptions.onResult(toolsResults);
 
     return messageCollection;

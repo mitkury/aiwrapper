@@ -74,6 +74,7 @@ export class OllamaLang extends LanguageProvider {
     );
 
     fixToolResultsIfNeeded(result);
+    const requestTools = this.resolveTools(result, resolvedOptions);
 
     let requestMaxTokens = this._config.maxTokens;
     if (this.modelInfo) {
@@ -129,7 +130,7 @@ export class OllamaLang extends LanguageProvider {
         body: JSON.stringify({
           model: this._config.model,
           messages: this.transformMessagesForProvider(result),
-          tools: this.transformToolsForProvider(result.availableTools),
+          tools: this.transformToolsForProvider(requestTools),
           stream: true,
           ...(requestMaxTokens
             ? { options: { num_predict: requestMaxTokens } }
@@ -148,7 +149,10 @@ export class OllamaLang extends LanguageProvider {
       throw error;
     }
 
-    const toolResults = await result.executeRequestedTools();
+    const toolResults = await result.executeRequestedTools({
+      tools: requestTools,
+      signal: resolvedOptions?.signal,
+    });
     if (toolResults) {
       resolvedOptions?.onResult?.(toolResults);
     }

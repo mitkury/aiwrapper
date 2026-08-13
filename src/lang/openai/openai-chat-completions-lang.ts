@@ -115,8 +115,11 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
       ...this._config.bodyProperties,
       ...(options?.providerSpecificBody ?? {}),
     };
-    if (messageCollection.availableTools) {
-      base.tools = this.formatTools(messageCollection.availableTools);
+    const requestTools = this.resolveTools(messageCollection, options);
+    if (requestTools?.length) {
+      base.tools = this.formatTools(requestTools);
+    } else if (options?.tools !== undefined) {
+      delete base.tools;
     }
     return this.transformBody(base);
   }
@@ -242,7 +245,10 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     result.finished = true;
 
     // Automatically execute tools if the assistant requested them
-    const toolResults = await result.executeRequestedTools();
+    const toolResults = await result.executeRequestedTools({
+      tools: this.resolveTools(result, resolvedOptions),
+      signal: abortSignal,
+    });
     if (resolvedOptions?.onResult && toolResults) resolvedOptions.onResult(toolResults);
 
     return result;

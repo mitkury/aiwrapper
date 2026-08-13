@@ -4,7 +4,7 @@ import { MockResponseStreamLang } from "./mock/mock-response-stream-lang.js";
 import {
   LanguageProvider,
   LangResult,
-  z
+  z,
 } from "./language-provider.js";
 import type { LangOptions, LangResponseSchema } from "./language-provider.js";
 // Export classes
@@ -14,7 +14,13 @@ export * from "./messages.js";
 
 // Export types
 export type { LangOptions, LangResponseSchema };
-export type { LangToolWithHandler, ToolRequest, ToolResult, LangTool } from "./messages.js";
+export type {
+  LangToolWithHandler,
+  LangToolHandlerContext,
+  ToolRequest,
+  ToolResult,
+  LangTool,
+} from "./messages.js";
 export type { MockOpenAILikeOptions } from "./mock/mock-openai-like-lang.js";
 export type { MockResponseStreamOptions } from "./mock/mock-response-stream-lang.js";
 

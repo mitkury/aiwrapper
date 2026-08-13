@@ -13,12 +13,15 @@ export type BodyPartForOpenAIResponses = {
   tool_choice?: string;
 };
 
-export function prepareBodyPartForOpenAIResponsesAPI(messages: LangMessages): BodyPartForOpenAIResponses {
+export function prepareBodyPartForOpenAIResponsesAPI(
+  messages: LangMessages,
+  requestTools: LangTool[] = messages.availableTools || [],
+): BodyPartForOpenAIResponses {
   // Find the last message with an openaiResponseId
   let lastMessageWithResponseId: LangMessage | undefined;
   let lastMessageWithResponseIdIndex = -1;
 
-  const tools = transformToolsForProvider(messages.availableTools || []);
+  const tools = transformToolsForProvider(requestTools);
   const bodyPart: BodyPartForOpenAIResponses = {
     tools,
   };

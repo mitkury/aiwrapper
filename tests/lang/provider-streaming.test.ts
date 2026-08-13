@@ -17,6 +17,73 @@ afterEach(() => {
 });
 
 describe("provider streaming", () => {
+  it("uses per-call tools without mutating conversation tools", async () => {
+    let requestBody: any;
+    setHttpRequestImpl(async (_url, options) => {
+      requestBody = JSON.parse(String(options.body));
+      return new Response("", {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    });
+
+    const conversationTools = [{
+      name: "all_tools",
+      description: "Available across the conversation",
+      parameters: { type: "object" },
+      handler: () => "all",
+    }];
+    const requestTools = [{
+      name: "this_turn_only",
+      description: "Available for this turn",
+      parameters: { type: "object" },
+      handler: () => "turn",
+    }];
+    const messages = new LangMessages("Hello", { tools: conversationTools });
+    const lang = new OpenAILang({ apiKey: "test" });
+
+    await lang.chat(messages, { tools: requestTools });
+
+    expect(requestBody.tools).toEqual([{
+      type: "function",
+      name: "this_turn_only",
+      description: "Available for this turn",
+      parameters: { type: "object" },
+    }]);
+    expect(messages.availableTools).toBe(conversationTools);
+  });
+
+  it("omits Chat Completions tools when a call explicitly disables them", async () => {
+    let requestBody: any;
+    setHttpRequestImpl(async (_url, options) => {
+      requestBody = JSON.parse(String(options.body));
+      return new Response("", {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    });
+
+    const conversationTool = {
+      name: "conversation_tool",
+      description: "Available across the conversation",
+      parameters: { type: "object" },
+      handler: () => "done",
+    };
+    const messages = new LangMessages("Hello", { tools: [conversationTool] });
+    const lang = new OpenAIChatCompletionsLang({
+      apiKey: "test",
+      model: "unknown-test-model",
+      systemPrompt: "",
+      baseURL: "https://example.test",
+      bodyProperties: { tools: [{ stale: true }] },
+    });
+
+    await lang.chat(messages, { tools: [] });
+
+    expect(requestBody).not.toHaveProperty("tools");
+    expect(messages.availableTools).toEqual([conversationTool]);
+  });
+
   it("sends OpenAI Responses constructor and conversation instructions once", async () => {
     let requestBody: any;
     setHttpRequestImpl(async (_url, options) => {

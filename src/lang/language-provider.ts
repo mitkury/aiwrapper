@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { LangMessages } from "./messages.js";
-import type { LangMessage, LangMessageItem, LangMessageRole } from "./messages.js";
+import type { LangMessage, LangMessageItem, LangMessageRole, LangTool } from "./messages.js";
 
 // Export zod for convenience
 export { z };
@@ -29,6 +29,10 @@ export interface LangOptions {
 
   // Optional AbortSignal to cancel requests/streams
   signal?: AbortSignal;
+
+  // Tools for this request. Overrides LangMessages.availableTools, including
+  // when an empty array is provided to disable tools for one turn.
+  tools?: LangTool[];
 
   providerSpecificBody?: Record<string, any>;
   providerSpecificHeaders?: Record<string, string>;
@@ -79,6 +83,15 @@ export abstract class LanguageProvider {
     messages.finished = false;
     messages.aborted = false;
     return messages;
+  }
+
+  protected resolveTools(
+    messages: LangMessages,
+    options?: LangOptions,
+  ): LangTool[] | undefined {
+    return options?.tools !== undefined
+      ? options.tools
+      : messages.availableTools;
   }
 
   /**

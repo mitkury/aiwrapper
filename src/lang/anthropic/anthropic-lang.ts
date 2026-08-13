@@ -104,8 +104,9 @@ export class AnthropicLang extends LanguageProvider {
 
     fixToolResultsIfNeeded(messageCollection);
 
+    const requestTools = this.resolveTools(messageCollection, resolvedOptions);
     const { providerMessages, requestMaxTokens, tools } =
-      this.prepareRequest(messageCollection);
+      this.prepareRequest(messageCollection, requestTools);
 
     const result = messageCollection;
 
@@ -150,13 +151,19 @@ export class AnthropicLang extends LanguageProvider {
     result.finished = true;
 
     // Automatically execute tools if the assistant requested them
-    const toolResults = await result.executeRequestedTools();
+    const toolResults = await result.executeRequestedTools({
+      tools: requestTools,
+      signal: abortSignal,
+    });
     if (resolvedOptions?.onResult && toolResults) resolvedOptions.onResult(toolResults);
 
     return result;
   }
 
-  private prepareRequest(messageCollection: LangMessages) {
+  private prepareRequest(
+    messageCollection: LangMessages,
+    requestTools?: LangTool[],
+  ) {
     const providerMessages = this.transformMessagesForProvider(messageCollection);
 
     const modelInfo = models.id(this._config.model);
@@ -171,8 +178,8 @@ export class AnthropicLang extends LanguageProvider {
     ) : this._config.maxTokens || 16000;
 
     let tools: AnthropicTool[] | undefined;
-    if (messageCollection.availableTools?.length) {
-      const structuredTools = messageCollection.availableTools.filter(
+    if (requestTools?.length) {
+      const structuredTools = requestTools.filter(
         (tool): tool is LangTool & { description?: string; parameters: Record<string, any> } =>
           typeof (tool as any).parameters === "object" && (tool as any).parameters !== null
       );

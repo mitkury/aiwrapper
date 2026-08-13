@@ -43,6 +43,10 @@
     "./bedrock": {
       "types": "./dist/lang/bedrock/index.d.ts",
       "import": "./dist/lang/bedrock/index.js"
+    },
+    "./unstable/speech": {
+      "types": "./dist/unstable/speech/index.d.ts",
+      "import": "./dist/unstable/speech/index.js"
     }
   },
   "engines": {
@@ -62,6 +66,7 @@
     "test:lang": "npm run build && vitest run tests/lang",
     "test:tools": "npm run build && vitest run tests/tools",
     "test:agents": "npm run build && vitest run tests/agents",
+    "test:speech": "npm run build && vitest run tests/speech --no-file-parallelism",
     "test:img-in": "npm run build && vitest run tests/img-in",
     "test:img-out": "npm run build && vitest run tests/img-out",
     "test:model": "npm run build && vitest run tests/model.integration.test.ts",
@@ -73,12 +78,14 @@
     "aimodels": "^0.6.1",
     "ajv": "^8.17.1",
     "jsonic": "^2.16.0",
+    "ws": "^8.21.3",
     "zod": "^3.24.4",
     "zod-to-json-schema": "^3.24.6"
   },
   "devDependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1098.0",
     "@types/node": "^20.11.16",
+    "@types/ws": "^8.18.1",
     "dotenv": "^16.4.1",
     "typescript": "^5.8.2",
     "vitest": "^4.1.10"

@@ -114,6 +114,96 @@ describe("LangMessages tool execution", () => {
     }]);
   });
 
+  it("passes call metadata and the turn signal to handlers", async () => {
+    const controller = new AbortController();
+    let receivedContext: unknown;
+    const messages = new LangMessages("Run the tool", {
+      tools: [{
+        name: "inspect",
+        description: "Inspect context",
+        parameters: { type: "object" },
+        handler: (_args, context) => {
+          receivedContext = context;
+          return "done";
+        },
+      }],
+    });
+    messages.addAssistantItems([{
+      type: "tool",
+      name: "inspect",
+      callId: "call-context",
+      arguments: {},
+    }]);
+
+    await messages.executeRequestedTools({ signal: controller.signal });
+
+    expect(receivedContext).toEqual({
+      callId: "call-context",
+      name: "inspect",
+      signal: controller.signal,
+    });
+  });
+
+  it("uses request tools without mutating conversation tools", async () => {
+    const conversationTool: LangTool = {
+      name: "conversation-tool",
+      description: "Conversation tool",
+      parameters: { type: "object" },
+      handler: () => "wrong",
+    };
+    const requestTool: LangTool = {
+      name: "request-tool",
+      description: "Request tool",
+      parameters: { type: "object" },
+      handler: () => "right",
+    };
+    const messages = new LangMessages("Run the tool", {
+      tools: [conversationTool],
+    });
+    messages.addAssistantItems([{
+      type: "tool",
+      name: "request-tool",
+      callId: "call-request",
+      arguments: {},
+    }]);
+
+    const result = await messages.executeRequestedTools({ tools: [requestTool] });
+
+    expect(result?.toolResults[0].result).toBe("right");
+    expect(messages.availableTools).toEqual([conversationTool]);
+  });
+
+  it("propagates tool cancellation instead of returning it to the model", async () => {
+    const controller = new AbortController();
+    const messages = new LangMessages("Run the tool", {
+      tools: [{
+        name: "wait",
+        description: "Wait",
+        parameters: { type: "object" },
+        handler: (_args, context) => new Promise((_resolve, reject) => {
+          context.signal?.addEventListener("abort", () => {
+            const error = new Error("cancelled");
+            error.name = "AbortError";
+            reject(error);
+          }, { once: true });
+        }),
+      }],
+    });
+    messages.addAssistantItems([{
+      type: "tool",
+      name: "wait",
+      callId: "call-wait",
+      arguments: {},
+    }]);
+
+    const pending = messages.executeRequestedTools({ signal: controller.signal });
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(messages.aborted).toBe(true);
+    expect(messages.some(message => message.role === "tool-results")).toBe(false);
+  });
+
   it("preserves explicit multimodal tool content", async () => {
     const content = toolResult({
       type: "image",
