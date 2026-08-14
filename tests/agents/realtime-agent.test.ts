@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Lang } from "../../src/lang/lang.ts";
 import { LanguageProvider } from "../../src/lang/language-provider.ts";
 import { RealtimeAgent } from "../../src/unstable/realtime/realtime-agent.ts";
@@ -8,6 +8,8 @@ import {
   TextToSpeech,
   type PcmAudioFrame,
   type SpeechToTextProvider,
+  type StreamingTextToSpeechSession,
+  type TextToSpeechProvider,
 } from "../../src/speech/index.ts";
 
 const frame = (samples: number[]): PcmAudioFrame => ({
@@ -28,7 +30,9 @@ describe("StreamingTextSegmenter", () => {
 
   it("bounds latency for long text without sentence punctuation", () => {
     const segmenter = new StreamingTextSegmenter({ maxBufferedCharacters: 30 });
-    const segments = segmenter.push("A fairly long clause, followed by words that keep going");
+    const segments = segmenter.push(
+      "A fairly long clause, followed by words that keep going",
+    );
 
     expect(segments).toEqual([
       "A fairly long clause,",
@@ -63,7 +67,7 @@ describe("RealtimeAgent", () => {
     );
     const events: string[] = [];
     const latencyStages: string[] = [];
-    agent.subscribe(event => {
+    agent.subscribe((event) => {
       events.push(event.type);
       if (event.type === "latency") latencyStages.push(event.stage);
     });
@@ -83,20 +87,117 @@ describe("RealtimeAgent", () => {
       "I see a pump.",
       "Its status light is green.",
     ]);
-    expect(agent.messages[0].images).toEqual([{
-      type: "image",
-      base64: "aW1hZ2U=",
-      mimeType: "image/jpeg",
-    }]);
+    expect(agent.messages[0].images).toEqual([
+      {
+        type: "image",
+        base64: "aW1hZ2U=",
+        mimeType: "image/jpeg",
+      },
+    ]);
     expect(events).toContain("audio");
     expect(events).toContain("turn_complete");
     expect(latencyStages).toEqual([
       "input_ready",
       "llm_first_token",
+      "tts_input",
       "tts_first_audio",
       "turn_complete",
     ]);
     expect(agent.state).toBe("idle");
+  });
+
+  it("starts the next sentence synthesis before earlier audio completes", async () => {
+    let releaseFirst: (() => void) | undefined;
+    const firstReleased = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const started: string[] = [];
+    const textToSpeech: TextToSpeechProvider = {
+      outputFormat: {
+        encoding: "pcm_s16le",
+        channels: 1,
+        sampleRate: 24000,
+      },
+      async *speak(text) {
+        started.push(text);
+        if (text === "First sentence.") await firstReleased;
+        yield frame([1]);
+      },
+    };
+    const agent = new RealtimeAgent(
+      Lang.mockResponseStream({
+        message: "First sentence. Second sentence.",
+        chunkSize: 64,
+      }),
+      { speechToText: SpeechToText.mock(), textToSpeech },
+    );
+
+    await agent.connect();
+    const response = agent.sendText("Go");
+    await vi.waitFor(() => {
+      expect(started).toEqual(["First sentence.", "Second sentence."]);
+    });
+    releaseFirst?.();
+    await response;
+    await agent.close();
+  });
+
+  it("feeds LLM deltas directly to streaming TTS and flushes sentence boundaries", async () => {
+    const writes: Array<{ text: string; flush?: boolean }> = [];
+    let finishAudio: (() => void) | undefined;
+    const audioReady = new Promise<void>((resolve) => {
+      finishAudio = resolve;
+    });
+    const session: StreamingTextToSpeechSession = {
+      appendText(text) {
+        writes.push({ text });
+      },
+      flush() {
+        writes.push({ text: "", flush: true });
+      },
+      endInput() {
+        finishAudio?.();
+      },
+      async close() {},
+      async *[Symbol.asyncIterator]() {
+        await audioReady;
+        yield frame([7]);
+      },
+    };
+    const textToSpeech: TextToSpeechProvider = {
+      outputFormat: {
+        encoding: "pcm_s16le",
+        channels: 1,
+        sampleRate: 24000,
+      },
+      async *speak() {
+        throw new Error("sentence fallback should not be used");
+      },
+      async createStreamingSession() {
+        return session;
+      },
+    };
+    const agent = new RealtimeAgent(
+      Lang.mockResponseStream({
+        message: "Hello there. Next thought",
+        chunkSize: 4,
+      }),
+      { speechToText: SpeechToText.mock(), textToSpeech },
+    );
+    const audio: PcmAudioFrame[] = [];
+    agent.subscribe((event) => {
+      if (event.type === "audio") audio.push(event.frame);
+    });
+
+    await agent.connect();
+    await agent.sendText("Go");
+    await agent.close();
+
+    expect(writes.map((write) => write.text).join("")).toBe(
+      "Hello there. Next thought",
+    );
+    expect(writes.some((write) => write.flush)).toBe(true);
+    expect(audio.map((value) => [...value.samples])).toEqual([[7]]);
   });
 
   it("reports STT finalization separately from response generation", async () => {
@@ -111,7 +212,9 @@ describe("RealtimeAgent", () => {
             options.onTranscript?.({ type: "final", ...result });
             return result;
           },
-          async finish() { return this.commit(); },
+          async finish() {
+            return this.commit();
+          },
           async close() {},
         };
       },
@@ -121,7 +224,7 @@ describe("RealtimeAgent", () => {
       { speechToText, textToSpeech: TextToSpeech.mock() },
     );
     const latencyStages: string[] = [];
-    agent.subscribe(event => {
+    agent.subscribe((event) => {
       if (event.type === "latency") latencyStages.push(event.stage);
     });
 
@@ -147,13 +250,13 @@ describe("RealtimeAgent", () => {
       },
     );
     const interrupted: string[] = [];
-    agent.subscribe(event => {
+    agent.subscribe((event) => {
       if (event.type === "interrupted") interrupted.push(event.reason);
     });
 
     await agent.connect();
     const response = agent.sendText("Start talking");
-    await new Promise(resolve => setTimeout(resolve, 30));
+    await new Promise((resolve) => setTimeout(resolve, 30));
     agent.interrupt();
     await response;
     await agent.close();
@@ -178,7 +281,9 @@ describe("RealtimeAgent", () => {
     await agent.commitAudio();
     await agent.close();
 
-    expect(agent.messages.filter(message => message.role === "user")).toHaveLength(2);
+    expect(
+      agent.messages.filter((message) => message.role === "user"),
+    ).toHaveLength(2);
   });
 
   it("keeps only the latest camera frame in model context", async () => {
@@ -191,19 +296,31 @@ describe("RealtimeAgent", () => {
     );
 
     await agent.connect();
-    agent.setImage({ kind: "base64", base64: "Zmlyc3Q=", mimeType: "image/jpeg" });
+    agent.setImage({
+      kind: "base64",
+      base64: "Zmlyc3Q=",
+      mimeType: "image/jpeg",
+    });
     await agent.sendText("First turn");
-    agent.setImage({ kind: "base64", base64: "c2Vjb25k", mimeType: "image/jpeg" });
+    agent.setImage({
+      kind: "base64",
+      base64: "c2Vjb25k",
+      mimeType: "image/jpeg",
+    });
     await agent.sendText("Second turn");
     await agent.close();
 
-    const userMessages = agent.messages.filter(message => message.role === "user");
+    const userMessages = agent.messages.filter(
+      (message) => message.role === "user",
+    );
     expect(userMessages[0].images).toEqual([]);
-    expect(userMessages[1].images).toEqual([{
-      type: "image",
-      base64: "c2Vjb25k",
-      mimeType: "image/jpeg",
-    }]);
+    expect(userMessages[1].images).toEqual([
+      {
+        type: "image",
+        base64: "c2Vjb25k",
+        mimeType: "image/jpeg",
+      },
+    ]);
   });
 
   it("preserves whitespace in incremental STT transcripts", async () => {
@@ -213,8 +330,12 @@ describe("RealtimeAgent", () => {
         options.onTranscript?.({ type: "delta", text: "hello " });
         return {
           async appendAudio() {},
-          async commit() { return { text: "" }; },
-          async finish() { return { text: "" }; },
+          async commit() {
+            return { text: "" };
+          },
+          async finish() {
+            return { text: "" };
+          },
           async close() {},
         };
       },
@@ -224,7 +345,7 @@ describe("RealtimeAgent", () => {
       { speechToText, textToSpeech: TextToSpeech.mock() },
     );
     const transcripts: string[] = [];
-    agent.subscribe(event => {
+    agent.subscribe((event) => {
       if (event.type === "transcript") transcripts.push(event.text);
     });
 
@@ -244,7 +365,7 @@ describe("RealtimeAgent", () => {
       },
     );
     const events: string[] = [];
-    agent.subscribe(event => events.push(event.type));
+    agent.subscribe((event) => events.push(event.type));
 
     await agent.connect({ signal: controller.signal });
     controller.abort();
@@ -257,19 +378,22 @@ describe("RealtimeAgent", () => {
 
   it("rejects typed turns when the language provider fails", async () => {
     class FailingLanguageProvider extends LanguageProvider {
-      constructor() { super("failing"); }
-      async ask(): Promise<never> { throw new Error("model unavailable"); }
-      async chat(): Promise<never> { throw new Error("model unavailable"); }
+      constructor() {
+        super("failing");
+      }
+      async ask(): Promise<never> {
+        throw new Error("model unavailable");
+      }
+      async chat(): Promise<never> {
+        throw new Error("model unavailable");
+      }
     }
-    const agent = new RealtimeAgent(
-      new FailingLanguageProvider(),
-      {
-        speechToText: SpeechToText.mock(),
-        textToSpeech: TextToSpeech.mock(),
-      },
-    );
+    const agent = new RealtimeAgent(new FailingLanguageProvider(), {
+      speechToText: SpeechToText.mock(),
+      textToSpeech: TextToSpeech.mock(),
+    });
     const errors: string[] = [];
-    agent.subscribe(event => {
+    agent.subscribe((event) => {
       if (event.type === "error") errors.push(event.error.message);
     });
 

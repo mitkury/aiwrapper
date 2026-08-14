@@ -15,6 +15,14 @@ import {
   type ElevenLabsTextToSpeechOptions,
 } from "./elevenlabs-text-to-speech.js";
 import {
+  DeepgramFluxSpeechToText,
+  type DeepgramFluxSpeechToTextOptions,
+} from "./deepgram-flux-speech-to-text.js";
+import {
+  ElevenLabsRealtimeSpeechToText,
+  type ElevenLabsRealtimeSpeechToTextOptions,
+} from "./elevenlabs-realtime-speech-to-text.js";
+import {
   MockSpeechToText,
   MockTextToSpeech,
   type MockSpeechToTextOptions,
@@ -30,6 +38,18 @@ export abstract class SpeechToText {
     options: OpenAIRealtimeSpeechToTextOptions,
   ): OpenAIRealtimeSpeechToText {
     return new OpenAIRealtimeSpeechToText(options);
+  }
+
+  static deepgramFlux(
+    options: DeepgramFluxSpeechToTextOptions,
+  ): DeepgramFluxSpeechToText {
+    return new DeepgramFluxSpeechToText(options);
+  }
+
+  static elevenlabsRealtime(
+    options: ElevenLabsRealtimeSpeechToTextOptions,
+  ): ElevenLabsRealtimeSpeechToText {
+    return new ElevenLabsRealtimeSpeechToText(options);
   }
 
   static mock(options: MockSpeechToTextOptions = {}): MockSpeechToText {
@@ -54,8 +74,11 @@ export abstract class TextToSpeech {
 }
 
 export * from "./types.js";
+export * from "./realtime-websocket.js";
 export * from "./openai-speech-to-text.js";
 export * from "./openai-realtime-speech-to-text.js";
+export * from "./deepgram-flux-speech-to-text.js";
+export * from "./elevenlabs-realtime-speech-to-text.js";
 export * from "./openai-text-to-speech.js";
 export * from "./elevenlabs-text-to-speech.js";
 export * from "./mock.js";

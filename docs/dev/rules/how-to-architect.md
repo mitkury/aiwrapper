@@ -17,4 +17,4 @@ duplication without hiding protocol differences.
 
 Public APIs should be boring and explicit. Before changing message shapes,
 tool-result semantics, lifecycle flags, or exports, inspect every provider and
-the browser demo because those changes cross most of the package.
+the browser playground because those changes cross most of the package.

@@ -23,8 +23,8 @@ The complete integration command runs files sequentially to reduce provider
 rate-limit failures. Use `PROVIDERS` to narrow the run when debugging one or a
 small group of providers.
 
-`npm run check:demo` type-checks and production-builds the Svelte browser demo
-against the local AIWrapper source.
+`npm run check:playground` type-checks and production-builds the Svelte browser
+playground against the local AIWrapper source.
 
 Use `PROVIDERS` to limit integration tests:
 

@@ -6,7 +6,7 @@
 	let { children } = $props();
 
 	const sections = [
-		{ href: '/', label: 'Chat' },
+		{ href: '/', label: 'Playground' },
 		{ href: '/speech', label: 'Voice' },
 		{ href: '/realtime', label: 'Realtime' }
 	];
@@ -18,16 +18,16 @@
 </svelte:head>
 
 <header class="border-b border-neutral-200 bg-white">
-	<div class="mx-auto flex w-full max-w-3xl items-center gap-5 px-4 py-3">
-		<a href="/" class="mr-auto text-sm font-semibold tracking-tight text-neutral-900">
+	<div class="flex w-full items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
+		<a href="/" class="shrink-0 text-sm font-semibold tracking-tight text-neutral-900">
 			AIWrapper playground
 		</a>
-		<nav aria-label="Playground sections" class="flex items-center gap-1">
+		<nav aria-label="Playground sections" class="flex shrink-0 items-center gap-0.5 sm:gap-1">
 			{#each sections as section}
 				<a
 					href={section.href}
 					aria-current={page.url.pathname === section.href ? 'page' : undefined}
-					class={`rounded-full px-3 py-1.5 text-sm font-medium ${
+					class={`rounded-full px-2 py-1.5 text-xs font-medium sm:px-3 sm:text-sm ${
 						page.url.pathname === section.href
 							? 'bg-neutral-900 text-white'
 							: 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900'

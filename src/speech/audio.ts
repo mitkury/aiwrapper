@@ -167,6 +167,17 @@ export function encodePcmAsBase64(samples: Int16Array): string {
   return result;
 }
 
+export function decodeBase64(value: string): Uint8Array {
+  const normalized = value.replace(/\s/g, "");
+  if (!normalized) return new Uint8Array();
+  if (normalized.length % 4 !== 0) {
+    throw new Error("Invalid base64 audio payload");
+  }
+
+  const decoded = atob(normalized);
+  return Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+}
+
 function toSigned16(low: number, high: number): number {
   const unsigned = low | (high << 8);
   return unsigned >= 0x8000 ? unsigned - 0x10000 : unsigned;

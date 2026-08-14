@@ -49,10 +49,20 @@ export type TextToSpeechOptions = {
   voice?: string;
 };
 
+export interface StreamingTextToSpeechSession extends AsyncIterable<PcmAudioFrame> {
+  appendText(text: string): void;
+  flush(): void;
+  endInput(): void;
+  close(): Promise<void>;
+}
+
 export interface TextToSpeechProvider {
   readonly outputFormat: PcmAudioFormat;
   speak(
     text: string,
     options?: TextToSpeechOptions,
   ): AsyncIterable<PcmAudioFrame>;
+  createStreamingSession?(
+    options?: TextToSpeechOptions,
+  ): Promise<StreamingTextToSpeechSession>;
 }

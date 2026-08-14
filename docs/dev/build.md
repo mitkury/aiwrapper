@@ -19,8 +19,8 @@ There is no bundling or post-build import rewriting. Keep relative source import
 The library relies on standard web APIs (`fetch`, streams, `Blob`, and
 `FormData`) that are available in supported Node.js and browser environments.
 Do not add Node.js built-in imports or unguarded Node globals to public runtime
-code. `npm run check:demo` builds the Svelte browser playground against `src` and is
-the browser-compatibility build check.
+code. `npm run check:playground` builds the Svelte browser playground against
+`src` and is the browser-compatibility build check.
 
 Run the complete deterministic package check with `npm run check`.
 

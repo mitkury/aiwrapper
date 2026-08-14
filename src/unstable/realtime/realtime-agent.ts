@@ -37,7 +37,11 @@ type InterruptedReason = Extract<
   { type: "interrupted" }
 >["reason"];
 
-export class RealtimeAgent extends Agent<void, LangMessages, RealtimeAgentEvent> {
+export class RealtimeAgent extends Agent<
+  void,
+  LangMessages,
+  RealtimeAgentEvent
+> {
   private readonly chatAgent: ChatAgent;
   private readonly speechToText: SpeechToTextProvider;
   private readonly textToSpeech: TextToSpeechProvider;
@@ -107,8 +111,14 @@ export class RealtimeAgent extends Agent<void, LangMessages, RealtimeAgentEvent>
 
   async sendText(text: string): Promise<LangMessages> {
     const normalized = text.trim();
-    if (!normalized) throw new Error("RealtimeAgent text input cannot be empty");
-    this.emit({ type: "transcript", speaker: "user", text: normalized, final: true });
+    if (!normalized)
+      throw new Error("RealtimeAgent text input cannot be empty");
+    this.emit({
+      type: "transcript",
+      speaker: "user",
+      text: normalized,
+      final: true,
+    });
     return (await this.queueResponse(normalized)) ?? this.messages;
   }
 
@@ -117,13 +127,15 @@ export class RealtimeAgent extends Agent<void, LangMessages, RealtimeAgentEvent>
   }
 
   interrupt(reason: InterruptedReason = "manual"): void {
-    if (!this.responseController || this.responseController.signal.aborted) return;
+    if (!this.responseController || this.responseController.signal.aborted)
+      return;
     this.responseController.abort();
     this.emit({ type: "interrupted", reason });
   }
 
   async close(): Promise<LangMessages> {
-    if (!this.runCompletion) throw new Error("RealtimeAgent has not been started");
+    if (!this.runCompletion)
+      throw new Error("RealtimeAgent has not been started");
     if (!this.closing) {
       this.closing = true;
       this.interrupt("closed");
@@ -151,8 +163,8 @@ export class RealtimeAgent extends Agent<void, LangMessages, RealtimeAgentEvent>
       options?.signal?.addEventListener("abort", handleAbort, { once: true });
       this.speechSession = await this.speechToText.createSession({
         signal: options?.signal,
-        onTranscript: event => this.handleTranscript(event),
-        onSpeechActivity: event => {
+        onTranscript: (event) => this.handleTranscript(event),
+        onSpeechActivity: (event) => {
           const active = event.type === "start";
           this.emit({ type: "speech", speaker: "user", active });
           if (active) {
@@ -190,7 +202,12 @@ export class RealtimeAgent extends Agent<void, LangMessages, RealtimeAgentEvent>
     const final = event.type === "final";
     if (!final) {
       if (event.text) {
-        this.emit({ type: "transcript", speaker: "user", text: event.text, final: false });
+        this.emit({
+          type: "transcript",
+          speaker: "user",
+          text: event.text,
+          final: false,
+        });
       }
       return;
     }
@@ -232,33 +249,85 @@ export class RealtimeAgent extends Agent<void, LangMessages, RealtimeAgentEvent>
     const segmenter = new StreamingTextSegmenter(this.segmenterOptions);
     const turnStartedAt = performance.now();
     let firstTokenReported = false;
+    let firstTtsInputReported = false;
     let firstAudioReported = false;
     let streamIndex = -1;
     let streamedText = "";
     let speechTail = Promise.resolve();
+    const createStreamingSession =
+      this.textToSpeech.createStreamingSession?.bind(this.textToSpeech);
+    const streamingSession = createStreamingSession?.({
+      signal: controller.signal,
+    });
+    let streamingWriteTail = Promise.resolve();
+
+    const reportTtsInput = () => {
+      if (firstTtsInputReported) return;
+      firstTtsInputReported = true;
+      this.emit({
+        type: "latency",
+        stage: "tts_input",
+        milliseconds: performance.now() - turnStartedAt,
+      });
+    };
+
+    const emitAudio = (frame: PcmAudioFrame) => {
+      if (!firstAudioReported) {
+        firstAudioReported = true;
+        this.emit({
+          type: "latency",
+          stage: "tts_first_audio",
+          milliseconds: performance.now() - turnStartedAt,
+        });
+        this.emit({ type: "speech", speaker: "assistant", active: true });
+      }
+      this.emit({ type: "audio", frame });
+    };
+
+    const streamingAudio = streamingSession
+      ? (async () => {
+          const session = await streamingSession;
+          for await (const frame of session) {
+            if (controller.signal.aborted) return;
+            emitAudio(frame);
+          }
+        })()
+      : undefined;
+    void streamingAudio?.catch(() => undefined);
 
     const speak = (segment: string) => {
-      speechTail = speechTail.then(async () => {
-        if (controller.signal.aborted) return;
-        this.emit({ type: "speech", speaker: "assistant", active: true });
-        for await (const frame of this.textToSpeech.speak(segment, {
+      reportTtsInput();
+      const iterator = this.textToSpeech
+        .speak(segment, {
           signal: controller.signal,
-        })) {
-          if (!firstAudioReported) {
-            firstAudioReported = true;
-            this.emit({
-              type: "latency",
-              stage: "tts_first_audio",
-              milliseconds: performance.now() - turnStartedAt,
-            });
+        })
+        [Symbol.asyncIterator]();
+      // Start the provider request now, while the preceding sentence is still
+      // playing. Audio remains ordered by speechTail below.
+      const firstFrame = iterator.next();
+      void firstFrame.catch(() => undefined);
+      speechTail = speechTail.then(async () => {
+        try {
+          if (controller.signal.aborted) return;
+          this.emit({ type: "speech", speaker: "assistant", active: true });
+          let next = await firstFrame;
+          while (!next.done) {
+            const frame = next.value;
+            if (controller.signal.aborted) return;
+            emitAudio(frame);
+            next = await iterator.next();
           }
-          this.emit({ type: "audio", frame });
+        } finally {
+          if (controller.signal.aborted) {
+            void iterator.return?.().catch(() => undefined);
+          }
         }
       });
     };
 
-    const unsubscribe = this.chatAgent.subscribe(event => {
-      if (event.type !== "streaming" || event.data.msg.role !== "assistant") return;
+    const unsubscribe = this.chatAgent.subscribe((event) => {
+      if (event.type !== "streaming" || event.data.msg.role !== "assistant")
+        return;
       if (event.data.idx !== streamIndex) {
         streamIndex = event.data.idx;
         streamedText = "";
@@ -277,8 +346,26 @@ export class RealtimeAgent extends Agent<void, LangMessages, RealtimeAgentEvent>
           milliseconds: performance.now() - turnStartedAt,
         });
       }
-      this.emit({ type: "transcript", speaker: "assistant", text: delta, final: false });
-      for (const segment of segmenter.push(delta)) speak(segment);
+      this.emit({
+        type: "transcript",
+        speaker: "assistant",
+        text: delta,
+        final: false,
+      });
+      const segments = segmenter.push(delta);
+      if (streamingSession) {
+        reportTtsInput();
+        streamingWriteTail = streamingWriteTail.then(async () => {
+          const session = await streamingSession;
+          if (!controller.signal.aborted) {
+            session.appendText(delta);
+            if (segments.length > 0) session.flush();
+          }
+        });
+        void streamingWriteTail.catch(() => undefined);
+      } else {
+        for (const segment of segments) speak(segment);
+      }
     });
 
     try {
@@ -289,12 +376,26 @@ export class RealtimeAgent extends Agent<void, LangMessages, RealtimeAgentEvent>
         stage: "input_ready",
         milliseconds: performance.now() - turnStartedAt,
       });
-      const output = await this.chatAgent.run([input], { signal: controller.signal });
+      const output = await this.chatAgent.run([input], {
+        signal: controller.signal,
+      });
       if (!controller.signal.aborted) {
-        for (const segment of segmenter.flush()) speak(segment);
-        await speechTail;
+        if (streamingSession) {
+          segmenter.flush();
+          await streamingWriteTail;
+          (await streamingSession).endInput();
+          await streamingAudio;
+        } else {
+          for (const segment of segmenter.flush()) speak(segment);
+          await speechTail;
+        }
         this.emit({ type: "speech", speaker: "assistant", active: false });
-        this.emit({ type: "transcript", speaker: "assistant", text: output.answer, final: true });
+        this.emit({
+          type: "transcript",
+          speaker: "assistant",
+          text: output.answer,
+          final: true,
+        });
         this.emit({
           type: "latency",
           stage: "turn_complete",
@@ -306,14 +407,20 @@ export class RealtimeAgent extends Agent<void, LangMessages, RealtimeAgentEvent>
     } finally {
       unsubscribe();
       segmenter.clear();
-      if (this.responseController === controller) this.responseController = undefined;
+      if (streamingSession) {
+        await streamingSession
+          .then((session) => session.close())
+          .catch(() => undefined);
+      }
+      if (this.responseController === controller)
+        this.responseController = undefined;
     }
   }
 
   private removeHistoricImages(): void {
     for (const message of this.chatAgent.messages) {
       if (message.role !== "user") continue;
-      message.items = message.items.filter(item => item.type !== "image");
+      message.items = message.items.filter((item) => item.type !== "image");
     }
   }
 
@@ -324,7 +431,9 @@ export class RealtimeAgent extends Agent<void, LangMessages, RealtimeAgentEvent>
   }
 }
 
-async function imageMessageItem(image: LangContentImage): Promise<LangMessageItemImage> {
+async function imageMessageItem(
+  image: LangContentImage,
+): Promise<LangMessageItemImage> {
   switch (image.kind) {
     case "url":
       return { type: "image", url: image.url };
@@ -347,7 +456,8 @@ async function imageMessageItem(image: LangContentImage): Promise<LangMessageIte
 
 function bytesToBase64(input: ArrayBuffer | Uint8Array): string {
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const alphabet =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   let result = "";
   for (let index = 0; index < bytes.length; index += 3) {
     const first = bytes[index];

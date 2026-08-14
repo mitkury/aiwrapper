@@ -1,41 +1,37 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { type AgentEvent, type LangMessages, type LangTool } from 'aiwrapper';
-	import { RealtimeAgent, type RealtimeAgentEvent } from 'aiwrapper/unstable/realtime';
-	import SecretsSetup from './SecretsSetup.svelte';
 	import { getSecrets } from '$lib/secretsContext.svelte';
 	import {
-		createLanguageProvider,
 		getProviderConfig,
 		getProviderModel,
 		getProviderModels,
 		getSelectedProviderId,
-		isProviderConfigured,
 		providerConfigs,
 		type ProviderId
 	} from '$lib/provider-config';
-	import { RemoteSpeechToText, RemoteTextToSpeech } from '$lib/realtime/remote-speech';
 	import { PcmStreamPlayer } from '$lib/realtime/pcm-player';
+	import {
+		RemoteRealtimeSession,
+		type RemoteRealtimeEvent
+	} from '$lib/realtime/remote-realtime-session';
 
 	type SpeechConfig = {
+		llm: Record<ProviderId, { configured: boolean; environmentKey?: string }>;
 		stt: {
 			openai: { configured: boolean; model: string };
+			deepgram: { configured: boolean; model: string };
+			elevenlabs: { configured: boolean; model: string };
 		};
 		tts: {
 			openai: { configured: boolean; model: string; voice: string };
 			elevenlabs: { configured: boolean; model: string; voice: string };
 		};
 	};
-	type SttProvider = 'openai';
+	type SttProvider = 'openai' | 'deepgram' | 'elevenlabs';
 	type TtsProvider = 'openai' | 'elevenlabs';
 	type VoiceOption = { id: string; name: string };
 	type Phase =
-		| 'disconnected'
-		| 'connecting'
-		| 'listening'
-		| 'user-speaking'
-		| 'thinking'
-		| 'speaking';
+		'disconnected' | 'connecting' | 'listening' | 'user-speaking' | 'thinking' | 'speaking';
 	type TranscriptEntry = {
 		id: number;
 		speaker: 'user' | 'assistant';
@@ -49,27 +45,25 @@
 		tone: 'stt' | 'input' | 'llm' | 'tts' | 'finish';
 	};
 
-	const tools: LangTool[] = [
-		{
-			name: 'get_current_time',
-			description: 'Get the current local time when the user asks for it.',
-			parameters: { type: 'object', properties: {}, additionalProperties: false },
-			handler: () => ({ localTime: new Date().toString() })
-		}
-	];
-
 	const secrets = getSecrets();
 	let speechConfig = $state<SpeechConfig>({
-		stt: { openai: { configured: false, model: 'gpt-4o-mini-transcribe' } },
+		llm: Object.fromEntries(
+			providerConfigs.map((provider) => [provider.id, { configured: false }])
+		) as SpeechConfig['llm'],
+		stt: {
+			openai: { configured: false, model: 'gpt-4o-mini-transcribe' },
+			deepgram: { configured: false, model: 'flux-general-en' },
+			elevenlabs: { configured: false, model: 'scribe_v2_realtime' }
+		},
 		tts: {
 			openai: { configured: false, model: 'gpt-4o-mini-tts', voice: 'coral' },
-			elevenlabs: { configured: false, model: 'eleven_multilingual_v2', voice: '' }
+			elevenlabs: { configured: false, model: 'eleven_flash_v2_5', voice: '' }
 		}
 	});
 	let speechConfigLoaded = $state(false);
 	let phase = $state<Phase>('disconnected');
 	let error = $state('');
-	let providerReady = $state(false);
+	let errorSource = $state('');
 	let llmProviderId = $state<ProviderId>('openai');
 	let providerName = $state('OpenAI');
 	let modelName = $state('');
@@ -88,12 +82,13 @@
 	let sttFinalMs = $state<number | undefined>();
 	let inputReadyMs = $state<number | undefined>();
 	let llmFirstTokenMs = $state<number | undefined>();
+	let ttsInputMs = $state<number | undefined>();
 	let ttsFirstAudioMs = $state<number | undefined>();
 	let turnCompleteMs = $state<number | undefined>();
 	let videoElement: HTMLVideoElement;
 	let canvasElement: HTMLCanvasElement;
 
-	let agent: RealtimeAgent | undefined;
+	let agent: RemoteRealtimeSession | undefined;
 	let unsubscribeAgent: (() => void) | undefined;
 	let mediaStream: MediaStream | undefined;
 	let recordingContext: AudioContext | undefined;
@@ -109,7 +104,10 @@
 	const llmProviderConfig = $derived(getProviderConfig(llmProviderId));
 	const llmModels = $derived(getProviderModels(llmProviderConfig));
 	const selectedLlmModelIsInCatalog = $derived(llmModels.some((model) => model.id === modelName));
-	const sttReady = $derived(speechConfig.stt.openai.configured);
+	const llmServerConfig = $derived(speechConfig.llm[llmProviderId]);
+	const providerReady = $derived(Boolean(llmServerConfig?.configured));
+	const sttProviderConfig = $derived(speechConfig.stt[sttProvider]);
+	const sttReady = $derived(sttProviderConfig.configured);
 	const ttsReady = $derived(
 		ttsProvider === 'openai'
 			? speechConfig.tts.openai.configured
@@ -118,8 +116,9 @@
 	const canConnect = $derived(speechConfigLoaded && providerReady && sttReady && ttsReady);
 	const configurationHint = $derived.by(() => {
 		if (!speechConfigLoaded) return 'Loading server speech configuration…';
-		if (!sttReady) return 'Add OPENAI_API_KEY to .env for streaming transcription.';
-		if (!providerReady) return `Configure ${providerName} under Providers & Keys.`;
+		if (!sttReady)
+			return `Add ${sttEnvironmentKey(sttProvider)} to .env for streaming transcription.`;
+		if (!providerReady) return llmConfigurationHint(llmProviderId, providerName);
 		if (ttsProvider === 'openai' && !speechConfig.tts.openai.configured) {
 			return 'Add OPENAI_API_KEY to .env for OpenAI speech.';
 		}
@@ -157,11 +156,19 @@
 				tone: 'llm'
 			});
 		}
+		if (ttsInputMs !== undefined) {
+			parts.push({
+				label: 'Text buffer',
+				description: 'First model token to first speakable segment',
+				milliseconds: Math.max(0, ttsInputMs - (llmFirstTokenMs ?? 0)),
+				tone: 'tts'
+			});
+		}
 		if (ttsFirstAudioMs !== undefined) {
 			parts.push({
-				label: 'TTS start',
-				description: 'First text token to first audio frame',
-				milliseconds: Math.max(0, ttsFirstAudioMs - (llmFirstTokenMs ?? 0)),
+				label: 'TTS wait',
+				description: 'First segment submitted to first audio frame',
+				milliseconds: Math.max(0, ttsFirstAudioMs - (ttsInputMs ?? llmFirstTokenMs ?? 0)),
 				tone: 'tts'
 			});
 		}
@@ -185,7 +192,6 @@
 		llmProviderId = providerId;
 		providerName = provider.label;
 		modelName = getProviderModel(provider, secrets.values);
-		providerReady = isProviderConfigured(provider, secrets.values);
 	});
 
 	onMount(() => {
@@ -200,7 +206,22 @@
 			const response = await fetch('/api/speech/config');
 			if (!response.ok) throw new Error('Could not load speech configuration');
 			speechConfig = (await response.json()) as SpeechConfig;
-			sttModel = secrets.values.REALTIME_STT_MODEL?.trim() || speechConfig.stt.openai.model;
+			const selectedProvider = getSelectedProviderId(secrets.values);
+			if (!speechConfig.llm[selectedProvider]?.configured) {
+				const availableProvider = providerConfigs.find(
+					(provider) => speechConfig.llm[provider.id]?.configured
+				);
+				if (availableProvider) selectLlmProvider(availableProvider.id);
+			}
+			const savedSttProvider = secrets.values.REALTIME_STT_PROVIDER;
+			const preferredSttProvider: SttProvider = isSttProvider(savedSttProvider)
+				? savedSttProvider
+				: speechConfig.stt.openai.configured
+					? 'openai'
+					: speechConfig.stt.deepgram.configured
+						? 'deepgram'
+						: 'elevenlabs';
+			applySttProvider(preferredSttProvider, false);
 
 			const savedTtsProvider = secrets.values.REALTIME_TTS_PROVIDER;
 			const preferredTtsProvider: TtsProvider =
@@ -213,7 +234,7 @@
 			applyTtsProvider(preferredTtsProvider, false);
 			if (ttsProvider === 'elevenlabs') void loadElevenLabsVoices();
 		} catch (loadError) {
-			error = errorMessage(loadError);
+			reportError('Configuration', loadError);
 		} finally {
 			speechConfigLoaded = true;
 		}
@@ -221,43 +242,41 @@
 
 	async function connect() {
 		if (!canConnect || phase !== 'disconnected') return;
-		error = '';
+		clearError();
 		phase = 'connecting';
 		transcripts = [];
 		resetLatency();
 
 		try {
-			mediaStream = await navigator.mediaDevices.getUserMedia({
-				audio: {
-					channelCount: 1,
-					echoCancellation: true,
-					noiseSuppression: true,
-					autoGainControl: true
-				},
-				video: cameraEnabled
-					? { width: { ideal: 640 }, height: { ideal: 360 }, facingMode: 'environment' }
-					: false
-			});
+			mediaStream =
+				microphoneEnabled || cameraEnabled
+					? await navigator.mediaDevices.getUserMedia({
+							audio: microphoneEnabled
+								? {
+										channelCount: 1,
+										echoCancellation: true,
+										noiseSuppression: true,
+										autoGainControl: true
+									}
+								: false,
+							video: cameraEnabled
+								? { width: { ideal: 640 }, height: { ideal: 360 }, facingMode: 'environment' }
+								: false
+						})
+					: undefined;
 
-			if (cameraEnabled && videoElement) {
+			if (cameraEnabled && mediaStream && videoElement) {
 				videoElement.srcObject = mediaStream;
 				await videoElement.play();
 			}
 
 			player = new PcmStreamPlayer();
 			await player.resume();
-			const providerId = getSelectedProviderId(secrets.values);
-			agent = new RealtimeAgent(
-				createLanguageProvider(providerId, secrets.values, { optimizeForLatency: true }),
-				{
-					speechToText: new RemoteSpeechToText(sttModel),
-					textToSpeech: new RemoteTextToSpeech(ttsProvider, voice, ttsModel),
-					instructions:
-						'You are a concise realtime voice assistant. Reply in the language of the latest user utterance. Use the latest camera image when it helps answer the user. Prefer short spoken responses.',
-					tools,
-					textSegmenter: { maxBufferedCharacters: 48, minimumSegmentCharacters: 12 }
-				}
-			);
+			agent = new RemoteRealtimeSession({
+				stt: { provider: sttProvider, model: sttModel },
+				llm: { provider: llmProviderId, model: modelName },
+				tts: { provider: ttsProvider, model: ttsModel, voice }
+			});
 			unsubscribeAgent = agent.subscribe(handleAgentEvent);
 			await agent.connect();
 			startMicrophone();
@@ -267,13 +286,13 @@
 			}
 			phase = 'listening';
 		} catch (connectError) {
-			error = errorMessage(connectError);
+			reportError('Connection', connectError);
 			await disconnect();
 		}
 	}
 
 	function startMicrophone() {
-		if (!mediaStream || !agent) return;
+		if (!microphoneEnabled || !mediaStream || !agent) return;
 		recordingContext = new AudioContext();
 		recordingSource = recordingContext.createMediaStreamSource(mediaStream);
 		recordingProcessor = recordingContext.createScriptProcessor(4096, 1, 1);
@@ -297,7 +316,7 @@
 					})
 				)
 				.catch((uploadError) => {
-					if (phase !== 'disconnected') error = errorMessage(uploadError);
+					if (phase !== 'disconnected') reportError('Speech input', uploadError);
 				});
 		};
 		recordingSource.connect(recordingProcessor);
@@ -321,22 +340,21 @@
 		if (blob) agent.setImage({ kind: 'blob', blob, mimeType: 'image/jpeg' });
 	}
 
-	function handleAgentEvent(event: AgentEvent<LangMessages, RealtimeAgentEvent>) {
+	function handleAgentEvent(event: RemoteRealtimeEvent) {
 		if (event.type === 'speech') {
-			const speech = event as Extract<RealtimeAgentEvent, { type: 'speech' }>;
-			if (speech.speaker === 'user') {
-				phase = speech.active ? 'user-speaking' : 'thinking';
+			if (event.speaker === 'user') {
+				phase = event.active ? 'user-speaking' : 'thinking';
 			} else {
-				phase = speech.active ? 'speaking' : 'listening';
+				phase = event.active ? 'speaking' : 'listening';
 			}
 			return;
 		}
 		if (event.type === 'transcript') {
-			updateTranscript(event as Extract<RealtimeAgentEvent, { type: 'transcript' }>);
+			updateTranscript(event);
 			return;
 		}
 		if (event.type === 'audio') {
-			player?.enqueue((event as Extract<RealtimeAgentEvent, { type: 'audio' }>).frame);
+			player?.enqueue(event.frame);
 			return;
 		}
 		if (event.type === 'interrupted') {
@@ -344,22 +362,22 @@
 			return;
 		}
 		if (event.type === 'latency') {
-			const latency = event as Extract<RealtimeAgentEvent, { type: 'latency' }>;
-			if (latency.stage === 'stt_final') sttFinalMs = latency.milliseconds;
-			if (latency.stage === 'input_ready') inputReadyMs = latency.milliseconds;
-			if (latency.stage === 'llm_first_token') llmFirstTokenMs = latency.milliseconds;
-			if (latency.stage === 'tts_first_audio') ttsFirstAudioMs = latency.milliseconds;
-			if (latency.stage === 'turn_complete') turnCompleteMs = latency.milliseconds;
+			if (event.stage === 'stt_final') sttFinalMs = event.milliseconds;
+			if (event.stage === 'input_ready') inputReadyMs = event.milliseconds;
+			if (event.stage === 'llm_first_token') llmFirstTokenMs = event.milliseconds;
+			if (event.stage === 'tts_input') ttsInputMs = event.milliseconds;
+			if (event.stage === 'tts_first_audio') ttsFirstAudioMs = event.milliseconds;
+			if (event.stage === 'turn_complete') turnCompleteMs = event.milliseconds;
 			return;
 		}
 		if (event.type === 'turn_complete') phase = 'listening';
 		if (event.type === 'error') {
-			const reported = Reflect.get(event, 'error');
-			error = errorMessage(reported);
+			reportError('Provider error', event.error);
+			if (phase !== 'disconnected') phase = 'listening';
 		}
 	}
 
-	function updateTranscript(event: Extract<RealtimeAgentEvent, { type: 'transcript' }>) {
+	function updateTranscript(event: Extract<RemoteRealtimeEvent, { type: 'transcript' }>) {
 		const last = transcripts[transcripts.length - 1];
 		if (!event.final) {
 			if (last && !last.final && last.speaker === event.speaker) {
@@ -384,6 +402,7 @@
 			];
 		}
 		if (event.speaker === 'user') {
+			clearError();
 			phase = 'thinking';
 			resetLatency();
 		}
@@ -394,12 +413,14 @@
 		const text = textInput.trim();
 		if (!text || !agent) return;
 		textInput = '';
+		clearError();
 		resetLatency();
 		phase = 'thinking';
 		try {
 			await agent.sendText(text);
 		} catch (sendError) {
-			error = errorMessage(sendError);
+			if (!error) reportError('Pipeline error', sendError);
+			phase = 'listening';
 		}
 	}
 
@@ -416,7 +437,19 @@
 
 	function selectSttModel(model: string) {
 		sttModel = model;
-		saveRealtimeSetting('REALTIME_STT_MODEL', model);
+		saveRealtimeSetting(`REALTIME_${sttProvider.toUpperCase()}_STT_MODEL`, model);
+	}
+
+	function selectSttProvider(provider: SttProvider) {
+		applySttProvider(provider, true);
+	}
+
+	function applySttProvider(provider: SttProvider, persist: boolean) {
+		sttProvider = provider;
+		sttModel =
+			secrets.values[`REALTIME_${provider.toUpperCase()}_STT_MODEL`]?.trim() ||
+			speechConfig.stt[provider].model;
+		if (persist) saveRealtimeSetting('REALTIME_STT_PROVIDER', provider);
 	}
 
 	function selectTtsProvider(provider: TtsProvider) {
@@ -495,6 +528,7 @@
 		sttFinalMs = undefined;
 		inputReadyMs = undefined;
 		llmFirstTokenMs = undefined;
+		ttsInputMs = undefined;
 		ttsFirstAudioMs = undefined;
 		turnCompleteMs = undefined;
 	}
@@ -520,6 +554,48 @@
 		return value instanceof Error ? value.message : 'Something went wrong';
 	}
 
+	function reportError(source: string, value: unknown): void {
+		errorSource = source;
+		error = errorMessage(value);
+	}
+
+	function clearError(): void {
+		errorSource = '';
+		error = '';
+	}
+
+	function llmConfigurationHint(provider: ProviderId, label: string): string {
+		if (provider === 'ollama') return 'Start Ollama where the playground server can reach it.';
+		if (provider === 'openai-compatible') {
+			return 'Add OPENAI_COMPATIBLE_BASE_URL to .env for the OpenAI-compatible server.';
+		}
+		const environmentKey = speechConfig.llm[provider]?.environmentKey;
+		return environmentKey
+			? `Add ${environmentKey} to .env for ${label}.`
+			: `Configure ${label} in the server environment.`;
+	}
+
+	function llmConfigurationStatus(provider: ProviderId): string {
+		if (provider === 'ollama') return 'Server-local Ollama';
+		if (provider === 'openai-compatible') {
+			return 'OPENAI_COMPATIBLE_BASE_URL from server environment';
+		}
+		const environmentKey = speechConfig.llm[provider]?.environmentKey;
+		return providerReady && environmentKey
+			? `${environmentKey} from server environment`
+			: llmConfigurationHint(provider, providerName);
+	}
+
+	function isSttProvider(value: string | undefined): value is SttProvider {
+		return value === 'openai' || value === 'deepgram' || value === 'elevenlabs';
+	}
+
+	function sttEnvironmentKey(provider: SttProvider): string {
+		if (provider === 'deepgram') return 'DEEPGRAM_API_KEY';
+		if (provider === 'elevenlabs') return 'ELEVENLABS_API_KEY';
+		return 'OPENAI_API_KEY';
+	}
+
 	function phaseLabel(value: Phase): string {
 		return value.replace('-', ' ');
 	}
@@ -532,14 +608,11 @@
 
 <div class="min-h-screen bg-neutral-50 text-neutral-900">
 	<main class="mx-auto w-full max-w-5xl px-4 py-8 sm:py-12">
-		<div class="flex flex-col items-start gap-4 sm:flex-row sm:justify-between">
-			<div>
-				<h1 class="text-2xl font-semibold tracking-tight">Realtime agent</h1>
-				<p class="mt-1 text-sm text-neutral-500">
-					Configure and compare each stage of the voice cascade.
-				</p>
-			</div>
-			<SecretsSetup disabled={connected || phase === 'connecting'} />
+		<div>
+			<h1 class="text-2xl font-semibold tracking-tight">Realtime agent</h1>
+			<p class="mt-1 text-sm text-neutral-500">
+				Configure and compare each stage of the voice cascade.
+			</p>
 		</div>
 
 		<section class="mt-6 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
@@ -577,12 +650,20 @@
 					>
 					<select
 						id="realtime-stt-provider"
-						bind:value={sttProvider}
+						value={sttProvider}
+						onchange={(event) =>
+							selectSttProvider((event.currentTarget as HTMLSelectElement).value as SttProvider)}
 						disabled={phase !== 'disconnected'}
 						class="mt-1 w-full rounded-lg border-neutral-300 text-sm focus:border-neutral-500 focus:ring-neutral-500"
 					>
 						<option value="openai" disabled={!speechConfig.stt.openai.configured}
 							>OpenAI Realtime</option
+						>
+						<option value="deepgram" disabled={!speechConfig.stt.deepgram.configured}
+							>Deepgram Flux</option
+						>
+						<option value="elevenlabs" disabled={!speechConfig.stt.elevenlabs.configured}
+							>ElevenLabs Scribe</option
 						>
 					</select>
 					<label
@@ -598,11 +679,20 @@
 						class="mt-1 w-full rounded-lg border-neutral-300 text-sm focus:border-neutral-500 focus:ring-neutral-500"
 					/>
 					<datalist id="realtime-stt-model-options">
-						<option value="gpt-4o-mini-transcribe"></option>
-						<option value="gpt-4o-transcribe"></option>
+						{#if sttProvider === 'openai'}
+							<option value="gpt-4o-mini-transcribe"></option>
+							<option value="gpt-4o-transcribe"></option>
+						{:else if sttProvider === 'deepgram'}
+							<option value="flux-general-en"></option>
+							<option value="flux-general-multi"></option>
+						{:else}
+							<option value="scribe_v2_realtime"></option>
+						{/if}
 					</datalist>
 					<p class="mt-3 text-[11px] text-neutral-500">
-						{sttReady ? 'OPENAI_API_KEY from server environment' : 'Add OPENAI_API_KEY to .env'}
+						{sttReady
+							? `${sttEnvironmentKey(sttProvider)} from server environment`
+							: `Add ${sttEnvironmentKey(sttProvider)} to .env`}
 					</p>
 				</div>
 
@@ -616,7 +706,7 @@
 						</div>
 						<span
 							class={`mt-0.5 h-2.5 w-2.5 rounded-full ${providerReady ? 'bg-emerald-500' : 'bg-amber-400'}`}
-							title={providerReady ? 'Configured' : 'Missing browser provider settings'}
+							title={providerReady ? 'Configured on server' : 'Missing server configuration'}
 						></span>
 					</div>
 					<label
@@ -632,10 +722,10 @@
 						class="mt-1 w-full rounded-lg border-neutral-300 text-sm focus:border-neutral-500 focus:ring-neutral-500"
 					>
 						{#each providerConfigs as provider}
-							<option value={provider.id}
-								>{provider.label}{isProviderConfigured(provider, secrets.values)
-									? ' ✓'
-									: ''}</option
+							<option
+								value={provider.id}
+								disabled={speechConfigLoaded && !speechConfig.llm[provider.id]?.configured}
+								>{provider.label}{speechConfig.llm[provider.id]?.configured ? ' ✓' : ''}</option
 							>
 						{/each}
 					</select>
@@ -668,7 +758,7 @@
 						/>
 					{/if}
 					<p class="mt-3 text-[11px] text-neutral-500">
-						{providerReady ? 'Browser provider configured' : 'Set its key under Providers & Keys'}
+						{llmConfigurationStatus(llmProviderId)}
 					</p>
 				</div>
 
@@ -851,7 +941,7 @@
 							<input
 								type="checkbox"
 								bind:checked={microphoneEnabled}
-								disabled={!connected}
+								disabled={phase !== 'disconnected'}
 								class="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-500"
 							/>
 						</label>
@@ -931,7 +1021,14 @@
 		</section>
 
 		{#if error}
-			<p class="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>
+			<div
+				class="mt-4 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-800"
+				role="alert"
+				aria-live="assertive"
+			>
+				<p class="font-medium">{errorSource || 'Error'}</p>
+				<p class="mt-0.5 break-words">{error}</p>
+			</div>
 		{/if}
 		{#if !canConnect}
 			<p class="mt-4 text-xs leading-relaxed text-neutral-500">
@@ -939,9 +1036,9 @@
 			</p>
 		{/if}
 		<p class="mt-3 text-xs leading-relaxed text-neutral-500">
-			This experiment keeps STT and TTS credentials on the server. Its SSE/audio-upload transport is
-			only a playground adapter; production apps can feed the same agent pipeline from WebRTC
-			directly. Headphones give the cleanest interruption behavior.
+			This experiment keeps STT, LLM, and TTS credentials on the server. Its streaming HTTP
+			transport is only a playground adapter; production apps can feed the same agent pipeline from
+			WebRTC directly. Headphones give the cleanest interruption behavior.
 		</p>
 	</main>
 </div>

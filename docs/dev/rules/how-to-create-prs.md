@@ -8,7 +8,7 @@ Explain user-visible behavior changes, provider compatibility constraints, and
 which checks ran.
 
 Run `npm run check` before opening the pull request. Also run
-`npm run check:demo` when shared exports, browser compatibility, or the demo
-changed.
+`npm run check:playground` when shared exports, browser compatibility, or the
+playground changed.
 
 Do not create or publish a pull request unless the user explicitly asks.

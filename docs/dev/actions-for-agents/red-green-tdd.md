@@ -8,7 +8,7 @@ behavior. Run the narrow test and confirm it fails for the expected reason.
 Make the smallest implementation change that passes the test. Run the narrow
 test again, then refactor only if the result becomes clearer.
 
-Finish with `npm run check`. Run `npm run check:demo` as well when shared
+Finish with `npm run check`. Run `npm run check:playground` as well when shared
 exports or browser behavior changed.
 
 Do not use live provider calls as the red test when a captured stream or mocked

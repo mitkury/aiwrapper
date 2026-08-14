@@ -32,6 +32,7 @@ export type RealtimeAgentEvent =
         | "stt_final"
         | "input_ready"
         | "llm_first_token"
+        | "tts_input"
         | "tts_first_audio"
         | "turn_complete";
       milliseconds: number;

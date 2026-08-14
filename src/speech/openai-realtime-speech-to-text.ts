@@ -12,22 +12,21 @@ import type {
   SpeechToTextSessionOptions,
   TranscriptionResult,
 } from "./types.js";
+import {
+  createNodeWebSocket,
+  socketDataToText,
+  websocketURL,
+  type RealtimeSpeechWebSocket,
+  type RealtimeSpeechWebSocketFactory,
+} from "./realtime-websocket.js";
+
+export type {
+  RealtimeSpeechWebSocket,
+  RealtimeSpeechWebSocketData,
+  RealtimeSpeechWebSocketFactory,
+} from "./realtime-websocket.js";
 
 type SocketEvent = { data?: unknown; error?: unknown };
-type SocketListener = (event: SocketEvent) => void;
-
-export interface RealtimeSpeechWebSocket {
-  readonly readyState: number;
-  send(data: string): void;
-  close(code?: number, reason?: string): void;
-  addEventListener(type: string, listener: SocketListener): void;
-  removeEventListener(type: string, listener: SocketListener): void;
-}
-
-export type RealtimeSpeechWebSocketFactory = (
-  url: string,
-  headers: Record<string, string>,
-) => RealtimeSpeechWebSocket | Promise<RealtimeSpeechWebSocket>;
 
 export type OpenAIRealtimeSpeechToTextOptions = {
   apiKey: string;
@@ -359,36 +358,8 @@ class OpenAIRealtimeSpeechToTextSession implements SpeechToTextSession {
   }
 }
 
-async function createNodeWebSocket(
-  url: string,
-  headers: Record<string, string>,
-): Promise<RealtimeSpeechWebSocket> {
-  const module = await import("ws");
-  return new module.WebSocket(url, { headers }) as unknown as RealtimeSpeechWebSocket;
-}
-
 function realtimeTranscriptionURL(baseURL: string): string {
-  const websocketBase = baseURL
-    .replace(/^https:/i, "wss:")
-    .replace(/^http:/i, "ws:")
-    .replace(/\/$/, "");
-  return `${websocketBase}/realtime?intent=transcription`;
-}
-
-async function socketDataToText(data: unknown): Promise<string> {
-  if (typeof data === "string") return data;
-  if (data instanceof ArrayBuffer) return new TextDecoder().decode(data);
-  if (ArrayBuffer.isView(data)) {
-    return new TextDecoder().decode(new Uint8Array(
-      data.buffer,
-      data.byteOffset,
-      data.byteLength,
-    ));
-  }
-  if (typeof Blob !== "undefined" && data instanceof Blob) {
-    return new TextDecoder().decode(await data.arrayBuffer());
-  }
-  throw new Error("OpenAI realtime transcription returned an unsupported message");
+  return websocketURL(baseURL, "/realtime?intent=transcription");
 }
 
 function toError(value: unknown, fallback = "OpenAI realtime transcription failed"): Error {

@@ -30,7 +30,7 @@ const agent = new RealtimeAgent(
   },
 );
 
-agent.subscribe(event => {
+agent.subscribe((event) => {
   if (event.type === "audio") speaker.enqueue(event.frame);
   if (event.type === "interrupted") speaker.clear();
 });
@@ -41,9 +41,14 @@ agent.setImage({ kind: "blob", blob: latestCameraFrame });
 ```
 
 `RealtimeAgent` keeps one conversation, streams each microphone frame into STT,
-passes final utterances to any `LanguageProvider`, and begins TTS at complete
-sentence or bounded-clause boundaries while the LLM is still generating. User
-speech aborts the current LLM and TTS work so a new turn can begin immediately.
+passes final utterances to any `LanguageProvider`, and sends LLM deltas directly
+to TTS providers that support incremental text input. Sentence boundaries ask
+those providers to flush audio early; the end of the LLM stream flushes the
+remaining text. For providers that only accept one text request at a time, the
+agent falls back to complete sentence or bounded-clause segments and starts the
+next request while earlier audio is still being delivered. Audio remains in
+text order in both cases. User speech aborts the current LLM and TTS work so a
+new turn can begin immediately.
 It emits transcript, audio, interruption, turn, and latency events. The latest
 camera frame replaces older frames in model context when a new turn starts, so
 video history does not make every response progressively slower.
@@ -51,18 +56,26 @@ video history does not make every response progressively slower.
 The reusable layer deliberately does not choose WebRTC, WebSocket, SSE, or a
 room protocol. Applications supply speech providers and own microphone capture,
 speaker playback, camera sampling, credentials, reconnection, and transport.
-This lets a small browser demo use same-origin endpoints while production apps
-can reuse the orchestration with their own realtime media transport.
+This lets the browser playground use a same-origin server session while
+production apps can reuse the orchestration with their own realtime media
+transport.
 
 ## Playground
 
 Run the browser app and open `/realtime`. It provides chat input, live
 microphone transcription, streaming speech output, optional camera context,
 barge-in interruption, and a per-turn latency waterfall. The waterfall separates
-STT finalization, input preparation, LLM wait, first-audio delay, and completion.
+STT finalization, input preparation, LLM wait, text segmentation, TTS provider
+wait, and completion.
+
+The playground browser is a thin media/UI client. A Node-side session owns the
+selected STT, language, and TTS providers and the `RealtimeAgent`; it streams
+provider-neutral events and binary PCM back to the page. This keeps credentials,
+turn detection, conversation state, tool execution, interruption, and provider
+errors on the server while leaving the regular chat playground unchanged.
 Its values are wall-clock intervals; LLM generation and TTS overlap after audio
 starts. See
-[the playground README](../chat/README.md) for environment setup.
+[the playground README](../playground/README.md) for environment setup.
 
 Camera context starts off because multimodal requests are slower. Enable it for
 turns that need vision. The playground's latency profile also disables optional
