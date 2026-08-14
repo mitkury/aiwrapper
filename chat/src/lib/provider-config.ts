@@ -292,6 +292,7 @@ export function createLanguageProvider(
 	const provider = getProviderConfig(providerId);
 	const apiKey = provider.apiKeyStorageKey ? values[provider.apiKeyStorageKey]?.trim() || '' : '';
 	const model = getModelIdForProvider(provider, getProviderModel(provider, values));
+	const maxTokens = options.optimizeForLatency ? 256 : undefined;
 
 	switch (providerId) {
 		case 'openai':
@@ -299,38 +300,65 @@ export function createLanguageProvider(
 				apiKey,
 				model,
 				reasoningEffort: options.optimizeForLatency ? 'low' : 'high',
-				showReasoningSummary: !options.optimizeForLatency
+				showReasoningSummary: !options.optimizeForLatency,
+				defaultOptions: options.optimizeForLatency
+					? { providerSpecificBody: { max_output_tokens: maxTokens } }
+					: undefined
 			});
 		case 'anthropic':
-			return Lang.anthropic({ apiKey, model });
+			return Lang.anthropic({
+				apiKey,
+				model,
+				maxTokens,
+				extendedThinking: options.optimizeForLatency ? false : undefined
+			});
 		case 'google':
-			return Lang.google({ apiKey, model });
+			return Lang.google({ apiKey, model, maxTokens });
 		case 'groq':
-			return Lang.groq({ apiKey, model });
+			return Lang.groq({
+				apiKey,
+				model,
+				maxTokens,
+				reasoningEffort: options.optimizeForLatency ? 'low' : undefined,
+				includeReasoning: options.optimizeForLatency ? false : undefined
+			});
 		case 'deepseek':
-			return Lang.deepseek({ apiKey, model });
+			return Lang.deepseek({ apiKey, model, maxTokens });
 		case 'kimi':
-			return Lang.kimi({ apiKey, model });
+			return Lang.kimi({
+				apiKey,
+				model,
+				maxTokens,
+				thinking: options.optimizeForLatency ? { type: 'disabled' } : undefined,
+				bodyProperties: options.optimizeForLatency
+					? { max_completion_tokens: maxTokens }
+					: undefined
+			});
 		case 'xai':
-			return Lang.xai({ apiKey, model });
+			return Lang.xai({ apiKey, model, maxTokens });
 		case 'cohere':
-			return Lang.cohere({ apiKey, model });
+			return Lang.cohere({ apiKey, model, maxTokens });
 		case 'mistral':
-			return Lang.mistral({ apiKey, model });
+			return Lang.mistral({ apiKey, model, maxTokens });
 		case 'openrouter':
 			return Lang.openrouter({
 				apiKey,
 				model,
+				maxTokens,
 				bodyProperties: options.optimizeForLatency
-					? { provider: { sort: 'latency' } }
+					? {
+							provider: { sort: 'latency' },
+							reasoning: { effort: 'none' }
+						}
 					: undefined
 			});
 		case 'ollama':
-			return Lang.ollama({ model, url: getProviderBaseURL(provider, values) });
+			return Lang.ollama({ model, maxTokens, url: getProviderBaseURL(provider, values) });
 		case 'openai-compatible':
 			return Lang.openaiLike({
 				apiKey: apiKey || undefined,
 				model,
+				maxTokens,
 				baseURL: getProviderBaseURL(provider, values)
 			});
 	}

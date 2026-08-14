@@ -52,7 +52,7 @@
 	let modelName = $state('');
 	let ttsProvider = $state<'openai' | 'elevenlabs'>('openai');
 	let voice = $state('coral');
-	let cameraEnabled = $state(true);
+	let cameraEnabled = $state(false);
 	let microphoneEnabled = $state(true);
 	let textInput = $state('');
 	let transcripts: TranscriptEntry[] = $state([]);
@@ -146,7 +146,7 @@
 					instructions:
 						'You are a concise realtime voice assistant. Reply in the language of the latest user utterance. Use the latest camera image when it helps answer the user. Prefer short spoken responses.',
 					tools,
-					textSegmenter: { maxBufferedCharacters: 72 }
+					textSegmenter: { maxBufferedCharacters: 48, minimumSegmentCharacters: 12 }
 				}
 			);
 			unsubscribeAgent = agent.subscribe(handleAgentEvent);
@@ -406,7 +406,7 @@
 
 					<div class="mt-5 space-y-3">
 						<label class="flex items-center justify-between gap-3 text-sm text-neutral-700">
-							<span>Camera context</span>
+							<span>Camera context <span class="text-neutral-400">(slower)</span></span>
 							<input type="checkbox" bind:checked={cameraEnabled} disabled={phase !== 'disconnected'} class="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-500" />
 						</label>
 						<label class="flex items-center justify-between gap-3 text-sm text-neutral-700">

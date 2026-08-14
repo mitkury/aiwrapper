@@ -45,7 +45,9 @@ agent.setImage({ kind: "blob", blob: latestCameraFrame });
 passes final utterances to any `LanguageProvider`, and begins TTS at complete
 sentence or bounded-clause boundaries while the LLM is still generating. User
 speech aborts the current LLM and TTS work so a new turn can begin immediately.
-It emits transcript, audio, interruption, turn, and latency events.
+It emits transcript, audio, interruption, turn, and latency events. The latest
+camera frame replaces older frames in model context when a new turn starts, so
+video history does not make every response progressively slower.
 
 The reusable layer deliberately does not choose WebRTC, WebSocket, SSE, or a
 room protocol. Applications supply speech providers and own microphone capture,
@@ -59,6 +61,11 @@ Run the browser app and open `/realtime`. It provides chat input, live
 microphone transcription, streaming speech output, optional camera context,
 barge-in interruption, and first-token/first-audio timing. See
 [the playground README](../chat/README.md) for environment setup.
+
+Camera context starts off because multimodal requests are slower. Enable it for
+turns that need vision. The playground's latency profile also disables optional
+reasoning where supported and limits spoken replies to 256 tokens. Regular chat
+provider settings are unchanged.
 
 The current playback event means audio was queued by the agent, not necessarily
 heard in full. A production application that persists interrupted assistant

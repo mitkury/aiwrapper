@@ -137,6 +137,31 @@ describe("RealtimeAgent", () => {
     expect(agent.messages.filter(message => message.role === "user")).toHaveLength(2);
   });
 
+  it("keeps only the latest camera frame in model context", async () => {
+    const agent = new RealtimeAgent(
+      Lang.mockResponseStream({ message: "I can see it." }),
+      {
+        speechToText: SpeechToText.mock(),
+        textToSpeech: TextToSpeech.mock(),
+      },
+    );
+
+    await agent.connect();
+    agent.setImage({ kind: "base64", base64: "Zmlyc3Q=", mimeType: "image/jpeg" });
+    await agent.sendText("First turn");
+    agent.setImage({ kind: "base64", base64: "c2Vjb25k", mimeType: "image/jpeg" });
+    await agent.sendText("Second turn");
+    await agent.close();
+
+    const userMessages = agent.messages.filter(message => message.role === "user");
+    expect(userMessages[0].images).toEqual([]);
+    expect(userMessages[1].images).toEqual([{
+      type: "image",
+      base64: "c2Vjb25k",
+      mimeType: "image/jpeg",
+    }]);
+  });
+
   it("preserves whitespace in incremental STT transcripts", async () => {
     const speechToText: SpeechToTextProvider = {
       inputFormat: { encoding: "pcm_s16le", channels: 1, sampleRate: 24000 },

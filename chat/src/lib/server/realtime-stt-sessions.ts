@@ -36,7 +36,7 @@ export async function createRealtimeSttSession(): Promise<RealtimeSttRecord> {
 		language: env.OPENAI_REALTIME_TRANSCRIPTION_LANGUAGE || undefined,
 		turnDetection: {
 			type: 'server_vad',
-			silence_duration_ms: 400,
+			silence_duration_ms: 300,
 			prefix_padding_ms: 300
 		},
 		noiseReduction: { type: 'near_field' }

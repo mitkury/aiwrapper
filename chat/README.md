@@ -54,7 +54,10 @@ browser sends 24 kHz PCM to a same-origin endpoint, receives transcription
 events over SSE, and streams raw PCM speech back. That transport is only the
 playground adapter; the `RealtimeAgent` itself is transport independent. The
 realtime page requests low reasoning effort from OpenAI and lowest-latency
-provider routing from OpenRouter without changing the regular chat page.
+provider routing from OpenRouter without changing the regular chat page. It
+also disables optional reasoning where supported and caps responses at 256
+tokens. Camera context starts off because vision adds model latency; enable it
+when a turn actually needs an image.
 
 ## Development
 

@@ -267,6 +267,7 @@ export class RealtimeAgent extends Agent<void, LangMessages, RealtimeAgentEvent>
     });
 
     try {
+      this.removeHistoricImages();
       const input = await this.buildUserMessage(text);
       const output = await this.chatAgent.run([input], { signal: controller.signal });
       if (!controller.signal.aborted) {
@@ -286,6 +287,13 @@ export class RealtimeAgent extends Agent<void, LangMessages, RealtimeAgentEvent>
       unsubscribe();
       segmenter.clear();
       if (this.responseController === controller) this.responseController = undefined;
+    }
+  }
+
+  private removeHistoricImages(): void {
+    for (const message of this.chatAgent.messages) {
+      if (message.role !== "user") continue;
+      message.items = message.items.filter(item => item.type !== "image");
     }
   }
 
