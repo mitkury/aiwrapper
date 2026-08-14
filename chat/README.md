@@ -44,13 +44,17 @@ ELEVENLABS_VOICE_ID=
 
 OpenAI enables transcription and OpenAI speech. The two ElevenLabs values
 enable ElevenLabs speech. `OPENAI_REALTIME_TRANSCRIPTION_MODEL` optionally
-overrides the realtime transcription model. Restart the playground after
-changing `.env`.
+overrides the realtime transcription model, and
+`OPENAI_REALTIME_TRANSCRIPTION_LANGUAGE` can pin an ISO-639-1 language such as
+`en` to reduce false language detection. Restart the playground after changing
+`.env`.
 
 Realtime uses the language provider selected under **Providers & Keys**. The
 browser sends 24 kHz PCM to a same-origin endpoint, receives transcription
 events over SSE, and streams raw PCM speech back. That transport is only the
-playground adapter; the `RealtimeAgent` itself is transport independent.
+playground adapter; the `RealtimeAgent` itself is transport independent. The
+realtime page requests low reasoning effort from OpenAI and lowest-latency
+provider routing from OpenRouter without changing the regular chat page.
 
 ## Development
 

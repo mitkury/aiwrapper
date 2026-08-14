@@ -254,7 +254,7 @@ describe("OpenAI realtime speech to text", () => {
           input: {
             format: { type: "audio/pcm", rate: 24000 },
             transcription: {
-              model: "gpt-live-transcribe",
+              model: "gpt-4o-mini-transcribe",
               prompt: "AIWrapper voice test",
             },
             turn_detection: null,

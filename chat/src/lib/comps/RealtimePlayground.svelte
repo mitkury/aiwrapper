@@ -10,6 +10,7 @@
 	import {
 		createLanguageProvider,
 		getProviderConfig,
+		getProviderModel,
 		getSelectedProviderId,
 		isProviderConfigured
 	} from '$lib/provider-config';
@@ -48,6 +49,7 @@
 	let error = $state('');
 	let providerReady = $state(false);
 	let providerName = $state('OpenAI');
+	let modelName = $state('');
 	let ttsProvider = $state<'openai' | 'elevenlabs'>('openai');
 	let voice = $state('coral');
 	let cameraEnabled = $state(true);
@@ -83,6 +85,7 @@
 		const providerId = getSelectedProviderId(secrets.values);
 		const provider = getProviderConfig(providerId);
 		providerName = provider.label;
+		modelName = getProviderModel(provider, secrets.values);
 		providerReady = isProviderConfigured(provider, secrets.values);
 	});
 
@@ -135,14 +138,17 @@
 			player = new PcmStreamPlayer();
 			await player.resume();
 			const providerId = getSelectedProviderId(secrets.values);
-			agent = new RealtimeAgent(createLanguageProvider(providerId, secrets.values), {
-				speechToText: new RemoteSpeechToText(),
-				textToSpeech: new RemoteTextToSpeech(ttsProvider, voice),
-				instructions:
-					'You are a concise realtime voice assistant. Use the latest camera image when it helps answer the user. Prefer short spoken responses.',
-				tools,
-				textSegmenter: { maxBufferedCharacters: 140 }
-			});
+			agent = new RealtimeAgent(
+				createLanguageProvider(providerId, secrets.values, { optimizeForLatency: true }),
+				{
+					speechToText: new RemoteSpeechToText(),
+					textToSpeech: new RemoteTextToSpeech(ttsProvider, voice),
+					instructions:
+						'You are a concise realtime voice assistant. Reply in the language of the latest user utterance. Use the latest camera image when it helps answer the user. Prefer short spoken responses.',
+					tools,
+					textSegmenter: { maxBufferedCharacters: 72 }
+				}
+			);
 			unsubscribeAgent = agent.subscribe(handleAgentEvent);
 			await agent.connect();
 			startMicrophone();
@@ -192,14 +198,14 @@
 
 	async function captureCameraFrame() {
 		if (!agent || !cameraEnabled || !videoElement || !canvasElement || !videoElement.videoWidth) return;
-		const width = Math.min(640, videoElement.videoWidth);
+		const width = Math.min(384, videoElement.videoWidth);
 		const height = Math.round((videoElement.videoHeight / videoElement.videoWidth) * width);
 		canvasElement.width = width;
 		canvasElement.height = height;
 		const context = canvasElement.getContext('2d');
 		if (!context) return;
 		context.drawImage(videoElement, 0, 0, width, height);
-		const blob = await new Promise<Blob | null>((resolve) => canvasElement.toBlob(resolve, 'image/jpeg', 0.72));
+		const blob = await new Promise<Blob | null>((resolve) => canvasElement.toBlob(resolve, 'image/jpeg', 0.65));
 		if (blob) agent.setImage({ kind: 'blob', blob, mimeType: 'image/jpeg' });
 	}
 
@@ -359,7 +365,7 @@
 						<span class={`rounded-full px-2.5 py-1 ${connected ? 'bg-emerald-50 text-emerald-700' : 'bg-neutral-100 text-neutral-600'}`}>
 							{phaseLabel(phase)}
 						</span>
-						<span class="rounded-full bg-neutral-100 px-2.5 py-1 text-neutral-600">LLM: {providerName}</span>
+						<span class="rounded-full bg-neutral-100 px-2.5 py-1 text-neutral-600">LLM: {providerName} / {modelName}</span>
 						<span class="rounded-full bg-neutral-100 px-2.5 py-1 text-neutral-600">TTS: {ttsProvider}</span>
 					</div>
 
@@ -443,7 +449,7 @@
 			</p>
 		{/if}
 		<p class="mt-3 text-xs leading-relaxed text-neutral-500">
-			This experiment keeps STT and TTS credentials on the server. Its SSE/audio-upload transport is only a playground adapter; WorldAgents can feed the same agent pipeline from WebRTC directly. Headphones give the cleanest interruption behavior.
+			This experiment keeps STT and TTS credentials on the server. Its SSE/audio-upload transport is only a playground adapter; production apps can feed the same agent pipeline from WebRTC directly. Headphones give the cleanest interruption behavior.
 		</p>
 	</main>
 </div>

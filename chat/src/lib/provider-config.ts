@@ -286,7 +286,8 @@ export function isProviderConfigured(
 
 export function createLanguageProvider(
 	providerId: ProviderId,
-	values: Record<string, string>
+	values: Record<string, string>,
+	options: { optimizeForLatency?: boolean } = {}
 ): LanguageProvider {
 	const provider = getProviderConfig(providerId);
 	const apiKey = provider.apiKeyStorageKey ? values[provider.apiKeyStorageKey]?.trim() || '' : '';
@@ -297,8 +298,8 @@ export function createLanguageProvider(
 			return Lang.openai({
 				apiKey,
 				model,
-				reasoningEffort: 'high',
-				showReasoningSummary: true
+				reasoningEffort: options.optimizeForLatency ? 'low' : 'high',
+				showReasoningSummary: !options.optimizeForLatency
 			});
 		case 'anthropic':
 			return Lang.anthropic({ apiKey, model });
@@ -317,7 +318,13 @@ export function createLanguageProvider(
 		case 'mistral':
 			return Lang.mistral({ apiKey, model });
 		case 'openrouter':
-			return Lang.openrouter({ apiKey, model });
+			return Lang.openrouter({
+				apiKey,
+				model,
+				bodyProperties: options.optimizeForLatency
+					? { provider: { sort: 'latency' } }
+					: undefined
+			});
 		case 'ollama':
 			return Lang.ollama({ model, url: getProviderBaseURL(provider, values) });
 		case 'openai-compatible':

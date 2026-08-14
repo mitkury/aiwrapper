@@ -66,7 +66,7 @@ await session.close();
 `SpeechToText.openaiRealtime()` uses a persistent server-side WebSocket,
 streams each appended PCM frame immediately, emits transcript deltas, and
 returns the final transcript for each `commit()`. It defaults to
-`gpt-live-transcribe`. One utterance is processed at a time: wait for
+`gpt-4o-mini-transcribe`. One utterance is processed at a time: wait for
 `commit()` to return before appending the next utterance. Safely overlapping
 turns would require provider item IDs in the shared contract.
 

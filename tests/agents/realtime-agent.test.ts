@@ -36,6 +36,16 @@ describe("StreamingTextSegmenter", () => {
     ]);
     expect(segmenter.flush()).toEqual(["going"]);
   });
+
+  it("segments CJK sentence punctuation without waiting for completion", () => {
+    const segmenter = new StreamingTextSegmenter();
+
+    expect(segmenter.push("我在这里。需要什么帮助？继续")).toEqual([
+      "我在这里。",
+      "需要什么帮助？",
+    ]);
+    expect(segmenter.flush()).toEqual(["继续"]);
+  });
 });
 
 describe("RealtimeAgent", () => {

@@ -50,8 +50,8 @@ It emits transcript, audio, interruption, turn, and latency events.
 The reusable layer deliberately does not choose WebRTC, WebSocket, SSE, or a
 room protocol. Applications supply speech providers and own microphone capture,
 speaker playback, camera sampling, credentials, reconnection, and transport.
-This lets a small browser demo use same-origin endpoints while WorldAgents can
-reuse the orchestration with its own realtime media transport.
+This lets a small browser demo use same-origin endpoints while production apps
+can reuse the orchestration with their own realtime media transport.
 
 ## Playground
 

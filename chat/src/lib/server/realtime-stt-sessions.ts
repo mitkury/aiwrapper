@@ -33,6 +33,7 @@ export async function createRealtimeSttSession(): Promise<RealtimeSttRecord> {
 	const provider = SpeechToText.openaiRealtime({
 		apiKey: env.OPENAI_API_KEY,
 		model: env.OPENAI_REALTIME_TRANSCRIPTION_MODEL || undefined,
+		language: env.OPENAI_REALTIME_TRANSCRIPTION_LANGUAGE || undefined,
 		turnDetection: {
 			type: 'server_vad',
 			silence_duration_ms: 400,

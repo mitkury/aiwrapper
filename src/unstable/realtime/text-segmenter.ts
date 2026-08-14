@@ -69,7 +69,8 @@ function findSentenceEnd(text: string): number {
   for (let index = 0; index < text.length; index++) {
     const character = text[index];
     if (character === "\n") return index + 1;
-    if (!".!?".includes(character)) continue;
+    if (!".!?。！？".includes(character)) continue;
+    if ("。！？".includes(character)) return index + 1;
     const next = text[index + 1];
     if (next === undefined || /\s/.test(next)) return index + 1;
   }
@@ -78,7 +79,14 @@ function findSentenceEnd(text: string): number {
 
 function findClauseBoundary(text: string, limit: number): number {
   const prefix = text.slice(0, limit + 1);
-  const comma = Math.max(prefix.lastIndexOf(", "), prefix.lastIndexOf("; "), prefix.lastIndexOf(": "));
+  const comma = Math.max(
+    prefix.lastIndexOf(", "),
+    prefix.lastIndexOf("; "),
+    prefix.lastIndexOf(": "),
+    prefix.lastIndexOf("，"),
+    prefix.lastIndexOf("；"),
+    prefix.lastIndexOf("："),
+  );
   if (comma >= Math.floor(limit * 0.55)) return comma + 1;
   const whitespace = prefix.lastIndexOf(" ");
   return whitespace > 0 ? whitespace : Math.min(limit, text.length);

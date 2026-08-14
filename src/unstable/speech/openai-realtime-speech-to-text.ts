@@ -76,7 +76,7 @@ export class OpenAIRealtimeSpeechToText implements SpeechToTextProvider {
     }
     this.options = {
       ...options,
-      model: options.model ?? "gpt-live-transcribe",
+      model: options.model ?? "gpt-4o-mini-transcribe",
       baseURL: options.baseURL ?? "https://api.openai.com/v1",
       createWebSocket: options.createWebSocket ?? createNodeWebSocket,
     };
