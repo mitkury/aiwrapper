@@ -16,7 +16,7 @@ import type {
   SpeechToTextSession,
   TextToSpeechProvider,
   TranscriptEvent,
-} from "../speech/types.js";
+} from "../../speech/types.js";
 import {
   StreamingTextSegmenter,
   type StreamingTextSegmenterOptions,
@@ -59,6 +59,7 @@ export class RealtimeAgent extends Agent<void, LangMessages, RealtimeAgentEvent>
   });
   private closing = false;
   private finalTranscriptCount = 0;
+  private speechEndedAt?: number;
 
   constructor(language: LanguageProvider, options: RealtimeAgentOptions) {
     super();
@@ -154,7 +155,12 @@ export class RealtimeAgent extends Agent<void, LangMessages, RealtimeAgentEvent>
         onSpeechActivity: event => {
           const active = event.type === "start";
           this.emit({ type: "speech", speaker: "user", active });
-          if (active) this.interrupt("user_speech");
+          if (active) {
+            this.speechEndedAt = undefined;
+            this.interrupt("user_speech");
+          } else {
+            this.speechEndedAt = performance.now();
+          }
         },
       });
       if (this.closing) {
@@ -188,9 +194,18 @@ export class RealtimeAgent extends Agent<void, LangMessages, RealtimeAgentEvent>
       }
       return;
     }
+    const speechEndedAt = this.speechEndedAt;
+    this.speechEndedAt = undefined;
     const text = event.text.trim();
     if (!text) return;
     this.emit({ type: "transcript", speaker: "user", text, final: true });
+    if (speechEndedAt !== undefined) {
+      this.emit({
+        type: "latency",
+        stage: "stt_final",
+        milliseconds: performance.now() - speechEndedAt,
+      });
+    }
     this.finalTranscriptCount += 1;
     void this.queueResponse(text).catch(() => undefined);
   }
@@ -269,6 +284,11 @@ export class RealtimeAgent extends Agent<void, LangMessages, RealtimeAgentEvent>
     try {
       this.removeHistoricImages();
       const input = await this.buildUserMessage(text);
+      this.emit({
+        type: "latency",
+        stage: "input_ready",
+        milliseconds: performance.now() - turnStartedAt,
+      });
       const output = await this.chatAgent.run([input], { signal: controller.signal });
       if (!controller.signal.aborted) {
         for (const segment of segmenter.flush()) speak(segment);

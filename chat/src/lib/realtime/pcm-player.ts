@@ -1,4 +1,4 @@
-import type { PcmAudioFrame } from 'aiwrapper/unstable/speech';
+import type { PcmAudioFrame } from 'aiwrapper/speech';
 
 export class PcmStreamPlayer {
 	private context?: AudioContext;

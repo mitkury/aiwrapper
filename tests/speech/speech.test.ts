@@ -8,7 +8,7 @@ import {
   OpenAISpeechToText,
   OpenAITextToSpeech,
   type PcmAudioFrame,
-} from "../../src/unstable/speech/index.ts";
+} from "../../src/speech/index.ts";
 
 type SocketListener = (event: { data?: unknown; error?: unknown }) => void;
 

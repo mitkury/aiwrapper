@@ -1,4 +1,4 @@
-import { httpRequestWithRetry as fetch } from "../../http-request.js";
+import { httpRequestWithRetry as fetch } from "../http-request.js";
 import {
   assertPcmFrame,
   encodeMonoPcmAsWav,

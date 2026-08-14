@@ -5,7 +5,7 @@ import {
   OpenAISpeechToText,
   OpenAITextToSpeech,
   type PcmAudioFrame,
-} from "../../src/unstable/speech/index.ts";
+} from "../../src/speech/index.ts";
 
 const selectedProviders = new Set(
   (process.env.PROVIDERS ?? "")

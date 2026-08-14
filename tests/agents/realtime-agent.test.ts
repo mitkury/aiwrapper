@@ -8,7 +8,7 @@ import {
   TextToSpeech,
   type PcmAudioFrame,
   type SpeechToTextProvider,
-} from "../../src/unstable/speech/index.ts";
+} from "../../src/speech/index.ts";
 
 const frame = (samples: number[]): PcmAudioFrame => ({
   encoding: "pcm_s16le",
@@ -62,7 +62,11 @@ describe("RealtimeAgent", () => {
       { speechToText, textToSpeech },
     );
     const events: string[] = [];
-    agent.subscribe(event => events.push(event.type));
+    const latencyStages: string[] = [];
+    agent.subscribe(event => {
+      events.push(event.type);
+      if (event.type === "latency") latencyStages.push(event.stage);
+    });
 
     await agent.connect();
     agent.setImage({
@@ -86,7 +90,47 @@ describe("RealtimeAgent", () => {
     }]);
     expect(events).toContain("audio");
     expect(events).toContain("turn_complete");
+    expect(latencyStages).toEqual([
+      "input_ready",
+      "llm_first_token",
+      "tts_first_audio",
+      "turn_complete",
+    ]);
     expect(agent.state).toBe("idle");
+  });
+
+  it("reports STT finalization separately from response generation", async () => {
+    const speechToText: SpeechToTextProvider = {
+      inputFormat: { encoding: "pcm_s16le", channels: 1, sampleRate: 24000 },
+      async createSession(options = {}) {
+        return {
+          async appendAudio() {},
+          async commit() {
+            options.onSpeechActivity?.({ type: "end" });
+            const result = { text: "Hello" };
+            options.onTranscript?.({ type: "final", ...result });
+            return result;
+          },
+          async finish() { return this.commit(); },
+          async close() {},
+        };
+      },
+    };
+    const agent = new RealtimeAgent(
+      Lang.mockResponseStream({ message: "Hi." }),
+      { speechToText, textToSpeech: TextToSpeech.mock() },
+    );
+    const latencyStages: string[] = [];
+    agent.subscribe(event => {
+      if (event.type === "latency") latencyStages.push(event.stage);
+    });
+
+    await agent.connect();
+    await agent.sendAudio(frame([1]));
+    await agent.commitAudio();
+    await agent.close();
+
+    expect(latencyStages[0]).toBe("stt_final");
   });
 
   it("aborts current generation when explicitly interrupted", async () => {

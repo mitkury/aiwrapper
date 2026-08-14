@@ -1,4 +1,4 @@
-import { httpRequestWithRetry as fetch } from "../../http-request.js";
+import { httpRequestWithRetry as fetch } from "../http-request.js";
 import { responsePcmFrames, throwIfAborted } from "./audio.js";
 import type {
   PcmAudioFormat,

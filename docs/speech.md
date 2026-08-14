@@ -1,14 +1,14 @@
 # Speech providers
 
-Speech support is available from the unstable subpath while interruption is
-being tested in a real voice application:
+Speech-to-text and text-to-speech providers are part of the main package:
 
 ```ts
-import { SpeechToText, TextToSpeech } from "aiwrapper/unstable/speech";
+import { SpeechToText, TextToSpeech } from "aiwrapper";
 ```
 
-The unstable label means the speech API may change in a normal release. It does
-not change the stability of the main `aiwrapper` entrypoint.
+The focused `aiwrapper/speech` subpath exports the same factories, provider
+classes, contracts, and audio helpers. Realtime agent orchestration remains
+experimental under `aiwrapper/unstable/realtime`.
 
 ## Audio contract
 

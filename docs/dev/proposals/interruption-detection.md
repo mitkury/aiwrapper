@@ -14,7 +14,7 @@ policy.
 
 The first complete implementation should be proven in a real voice application.
 Once it has run end to end, AIWrapper can extract the proven detector contract
-under `aiwrapper/unstable/speech`.
+under `aiwrapper/speech`.
 
 ## Why interruption is layered
 

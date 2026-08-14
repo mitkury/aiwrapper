@@ -1,5 +1,5 @@
 import type { LangMessages } from "../../lang/messages.js";
-import type { PcmAudioFrame } from "../speech/types.js";
+import type { PcmAudioFrame } from "../../speech/types.js";
 
 export type RealtimeAgentSpeaker = "user" | "assistant";
 
@@ -28,7 +28,12 @@ export type RealtimeAgentEvent =
     }
   | {
       type: "latency";
-      stage: "llm_first_token" | "tts_first_audio" | "turn_complete";
+      stage:
+        | "stt_final"
+        | "input_ready"
+        | "llm_first_token"
+        | "tts_first_audio"
+        | "turn_complete";
       milliseconds: number;
     }
   | {

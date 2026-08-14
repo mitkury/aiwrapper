@@ -6,7 +6,7 @@ import type {
 	TextToSpeechOptions,
 	TextToSpeechProvider,
 	TranscriptionResult
-} from 'aiwrapper/unstable/speech';
+} from 'aiwrapper/speech';
 
 export class RemoteSpeechToText implements SpeechToTextProvider {
 	readonly inputFormat = {
@@ -14,10 +14,13 @@ export class RemoteSpeechToText implements SpeechToTextProvider {
 		channels: 1 as const,
 		sampleRate: 24000
 	};
+	constructor(private readonly model = '') {}
 
 	async createSession(options: SpeechToTextSessionOptions = {}): Promise<SpeechToTextSession> {
 		const response = await fetch('/api/realtime/stt', {
 			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ model: this.model }),
 			signal: options.signal
 		});
 		const body = (await response.json()) as { id?: string; sampleRate?: number; error?: string };
@@ -64,7 +67,9 @@ class RemoteSpeechToTextSession implements SpeechToTextSession {
 	appendAudio(frame: PcmAudioFrame): Promise<void> {
 		if (this.closed) return Promise.reject(new Error('Realtime transcription session is closed'));
 		if (frame.sampleRate !== 24000) {
-			return Promise.reject(new Error(`Realtime transcription requires 24000 Hz PCM, received ${frame.sampleRate}`));
+			return Promise.reject(
+				new Error(`Realtime transcription requires 24000 Hz PCM, received ${frame.sampleRate}`)
+			);
 		}
 		const bytes = pcmBytes(frame.samples);
 		const next = this.audioTail.then(async () => {
@@ -127,7 +132,11 @@ class RemoteSpeechToTextSession implements SpeechToTextSession {
 		if (event.type === 'transcript' && event.text) {
 			this.options.onTranscript?.(
 				event.final
-					? { type: 'final', text: event.text, ...(event.languages ? { languages: event.languages } : {}) }
+					? {
+							type: 'final',
+							text: event.text,
+							...(event.languages ? { languages: event.languages } : {})
+						}
 					: { type: 'delta', text: event.text }
 			);
 			return;
@@ -151,7 +160,8 @@ export class RemoteTextToSpeech implements TextToSpeechProvider {
 
 	constructor(
 		private readonly provider: 'openai' | 'elevenlabs',
-		private readonly voice: string
+		private readonly voice: string,
+		private readonly model = ''
 	) {}
 
 	async *speak(text: string, options: TextToSpeechOptions = {}): AsyncIterable<PcmAudioFrame> {
@@ -161,7 +171,8 @@ export class RemoteTextToSpeech implements TextToSpeechProvider {
 			body: JSON.stringify({
 				provider: this.provider,
 				text,
-				voice: options.voice || this.voice
+				voice: options.voice || this.voice,
+				model: this.model
 			}),
 			signal: options.signal
 		});
@@ -191,7 +202,8 @@ export class RemoteTextToSpeech implements TextToSpeechProvider {
 				}
 				if (samples.length) yield { ...this.outputFormat, sampleRate, samples };
 			}
-			if (carry !== undefined) throw new Error('Speech response ended with an incomplete PCM sample');
+			if (carry !== undefined)
+				throw new Error('Speech response ended with an incomplete PCM sample');
 		} finally {
 			await reader.cancel().catch(() => undefined);
 			reader.releaseLock();
@@ -202,7 +214,8 @@ export class RemoteTextToSpeech implements TextToSpeechProvider {
 function pcmBytes(samples: Int16Array): Uint8Array {
 	const bytes = new Uint8Array(samples.length * 2);
 	const view = new DataView(bytes.buffer);
-	for (let index = 0; index < samples.length; index++) view.setInt16(index * 2, samples[index], true);
+	for (let index = 0; index < samples.length; index++)
+		view.setInt16(index * 2, samples[index], true);
 	return bytes;
 }
 

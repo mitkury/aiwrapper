@@ -4,7 +4,7 @@ import {
 	type PcmAudioFrame,
 	type SpeechToTextSession,
 	type TranscriptionResult
-} from 'aiwrapper/unstable/speech';
+} from 'aiwrapper/speech';
 
 type ClientEvent =
 	| { type: 'ready' }
@@ -21,7 +21,9 @@ type RealtimeSttRecord = {
 const records = new Map<string, RealtimeSttRecord>();
 const maximumIdleMs = 30 * 60 * 1000;
 
-export async function createRealtimeSttSession(): Promise<RealtimeSttRecord> {
+export async function createRealtimeSttSession(
+	options: { model?: string } = {}
+): Promise<RealtimeSttRecord> {
 	if (!env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not configured');
 	removeExpiredSessions();
 
@@ -32,7 +34,7 @@ export async function createRealtimeSttSession(): Promise<RealtimeSttRecord> {
 	};
 	const provider = SpeechToText.openaiRealtime({
 		apiKey: env.OPENAI_API_KEY,
-		model: env.OPENAI_REALTIME_TRANSCRIPTION_MODEL || undefined,
+		model: options.model || env.OPENAI_REALTIME_TRANSCRIPTION_MODEL || undefined,
 		language: env.OPENAI_REALTIME_TRANSCRIPTION_LANGUAGE || undefined,
 		turnDetection: {
 			type: 'server_vad',

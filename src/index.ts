@@ -5,6 +5,9 @@ export * from 'aimodels';
 // Img
 export * from "./img/img.js";
 
+// Speech
+export * from "./speech/index.js";
+
 // Agents
 export * from "./agents/index.js";
 

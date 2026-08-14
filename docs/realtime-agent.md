@@ -12,9 +12,8 @@ It is available from an unstable subpath while live interruption and playback
 accounting are refined:
 
 ```ts
-import { Lang } from "aiwrapper";
+import { Lang, SpeechToText, TextToSpeech } from "aiwrapper";
 import { RealtimeAgent } from "aiwrapper/unstable/realtime";
-import { SpeechToText, TextToSpeech } from "aiwrapper/unstable/speech";
 
 const agent = new RealtimeAgent(
   Lang.openai({ apiKey: process.env.OPENAI_API_KEY! }),
@@ -59,7 +58,10 @@ can reuse the orchestration with their own realtime media transport.
 
 Run the browser app and open `/realtime`. It provides chat input, live
 microphone transcription, streaming speech output, optional camera context,
-barge-in interruption, and first-token/first-audio timing. See
+barge-in interruption, and a per-turn latency waterfall. The waterfall separates
+STT finalization, input preparation, LLM wait, first-audio delay, and completion.
+Its values are wall-clock intervals; LLM generation and TTS overlap after audio
+starts. See
 [the playground README](../chat/README.md) for environment setup.
 
 Camera context starts off because multimodal requests are slower. Enable it for

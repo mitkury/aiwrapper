@@ -42,14 +42,22 @@ ELEVENLABS_API_KEY=
 ELEVENLABS_VOICE_ID=
 ```
 
-OpenAI enables transcription and OpenAI speech. The two ElevenLabs values
-enable ElevenLabs speech. `OPENAI_REALTIME_TRANSCRIPTION_MODEL` optionally
-overrides the realtime transcription model, and
+OpenAI enables transcription and OpenAI speech. `ELEVENLABS_API_KEY` enables
+ElevenLabs in the realtime pipeline and lets the server load the account's
+available voices without exposing the key to the browser.
+`ELEVENLABS_VOICE_ID` selects its initial voice and also enables ElevenLabs in
+the standalone Voice playground. `OPENAI_REALTIME_TRANSCRIPTION_MODEL` optionally
+sets the realtime transcription model, and
 `OPENAI_REALTIME_TRANSCRIPTION_LANGUAGE` can pin an ISO-639-1 language such as
 `en` to reduce false language detection. Restart the playground after changing
 `.env`.
 
-Realtime uses the language provider selected under **Providers & Keys**. The
+Realtime exposes STT, LLM, and TTS as three independent pipeline controls. The
+server environment supplies speech credentials and defaults; the page can
+override the speech models and voice for an individual playground setup. LLM
+providers and their browser-scoped development keys remain under **Providers &
+Keys**, while the realtime page can switch the active provider and model
+directly. The
 browser sends 24 kHz PCM to a same-origin endpoint, receives transcription
 events over SSE, and streams raw PCM speech back. That transport is only the
 playground adapter; the `RealtimeAgent` itself is transport independent. The
