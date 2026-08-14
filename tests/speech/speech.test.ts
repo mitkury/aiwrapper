@@ -283,8 +283,7 @@ describe("OpenAI realtime speech to text", () => {
   it("streams 24 kHz PCM and reuses one connection across committed turns", async () => {
     const socket = new FakeOpenAIRealtimeSocket();
     const events: unknown[] = [];
-    let connection:
-      { url: string; headers: Record<string, string> } | undefined;
+    let connection: { url: string; headers: Record<string, string> } | undefined;
     const provider = new OpenAIRealtimeSpeechToText({
       apiKey: "test",
       prompt: "AIWrapper voice test",
@@ -396,6 +395,52 @@ describe("OpenAI realtime speech to text", () => {
       { type: "start", audioOffsetMs: 120 },
       { type: "end", audioOffsetMs: 940 },
     ]);
+    await session.close();
+  });
+
+  it("uses local VAD to commit gpt-live-transcribe turns", async () => {
+    const socket = new FakeOpenAIRealtimeSocket();
+    const activity: unknown[] = [];
+    const provider = new OpenAIRealtimeSpeechToText({
+      apiKey: "test",
+      model: "gpt-live-transcribe",
+      language: "en",
+      delay: "minimal",
+      turnDetection: {
+        type: "local_vad",
+        threshold: 0.01,
+        silence_duration_ms: 300,
+      },
+      createWebSocket: () => socket,
+    });
+    const session = await provider.createSession({
+      onSpeechActivity: (event) => activity.push(event),
+    });
+    const silence = frame(new Array(2400).fill(0), 24000);
+    const speech = frame(new Array(2400).fill(1000), 24000);
+
+    await session.appendAudio(silence);
+    await session.appendAudio(speech);
+    await session.appendAudio(silence);
+    await session.appendAudio(silence);
+    await session.appendAudio(silence);
+    await Promise.resolve();
+
+    expect(socket.sent[0].session.audio.input).toMatchObject({
+      transcription: {
+        model: "gpt-live-transcribe",
+        languages: ["en"],
+        delay: "minimal",
+      },
+      turn_detection: null,
+    });
+    expect(
+      socket.sent.filter((event) => event.type === "input_audio_buffer.append"),
+    ).toHaveLength(4);
+    expect(
+      socket.sent.filter((event) => event.type === "input_audio_buffer.commit"),
+    ).toHaveLength(1);
+    expect(activity).toEqual([{ type: "start" }, { type: "end" }]);
     await session.close();
   });
 
@@ -766,7 +811,8 @@ describe("streaming text to speech", () => {
   it("uses a browser-safe ElevenLabs token and aborts a pending stream", async () => {
     const socket = new FakeRealtimeSpeechSocket();
     const controller = new AbortController();
-    let connection: { url: string; headers: Record<string, string> } | undefined;
+    let connection:
+      { url: string; headers: Record<string, string> } | undefined;
     const provider = new ElevenLabsTextToSpeech({
       singleUseToken: "short-lived",
       voiceId: "voice",

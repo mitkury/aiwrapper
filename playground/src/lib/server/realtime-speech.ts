@@ -21,15 +21,20 @@ export function createRealtimeSpeechToText(config: RealtimeSessionConfig['stt'])
 		});
 	}
 	if (!env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not configured');
+	const model = config.model || env.OPENAI_REALTIME_TRANSCRIPTION_MODEL || undefined;
+	const liveTranscription = model === 'gpt-live-transcribe';
 	return SpeechToText.openaiRealtime({
 		apiKey: env.OPENAI_API_KEY,
-		model: config.model || env.OPENAI_REALTIME_TRANSCRIPTION_MODEL || undefined,
+		model,
 		language: env.OPENAI_REALTIME_TRANSCRIPTION_LANGUAGE || undefined,
-		turnDetection: {
-			type: 'server_vad',
-			silence_duration_ms: 300,
-			prefix_padding_ms: 300
-		},
+		turnDetection: liveTranscription
+			? { type: 'local_vad', threshold: 0.01, silence_duration_ms: 300 }
+			: {
+					type: 'server_vad',
+					silence_duration_ms: 300,
+					prefix_padding_ms: 300
+				},
+		delay: liveTranscription ? 'minimal' : undefined,
 		noiseReduction: { type: 'near_field' }
 	});
 }

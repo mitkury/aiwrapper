@@ -36,6 +36,7 @@ export type OpenAIRealtimeSpeechToTextOptions = {
   language?: string;
   headers?: Record<string, string>;
   turnDetection?: null | OpenAIRealtimeTranscriptionTurnDetection;
+  delay?: OpenAIRealtimeTranscriptionDelay;
   noiseReduction?: null | { type: "near_field" | "far_field" };
   createWebSocket?: RealtimeSpeechWebSocketFactory;
 };
@@ -50,15 +51,26 @@ export type OpenAIRealtimeTranscriptionTurnDetection =
   | {
       type: "semantic_vad";
       eagerness?: "low" | "medium" | "high" | "auto";
+    }
+  | {
+      type: "local_vad";
+      threshold?: number;
+      silence_duration_ms?: number;
     };
 
-type OpenAIRealtimeSpeechToTextConfig = Required<Pick<
-  OpenAIRealtimeSpeechToTextOptions,
-  "apiKey" | "model" | "baseURL" | "createWebSocket"
->> & Omit<
-  OpenAIRealtimeSpeechToTextOptions,
-  "apiKey" | "model" | "baseURL" | "createWebSocket"
->;
+export type OpenAIRealtimeTranscriptionDelay =
+  "minimal" | "low" | "medium" | "high" | "xhigh";
+
+type OpenAIRealtimeSpeechToTextConfig = Required<
+  Pick<
+    OpenAIRealtimeSpeechToTextOptions,
+    "apiKey" | "model" | "baseURL" | "createWebSocket"
+  >
+> &
+  Omit<
+    OpenAIRealtimeSpeechToTextOptions,
+    "apiKey" | "model" | "baseURL" | "createWebSocket"
+  >;
 
 export class OpenAIRealtimeSpeechToText implements SpeechToTextProvider {
   readonly inputFormat = {
@@ -84,7 +96,10 @@ export class OpenAIRealtimeSpeechToText implements SpeechToTextProvider {
   async createSession(
     options: SpeechToTextSessionOptions = {},
   ): Promise<SpeechToTextSession> {
-    const session = new OpenAIRealtimeSpeechToTextSession(this.options, options);
+    const session = new OpenAIRealtimeSpeechToTextSession(
+      this.options,
+      options,
+    );
     try {
       await session.connect();
       return session;
@@ -107,6 +122,8 @@ class OpenAIRealtimeSpeechToTextSession implements SpeechToTextSession {
   private rejectConfigured?: (error: Error) => void;
   private resolveCommit?: (result: TranscriptionResult) => void;
   private rejectCommit?: (error: Error) => void;
+  private localSpeechActive = false;
+  private localSilenceMs = 0;
 
   private readonly onOpen = (): void => {
     if (this.configurationSent) return;
@@ -120,12 +137,19 @@ class OpenAIRealtimeSpeechToTextSession implements SpeechToTextSession {
               format: { type: "audio/pcm", rate: 24000 },
               transcription: {
                 model: this.provider.model,
-                ...(this.provider.prompt ? { prompt: this.provider.prompt } : {}),
-                ...(this.provider.language
-                  ? { language: this.provider.language }
+                ...(this.provider.prompt
+                  ? { prompt: this.provider.prompt }
                   : {}),
+                ...(this.provider.language
+                  ? isLiveTranscriptionModel(this.provider.model)
+                    ? { languages: [this.provider.language] }
+                    : { language: this.provider.language }
+                  : {}),
+                ...(this.provider.delay ? { delay: this.provider.delay } : {}),
               },
-              turn_detection: this.provider.turnDetection ?? null,
+              turn_detection: providerTurnDetection(
+                this.provider.turnDetection,
+              ),
               ...(this.provider.noiseReduction === undefined
                 ? {}
                 : { noise_reduction: this.provider.noiseReduction }),
@@ -140,7 +164,9 @@ class OpenAIRealtimeSpeechToTextSession implements SpeechToTextSession {
   };
 
   private readonly onMessage = (event: SocketEvent): void => {
-    void this.handleMessage(event.data).catch(error => this.fail(toError(error)));
+    void this.handleMessage(event.data).catch((error) =>
+      this.fail(toError(error)),
+    );
   };
 
   private readonly onError = (event: SocketEvent): void => {
@@ -157,9 +183,13 @@ class OpenAIRealtimeSpeechToTextSession implements SpeechToTextSession {
     private readonly session: SpeechToTextSessionOptions,
   ) {
     this.unlinkAbort = linkAbortSignal(session.signal, this.controller);
-    this.controller.signal.addEventListener("abort", () => {
-      this.fail(createAbortError());
-    }, { once: true });
+    this.controller.signal.addEventListener(
+      "abort",
+      () => {
+        this.fail(createAbortError());
+      },
+      { once: true },
+    );
   }
 
   async connect(): Promise<void> {
@@ -187,9 +217,11 @@ class OpenAIRealtimeSpeechToTextSession implements SpeechToTextSession {
       if (socket.readyState === 1) {
         this.onOpen();
       } else if (socket.readyState !== 0) {
-        reject(new Error(
-          "OpenAI realtime transcription connection closed during setup",
-        ));
+        reject(
+          new Error(
+            "OpenAI realtime transcription connection closed during setup",
+          ),
+        );
       }
     });
   }
@@ -198,7 +230,9 @@ class OpenAIRealtimeSpeechToTextSession implements SpeechToTextSession {
     this.assertOpen();
     throwIfAborted(this.controller.signal);
     if (this.commitPending) {
-      throw new Error("Cannot append audio while a transcript commit is pending");
+      throw new Error(
+        "Cannot append audio while a transcript commit is pending",
+      );
     }
     assertPcmFrame(frame);
     if (frame.sampleRate !== 24000) {
@@ -207,11 +241,13 @@ class OpenAIRealtimeSpeechToTextSession implements SpeechToTextSession {
       );
     }
     if (frame.samples.length === 0) return;
+    if (!this.acceptLocalVadFrame(frame)) return;
     this.send({
       type: "input_audio_buffer.append",
       audio: encodePcmAsBase64(frame.samples),
     });
     this.uncommittedAudioBytes += frame.samples.byteLength;
+    this.commitLocalVadTurnIfReady();
   }
 
   async commit(): Promise<TranscriptionResult> {
@@ -225,6 +261,7 @@ class OpenAIRealtimeSpeechToTextSession implements SpeechToTextSession {
     }
     this.commitPending = true;
     this.uncommittedAudioBytes = 0;
+    this.endLocalSpeech();
 
     const result = new Promise<TranscriptionResult>((resolve, reject) => {
       this.resolveCommit = resolve;
@@ -261,7 +298,10 @@ class OpenAIRealtimeSpeechToTextSession implements SpeechToTextSession {
     const event = JSON.parse(text) as Record<string, unknown>;
     const type = typeof event.type === "string" ? event.type : "";
 
-    if (type === "session.updated" || type === "transcription_session.updated") {
+    if (
+      type === "session.updated" ||
+      type === "transcription_session.updated"
+    ) {
       this.state = "open";
       this.resolveConfigured?.();
       this.resolveConfigured = undefined;
@@ -276,9 +316,11 @@ class OpenAIRealtimeSpeechToTextSession implements SpeechToTextSession {
     }
     if (type === "conversation.item.input_audio_transcription.completed") {
       if (typeof event.transcript !== "string") {
-        this.fail(new Error(
-          "OpenAI realtime transcription completion did not include text",
-        ));
+        this.fail(
+          new Error(
+            "OpenAI realtime transcription completion did not include text",
+          ),
+        );
         return;
       }
       const result = { text: event.transcript };
@@ -314,11 +356,13 @@ class OpenAIRealtimeSpeechToTextSession implements SpeechToTextSession {
     }
     if (type === "error") {
       const providerError = event.error as { message?: unknown } | undefined;
-      this.fail(new Error(
-        typeof providerError?.message === "string"
-          ? providerError.message
-          : "OpenAI realtime transcription returned an error",
-      ));
+      this.fail(
+        new Error(
+          typeof providerError?.message === "string"
+            ? providerError.message
+            : "OpenAI realtime transcription returned an error",
+        ),
+      );
     }
   }
 
@@ -327,6 +371,45 @@ class OpenAIRealtimeSpeechToTextSession implements SpeechToTextSession {
       throw new Error("OpenAI realtime transcription connection is not open");
     }
     this.socket.send(JSON.stringify(event));
+  }
+
+  private acceptLocalVadFrame(frame: PcmAudioFrame): boolean {
+    const detection = this.provider.turnDetection;
+    if (detection?.type !== "local_vad") return true;
+    const threshold = detection.threshold ?? 0.015;
+    const active = rootMeanSquare(frame.samples) >= threshold;
+    if (active) {
+      this.localSilenceMs = 0;
+      if (!this.localSpeechActive) {
+        this.localSpeechActive = true;
+        this.session.onSpeechActivity?.({ type: "start" });
+      }
+      return true;
+    }
+    if (!this.localSpeechActive) return false;
+    this.localSilenceMs += (frame.samples.length / frame.sampleRate) * 1000;
+    return true;
+  }
+
+  private commitLocalVadTurnIfReady(): void {
+    const detection = this.provider.turnDetection;
+    if (
+      detection?.type !== "local_vad" ||
+      !this.localSpeechActive ||
+      this.localSilenceMs < (detection.silence_duration_ms ?? 300)
+    ) {
+      return;
+    }
+    this.endLocalSpeech();
+    this.uncommittedAudioBytes = 0;
+    this.send({ type: "input_audio_buffer.commit" });
+  }
+
+  private endLocalSpeech(): void {
+    if (!this.localSpeechActive) return;
+    this.localSpeechActive = false;
+    this.localSilenceMs = 0;
+    this.session.onSpeechActivity?.({ type: "end" });
   }
 
   private fail(error: Error): void {
@@ -362,6 +445,31 @@ function realtimeTranscriptionURL(baseURL: string): string {
   return websocketURL(baseURL, "/realtime?intent=transcription");
 }
 
-function toError(value: unknown, fallback = "OpenAI realtime transcription failed"): Error {
+function providerTurnDetection(
+  detection: OpenAIRealtimeTranscriptionTurnDetection | null | undefined,
+): Exclude<
+  OpenAIRealtimeTranscriptionTurnDetection,
+  { type: "local_vad" }
+> | null {
+  return detection?.type === "local_vad" ? null : (detection ?? null);
+}
+
+function isLiveTranscriptionModel(model: string): boolean {
+  return model === "gpt-live-transcribe";
+}
+
+function rootMeanSquare(samples: Int16Array): number {
+  let sum = 0;
+  for (const sample of samples) {
+    const normalized = sample / 32768;
+    sum += normalized * normalized;
+  }
+  return Math.sqrt(sum / samples.length);
+}
+
+function toError(
+  value: unknown,
+  fallback = "OpenAI realtime transcription failed",
+): Error {
   return value instanceof Error ? value : new Error(fallback);
 }

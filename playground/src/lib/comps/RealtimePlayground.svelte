@@ -680,6 +680,7 @@
 					/>
 					<datalist id="realtime-stt-model-options">
 						{#if sttProvider === 'openai'}
+							<option value="gpt-live-transcribe"></option>
 							<option value="gpt-4o-mini-transcribe"></option>
 							<option value="gpt-4o-transcribe"></option>
 						{:else if sttProvider === 'deepgram'}

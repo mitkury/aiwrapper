@@ -46,7 +46,7 @@ const speechToText = SpeechToText.openaiRealtime({
 
 const session = await speechToText.createSession({
   signal: voiceSessionAbortController.signal,
-  onTranscript: event => console.log(event),
+  onTranscript: (event) => console.log(event),
 });
 
 // OpenAI Realtime declares 24 kHz input. Resampling belongs at the application
@@ -70,6 +70,13 @@ returns the final transcript for each `commit()`. It defaults to
 `commit()` to return before appending the next utterance. Safely overlapping
 turns would require provider item IDs in the shared contract.
 
+`gpt-live-transcribe` does not accept `server_vad` in this transcription path. Select
+`turnDetection: { type: "local_vad" }` to detect speech in the incoming PCM on
+the application server and commit after the configured silence interval. The
+adapter sends `turn_detection: null`, translates a singular `language` hint to
+the model's `languages` field, and accepts its `delay` setting (`minimal`,
+`low`, `medium`, `high`, or `xhigh`).
+
 The realtime adapter's default WebSocket transport uses the Node.js `ws`
 package. A browser application must provide `createWebSocket` through a secure
 server or short-lived-token design; do not expose a permanent provider API key
@@ -84,7 +91,7 @@ const speechToText = SpeechToText.openai({
 
 const session = await speechToText.createSession({
   signal: turnAbortController.signal,
-  onTranscript: event => console.log(event),
+  onTranscript: (event) => console.log(event),
 });
 
 await session.appendAudio({
