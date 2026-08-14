@@ -6,6 +6,8 @@ the top navigation to switch between test suites:
 - **Chat** exercises `ChatAgent`, language providers, tools, and message inspection.
 - **Voice** records microphone PCM, transcribes it with OpenAI, and speaks the
   editable transcript with OpenAI or ElevenLabs.
+- **Realtime** runs a continuous streaming STT -> selected LLM -> streaming TTS
+  cascade with barge-in interruption and optional camera context.
 
 ## Providers
 
@@ -28,7 +30,7 @@ This app calls providers directly from the browser. Use restricted development
 keys, not privileged production credentials, and be aware that a provider must
 allow browser requests through CORS.
 
-## Voice environment
+## Speech environment
 
 The voice playground sends microphone audio to same-origin SvelteKit endpoints,
 so speech-provider keys remain on the development server. Put these values in
@@ -41,7 +43,14 @@ ELEVENLABS_VOICE_ID=
 ```
 
 OpenAI enables transcription and OpenAI speech. The two ElevenLabs values
-enable ElevenLabs speech. Restart the playground after changing `.env`.
+enable ElevenLabs speech. `OPENAI_REALTIME_TRANSCRIPTION_MODEL` optionally
+overrides the realtime transcription model. Restart the playground after
+changing `.env`.
+
+Realtime uses the language provider selected under **Providers & Keys**. The
+browser sends 24 kHz PCM to a same-origin endpoint, receives transcription
+events over SSE, and streams raw PCM speech back. That transport is only the
+playground adapter; the `RealtimeAgent` itself is transport independent.
 
 ## Development
 
@@ -51,8 +60,8 @@ npm ci --prefix chat
 npm --prefix chat run dev
 ```
 
-Then open the single URL printed by Vite. Chat is at `/` and voice is at
-`/speech`; both use that same process.
+Then open the single URL printed by Vite. Chat is at `/`, voice is at `/speech`,
+and the cascade experiment is at `/realtime`; all use that same process.
 
 Validate the app with:
 

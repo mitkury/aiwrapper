@@ -7,7 +7,8 @@
 
 	const sections = [
 		{ href: '/', label: 'Chat' },
-		{ href: '/speech', label: 'Voice' }
+		{ href: '/speech', label: 'Voice' },
+		{ href: '/realtime', label: 'Realtime' }
 	];
 </script>
 

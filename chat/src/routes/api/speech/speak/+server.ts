@@ -1,8 +1,8 @@
 import { env } from '$env/dynamic/private';
 import { json } from '@sveltejs/kit';
-import { TextToSpeech, type PcmAudioFrame } from 'aiwrapper/unstable/speech';
+import { TextToSpeech } from 'aiwrapper/unstable/speech';
 import type { RequestHandler } from './$types';
-import { pcmResponse, speechError } from '$lib/server/speech-response';
+import { pcmStreamResponse, speechError } from '$lib/server/speech-response';
 
 type SpeakRequest = {
 	provider?: unknown;
@@ -23,16 +23,12 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		const provider =
 			providerName === 'elevenlabs' ? createElevenLabsProvider(voice) : createOpenAIProvider();
-		const frames: PcmAudioFrame[] = [];
-
-		for await (const frame of provider.speak(text, {
+		const frames = provider.speak(text, {
 			signal: request.signal,
 			...(voice ? { voice } : {})
-		})) {
-			frames.push(frame);
-		}
+		});
 
-		return pcmResponse(frames);
+		return await pcmStreamResponse(frames, provider.outputFormat);
 	} catch (error) {
 		return speechError(error);
 	}

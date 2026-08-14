@@ -13,6 +13,11 @@ export type TranscriptEvent =
   | { type: "delta"; text: string }
   | { type: "final"; text: string; languages?: string[] };
 
+export type SpeechActivityEvent = {
+  type: "start" | "end";
+  audioOffsetMs?: number;
+};
+
 export type TranscriptionResult = {
   text: string;
   languages?: string[];
@@ -21,6 +26,7 @@ export type TranscriptionResult = {
 export type SpeechToTextSessionOptions = {
   signal?: AbortSignal;
   onTranscript?: (event: TranscriptEvent) => void;
+  onSpeechActivity?: (event: SpeechActivityEvent) => void;
 };
 
 export interface SpeechToTextSession {

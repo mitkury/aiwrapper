@@ -5,6 +5,7 @@
 - [Language providers](language-provider.md)
 - [AWS Bedrock](bedrock.md)
 - [Agents](agent.md)
+- [Realtime agents](realtime-agent.md)
 - [Interrupted tool calls](handling-broken-messages.md)
 - [Tool calling](dev/tools.md)
 - [Speech providers](speech.md)

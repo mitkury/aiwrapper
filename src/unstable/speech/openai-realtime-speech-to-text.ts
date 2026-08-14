@@ -36,8 +36,22 @@ export type OpenAIRealtimeSpeechToTextOptions = {
   prompt?: string;
   language?: string;
   headers?: Record<string, string>;
+  turnDetection?: null | OpenAIRealtimeTranscriptionTurnDetection;
+  noiseReduction?: null | { type: "near_field" | "far_field" };
   createWebSocket?: RealtimeSpeechWebSocketFactory;
 };
+
+export type OpenAIRealtimeTranscriptionTurnDetection =
+  | {
+      type: "server_vad";
+      threshold?: number;
+      prefix_padding_ms?: number;
+      silence_duration_ms?: number;
+    }
+  | {
+      type: "semantic_vad";
+      eagerness?: "low" | "medium" | "high" | "auto";
+    };
 
 type OpenAIRealtimeSpeechToTextConfig = Required<Pick<
   OpenAIRealtimeSpeechToTextOptions,
@@ -112,7 +126,10 @@ class OpenAIRealtimeSpeechToTextSession implements SpeechToTextSession {
                   ? { language: this.provider.language }
                   : {}),
               },
-              turn_detection: null,
+              turn_detection: this.provider.turnDetection ?? null,
+              ...(this.provider.noiseReduction === undefined
+                ? {}
+                : { noise_reduction: this.provider.noiseReduction }),
             },
           },
         },
@@ -272,6 +289,28 @@ class OpenAIRealtimeSpeechToTextSession implements SpeechToTextSession {
       this.resolveCommit = undefined;
       this.rejectCommit = undefined;
       resolve?.(result);
+      return;
+    }
+    if (type === "input_audio_buffer.speech_started") {
+      this.session.onSpeechActivity?.({
+        type: "start",
+        ...(typeof event.audio_start_ms === "number"
+          ? { audioOffsetMs: event.audio_start_ms }
+          : {}),
+      });
+      return;
+    }
+    if (type === "input_audio_buffer.speech_stopped") {
+      this.session.onSpeechActivity?.({
+        type: "end",
+        ...(typeof event.audio_end_ms === "number"
+          ? { audioOffsetMs: event.audio_end_ms }
+          : {}),
+      });
+      return;
+    }
+    if (type === "input_audio_buffer.committed") {
+      this.uncommittedAudioBytes = 0;
       return;
     }
     if (type === "error") {

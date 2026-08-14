@@ -40,10 +40,10 @@ class FakeOpenAIRealtimeSocket {
     const event = JSON.parse(value);
     this.sent.push(event);
     if (event.type === "session.update") {
-      queueMicrotask(() => this.message({ type: "session.updated" }));
+      queueMicrotask(() => this.serverMessage({ type: "session.updated" }));
     }
     if (event.type === "input_audio_buffer.append") {
-      queueMicrotask(() => this.message({
+      queueMicrotask(() => this.serverMessage({
         type: "conversation.item.input_audio_transcription.delta",
         delta: this.turn === 0 ? "hel" : "aga",
       }));
@@ -51,7 +51,7 @@ class FakeOpenAIRealtimeSocket {
     if (event.type === "input_audio_buffer.commit") {
       const transcript = this.turn === 0 ? "hello" : "again";
       this.turn++;
-      queueMicrotask(() => this.message({
+      queueMicrotask(() => this.serverMessage({
         type: "conversation.item.input_audio_transcription.completed",
         transcript,
       }));
@@ -65,7 +65,7 @@ class FakeOpenAIRealtimeSocket {
     queueMicrotask(() => this.emit("close", {}));
   }
 
-  private message(payload: unknown): void {
+  serverMessage(payload: unknown): void {
     this.emit("message", { data: JSON.stringify(payload) });
   }
 
@@ -289,6 +289,46 @@ describe("OpenAI realtime speech to text", () => {
     await expect(session.appendAudio(frame([1], 48000))).rejects.toThrow(
       "requires 24000 Hz PCM",
     );
+    await session.close();
+  });
+
+  it("forwards provider VAD activity", async () => {
+    const socket = new FakeOpenAIRealtimeSocket();
+    const activity: unknown[] = [];
+    const provider = new OpenAIRealtimeSpeechToText({
+      apiKey: "test",
+      turnDetection: {
+        type: "server_vad",
+        silence_duration_ms: 350,
+      },
+      noiseReduction: { type: "near_field" },
+      createWebSocket: () => socket,
+    });
+    const session = await provider.createSession({
+      onSpeechActivity: event => activity.push(event),
+    });
+
+    socket.serverMessage({
+      type: "input_audio_buffer.speech_started",
+      audio_start_ms: 120,
+    });
+    socket.serverMessage({
+      type: "input_audio_buffer.speech_stopped",
+      audio_end_ms: 940,
+    });
+    await Promise.resolve();
+
+    expect(socket.sent[0].session.audio.input).toMatchObject({
+      turn_detection: {
+        type: "server_vad",
+        silence_duration_ms: 350,
+      },
+      noise_reduction: { type: "near_field" },
+    });
+    expect(activity).toEqual([
+      { type: "start", audioOffsetMs: 120 },
+      { type: "end", audioOffsetMs: 940 },
+    ]);
     await session.close();
   });
 

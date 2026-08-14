@@ -175,4 +175,7 @@ providers. A live application should continue to own:
 This boundary matters for interrupted turns. Generated text and synthesized
 audio do not prove that the user heard them. A session abstraction cannot write
 honest history unless the application gives it a playback cursor. AIWrapper
-therefore does not provide a live-session orchestrator yet.
+therefore keeps microphone, speaker, and durable interruption accounting at the
+application boundary. The experimental
+[`RealtimeAgent`](realtime-agent.md) composes the provider cascade and emits the
+events an application needs without choosing its media transport.

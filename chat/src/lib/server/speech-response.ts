@@ -1,37 +1,57 @@
 import { json } from '@sveltejs/kit';
-import type { PcmAudioFrame } from 'aiwrapper/unstable/speech';
+import type { PcmAudioFormat, PcmAudioFrame } from 'aiwrapper/unstable/speech';
 
-export function pcmResponse(frames: readonly PcmAudioFrame[]): Response {
-	if (frames.length === 0) {
-		throw new Error('Speech provider returned no audio frames');
-	}
-
-	const sampleRate = frames[0].sampleRate;
-	const sampleCount = frames.reduce((total, frame) => {
-		if (frame.sampleRate !== sampleRate) {
-			throw new Error('Speech provider changed sample rate within one response');
-		}
-		return total + frame.samples.length;
-	}, 0);
-	const bytes = new Uint8Array(sampleCount * 2);
-	const view = new DataView(bytes.buffer);
-	let byteOffset = 0;
-
-	for (const frame of frames) {
-		for (const sample of frame.samples) {
-			view.setInt16(byteOffset, sample, true);
-			byteOffset += 2;
-		}
-	}
-
-	return new Response(bytes, {
-		headers: {
-			'Content-Type': 'audio/pcm',
-			'X-Audio-Encoding': 'pcm_s16le',
-			'X-Audio-Channels': '1',
-			'X-Audio-Sample-Rate': String(sampleRate)
+export async function pcmStreamResponse(
+	frames: AsyncIterable<PcmAudioFrame>,
+	format: PcmAudioFormat
+): Promise<Response> {
+	const iterator = frames[Symbol.asyncIterator]();
+	const first = await iterator.next();
+	if (first.done) throw new Error('Speech provider returned no audio frames');
+	let pending: PcmAudioFrame | undefined = first.value;
+	const stream = new ReadableStream<Uint8Array>({
+		async pull(controller) {
+			try {
+				const current = pending ? { done: false as const, value: pending } : await iterator.next();
+				pending = undefined;
+				if (current.done) {
+					controller.close();
+					return;
+				}
+				if (
+					current.value.encoding !== format.encoding ||
+					current.value.channels !== format.channels ||
+					current.value.sampleRate !== format.sampleRate
+				) {
+					throw new Error('Speech provider changed PCM format while streaming');
+				}
+				controller.enqueue(pcmFrameBytes(current.value));
+			} catch (error) {
+				await iterator.return?.();
+				controller.error(error);
+			}
+		},
+		async cancel() {
+			await iterator.return?.();
 		}
 	});
+	return new Response(stream, {
+		headers: {
+			'Content-Type': 'audio/pcm',
+			'X-Audio-Encoding': format.encoding,
+			'X-Audio-Channels': String(format.channels),
+			'X-Audio-Sample-Rate': String(format.sampleRate)
+		}
+	});
+}
+
+function pcmFrameBytes(frame: PcmAudioFrame): Uint8Array {
+	const bytes = new Uint8Array(frame.samples.length * 2);
+	const view = new DataView(bytes.buffer);
+	for (let index = 0; index < frame.samples.length; index++) {
+		view.setInt16(index * 2, frame.samples[index], true);
+	}
+	return bytes;
 }
 
 export function speechError(error: unknown): Response {
