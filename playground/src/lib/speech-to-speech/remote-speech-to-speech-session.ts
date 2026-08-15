@@ -1,28 +1,34 @@
-import type { PcmAudioFrame } from 'aiwrapper/speech';
-import { encodeAudioPacket } from './audio-upload-protocol';
-import { pcmSamplesToBytes } from './pcm';
+import type { PcmAudioFrame } from 'aiwrapper/unstable/speech';
+import { encodeAudioPacket } from '$lib/realtime/audio-upload-protocol';
+import { pcmSamplesToBytes } from '$lib/realtime/pcm';
 import {
 	RealtimeEventDecoder,
 	type RealtimeServerError,
-	type RealtimeServerEvent,
-	type RealtimeSessionConfig
-} from './realtime-session-protocol';
+	type RealtimeServerEvent
+} from '$lib/realtime/realtime-session-protocol';
 
-export type RemoteRealtimeEvent =
+export type SpeechToSpeechProviderId = 'openai' | 'gemini';
+
+export type SpeechToSpeechSessionConfig = {
+	provider: SpeechToSpeechProviderId;
+	model: string;
+	voice: string;
+	instructions?: string;
+};
+
+export type RemoteSpeechToSpeechEvent =
 	| Exclude<RealtimeServerEvent, { type: 'heartbeat' | 'error' }>
 	| { type: 'audio'; frame: PcmAudioFrame }
 	| { type: 'error'; error: Error };
 
-export class RemoteRealtimeSession {
-	private readonly listeners = new Set<(event: RemoteRealtimeEvent) => void>();
+export class RemoteSpeechToSpeechSession {
+	private readonly listeners = new Set<(event: RemoteSpeechToSpeechEvent) => void>();
 	private readonly eventsController = new AbortController();
 	private sessionId?: string;
 	private audioWriter?: WritableStreamDefaultWriter<Uint8Array>;
 	private audioTail = Promise.resolve();
 	private uploadCompletion = Promise.resolve();
 	private eventsCompletion = Promise.resolve();
-	private pendingImage?: { blob: Blob; mimeType: string };
-	private imageTask?: Promise<void>;
 	private closed = false;
 	private resolveConnected?: () => void;
 	private rejectConnected?: (error: Error) => void;
@@ -30,25 +36,33 @@ export class RemoteRealtimeSession {
 		this.resolveConnected = resolve;
 		this.rejectConnected = reject;
 	});
+	inputSampleRate = 24000;
 
-	constructor(private readonly config: RealtimeSessionConfig) {}
+	constructor(private readonly config: SpeechToSpeechSessionConfig) {}
 
-	subscribe(listener: (event: RemoteRealtimeEvent) => void): () => void {
+	subscribe(listener: (event: RemoteSpeechToSpeechEvent) => void): () => void {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);
 	}
 
 	async connect(): Promise<void> {
-		if (this.closed) throw new Error('Realtime session is closed');
-		if (this.sessionId) throw new Error('Realtime session is already connected');
-		const response = await fetch('/api/realtime/sessions', {
+		if (this.closed) throw new Error('Speech-to-speech session is closed');
+		if (this.sessionId) throw new Error('Speech-to-speech session is already connected');
+		const response = await fetch('/api/speech-to-speech/sessions', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify(this.config)
 		});
-		const body = (await response.json()) as { id?: string; error?: string };
-		if (!response.ok || !body.id) throw new Error(body.error || 'Could not start realtime session');
+		const body = (await response.json()) as {
+			id?: string;
+			inputSampleRate?: number;
+			error?: string;
+		};
+		if (!response.ok || !body.id) {
+			throw new Error(body.error || 'Could not start speech-to-speech session');
+		}
 		this.sessionId = body.id;
+		this.inputSampleRate = body.inputSampleRate ?? 24000;
 		this.eventsCompletion = this.consumeEvents();
 		void this.eventsCompletion.catch((error) => this.fail(error));
 		if (canStreamToCurrentOrigin()) {
@@ -60,9 +74,15 @@ export class RemoteRealtimeSession {
 
 	async sendAudio(frame: PcmAudioFrame): Promise<void> {
 		const id = this.requireSession();
-		if (this.closed) throw new Error('Realtime session is closed');
-		if (frame.encoding !== 'pcm_s16le' || frame.channels !== 1 || frame.sampleRate !== 24000) {
-			throw new Error('Realtime input requires mono 24000 Hz signed 16-bit PCM');
+		if (this.closed) throw new Error('Speech-to-speech session is closed');
+		if (
+			frame.encoding !== 'pcm_s16le' ||
+			frame.channels !== 1 ||
+			frame.sampleRate !== this.inputSampleRate
+		) {
+			throw new Error(
+				`Speech-to-speech input requires mono ${this.inputSampleRate} Hz signed 16-bit PCM`
+			);
 		}
 		const bytes = pcmSamplesToBytes(frame.samples);
 		if (this.audioWriter) {
@@ -70,11 +90,11 @@ export class RemoteRealtimeSession {
 			return;
 		}
 		const next = this.audioTail.then(async () => {
-			const response = await fetch(`/api/realtime/sessions/${encodeURIComponent(id)}`, {
+			const response = await fetch(`/api/speech-to-speech/sessions/${encodeURIComponent(id)}`, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'audio/pcm',
-					'X-Audio-Sample-Rate': '24000'
+					'X-Audio-Sample-Rate': String(this.inputSampleRate)
 				},
 				body: bytes.buffer as ArrayBuffer
 			});
@@ -82,21 +102,6 @@ export class RemoteRealtimeSession {
 		});
 		this.audioTail = next.catch(() => undefined);
 		await next;
-	}
-
-	async sendText(text: string): Promise<void> {
-		await this.post('text', { text });
-	}
-
-	setImage(image: { kind: 'blob'; blob: Blob; mimeType: string } | undefined): void {
-		if (!image || this.closed || !this.sessionId) return;
-		this.pendingImage = { blob: image.blob, mimeType: image.mimeType };
-		if (!this.imageTask) {
-			this.imageTask = this.flushImages().finally(() => {
-				this.imageTask = undefined;
-			});
-			void this.imageTask.catch((error) => this.fail(error));
-		}
 	}
 
 	async close(): Promise<void> {
@@ -108,24 +113,23 @@ export class RemoteRealtimeSession {
 		await this.audioWriter?.close().catch(() => undefined);
 		await this.uploadCompletion.catch(() => undefined);
 		if (id) {
-			await fetch(`/api/realtime/sessions/${encodeURIComponent(id)}`, {
+			await fetch(`/api/speech-to-speech/sessions/${encodeURIComponent(id)}`, {
 				method: 'DELETE'
 			}).catch(() => undefined);
 		}
 		this.eventsController.abort();
 		await this.eventsCompletion.catch(() => undefined);
-		await this.imageTask?.catch(() => undefined);
 		this.listeners.clear();
 	}
 
 	private async consumeEvents(): Promise<void> {
 		const id = this.requireSession();
-		const response = await fetch(`/api/realtime/sessions/${encodeURIComponent(id)}`, {
+		const response = await fetch(`/api/speech-to-speech/sessions/${encodeURIComponent(id)}`, {
 			headers: { Accept: 'application/x-aiwrapper-realtime-events' },
 			signal: this.eventsController.signal
 		});
 		if (!response.ok || !response.body) {
-			throw new Error(await responseError(response, 'Could not open realtime event stream'));
+			throw new Error(await responseError(response, 'Could not open speech-to-speech events'));
 		}
 		const decoder = new RealtimeEventDecoder();
 		const reader = response.body.getReader();
@@ -139,7 +143,7 @@ export class RemoteRealtimeSession {
 				}
 			}
 			decoder.finish();
-			if (!this.closed) throw new Error('Realtime event stream disconnected');
+			if (!this.closed) throw new Error('Speech-to-speech event stream disconnected');
 		} finally {
 			await reader.cancel().catch(() => undefined);
 			reader.releaseLock();
@@ -150,7 +154,7 @@ export class RemoteRealtimeSession {
 		const id = this.requireSession();
 		const stream = new TransformStream<Uint8Array, Uint8Array>();
 		this.audioWriter = stream.writable.getWriter();
-		const response = await fetch(`/api/realtime/sessions/${encodeURIComponent(id)}`, {
+		const response = await fetch(`/api/speech-to-speech/sessions/${encodeURIComponent(id)}`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/x-aiwrapper-audio-stream' },
 			body: stream.readable,
@@ -169,42 +173,12 @@ export class RemoteRealtimeSession {
 		this.emit(event);
 	}
 
-	private async flushImages(): Promise<void> {
-		while (this.pendingImage && !this.closed) {
-			const image = this.pendingImage;
-			this.pendingImage = undefined;
-			const id = this.requireSession();
-			const response = await fetch(`/api/realtime/sessions/${encodeURIComponent(id)}/image`, {
-				method: 'POST',
-				headers: { 'Content-Type': image.mimeType },
-				body: image.blob
-			});
-			if (!response.ok)
-				throw new Error(await responseError(response, 'Could not send camera image'));
-		}
-	}
-
-	private async post(path: string, body?: unknown): Promise<void> {
-		const id = this.requireSession();
-		if (this.closed) throw new Error('Realtime session is closed');
-		const response = await fetch(
-			`/api/realtime/sessions/${encodeURIComponent(id)}/${encodeURIComponent(path)}`,
-			{
-				method: 'POST',
-				...(body === undefined
-					? {}
-					: { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-			}
-		);
-		if (!response.ok) throw new Error(await responseError(response, `Could not ${path}`));
-	}
-
 	private requireSession(): string {
-		if (!this.sessionId) throw new Error('Realtime session is not connected');
+		if (!this.sessionId) throw new Error('Speech-to-speech session is not connected');
 		return this.sessionId;
 	}
 
-	private emit(event: RemoteRealtimeEvent): void {
+	private emit(event: RemoteSpeechToSpeechEvent): void {
 		for (const listener of [...this.listeners]) listener(event);
 	}
 
@@ -217,14 +191,7 @@ export class RemoteRealtimeSession {
 }
 
 function serverError(error: RealtimeServerError): Error {
-	const details = [
-		error.status ? `HTTP ${error.status}` : '',
-		error.code || '',
-		error.requestId ? `request ${error.requestId}` : ''
-	].filter(Boolean);
-	return new Error(
-		`${error.provider ? `${error.provider}: ` : ''}${details.length ? `(${details.join(', ')}) ` : ''}${error.message}`
-	);
+	return new Error(`${error.provider ? `${error.provider}: ` : ''}${error.message}`);
 }
 
 async function responseError(response: Response, fallback: string): Promise<string> {

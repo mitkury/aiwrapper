@@ -4,15 +4,17 @@ import { AudioUploadDecoder } from '$lib/realtime/audio-upload-protocol';
 import { pcmBytesToSamples } from '$lib/realtime/pcm';
 import { encodeRealtimeAudio, encodeRealtimeEvent } from '$lib/realtime/realtime-session-protocol';
 import {
-	appendRealtimeAgentAudio,
-	closeRealtimeAgentSession,
-	getRealtimeAgentSession,
-	subscribeRealtimeAgentSession
-} from '$lib/server/realtime-agent-sessions';
+	appendSpeechToSpeechAudio,
+	closeSpeechToSpeechSession,
+	getSpeechToSpeechSession,
+	speechToSpeechError,
+	subscribeSpeechToSpeechSession,
+	type SpeechToSpeechRecord
+} from '$lib/server/speech-to-speech-sessions';
 
 export const GET: RequestHandler = ({ params, request }) => {
-	const record = getRealtimeAgentSession(params.sessionId);
-	if (!record) return json({ error: 'Unknown realtime session' }, { status: 404 });
+	const record = getSpeechToSpeechSession(params.sessionId);
+	if (!record) return json({ error: 'Unknown speech-to-speech session' }, { status: 404 });
 
 	let unsubscribe = () => {};
 	let heartbeat: ReturnType<typeof setInterval> | undefined;
@@ -28,7 +30,7 @@ export const GET: RequestHandler = ({ params, request }) => {
 					close();
 				}
 			};
-			unsubscribe = subscribeRealtimeAgentSession(record, (packet) => {
+			unsubscribe = subscribeSpeechToSpeechSession(record, (packet) => {
 				send(
 					packet.type === 'audio'
 						? encodeRealtimeAudio(packet.frame)
@@ -41,7 +43,7 @@ export const GET: RequestHandler = ({ params, request }) => {
 				closed = true;
 				if (heartbeat) clearInterval(heartbeat);
 				unsubscribe();
-				void closeRealtimeAgentSession(params.sessionId);
+				void closeSpeechToSpeechSession(params.sessionId);
 				try {
 					controller.close();
 				} catch {
@@ -65,15 +67,20 @@ export const GET: RequestHandler = ({ params, request }) => {
 };
 
 export const POST: RequestHandler = async ({ params, request }) => {
-	const record = getRealtimeAgentSession(params.sessionId);
-	if (!record) return json({ error: 'Unknown realtime session' }, { status: 404 });
+	const record = getSpeechToSpeechSession(params.sessionId);
+	if (!record) return json({ error: 'Unknown speech-to-speech session' }, { status: 404 });
 
 	try {
 		const contentType = request.headers.get('content-type')?.split(';', 1)[0];
 		if (contentType === 'audio/pcm') {
 			const sampleRate = Number(request.headers.get('x-audio-sample-rate'));
-			if (sampleRate !== 24000) {
-				return json({ error: 'Realtime input requires 24000 Hz PCM' }, { status: 400 });
+			if (sampleRate !== record.provider.inputFormat.sampleRate) {
+				return json(
+					{
+						error: `Speech-to-speech input requires ${record.provider.inputFormat.sampleRate} Hz PCM`
+					},
+					{ status: 400 }
+				);
 			}
 			await appendPcm(record, new Uint8Array(await request.arrayBuffer()));
 			return new Response(null, { status: 204 });
@@ -89,9 +96,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			while (true) {
 				const { value: chunk, done } = await reader.read();
 				if (done) break;
-				for (const bytes of decoder.push(chunk)) {
-					await appendPcm(record, bytes);
-				}
+				for (const bytes of decoder.push(chunk)) await appendPcm(record, bytes);
 			}
 		} finally {
 			reader.releaseLock();
@@ -99,26 +104,20 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		decoder.finish();
 		return new Response(null, { status: 204 });
 	} catch (error) {
-		return json(
-			{ error: error instanceof Error ? error.message : 'Realtime audio stream failed' },
-			{ status: 500 }
-		);
+		return json({ error: speechToSpeechError(record.providerId, error) }, { status: 500 });
 	}
 };
 
 export const DELETE: RequestHandler = async ({ params }) => {
-	await closeRealtimeAgentSession(params.sessionId);
+	await closeSpeechToSpeechSession(params.sessionId);
 	return new Response(null, { status: 204 });
 };
 
-async function appendPcm(
-	record: NonNullable<ReturnType<typeof getRealtimeAgentSession>>,
-	bytes: Uint8Array
-): Promise<void> {
-	await appendRealtimeAgentAudio(record, {
+async function appendPcm(record: SpeechToSpeechRecord, bytes: Uint8Array): Promise<void> {
+	await appendSpeechToSpeechAudio(record, {
 		encoding: 'pcm_s16le',
 		channels: 1,
-		sampleRate: 24000,
+		sampleRate: record.provider.inputFormat.sampleRate,
 		samples: pcmBytesToSamples(bytes)
 	});
 }

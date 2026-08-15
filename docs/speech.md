@@ -10,6 +10,59 @@ The focused `aiwrapper/speech` subpath exports the same factories, provider
 classes, contracts, and audio helpers. Realtime agent orchestration remains
 experimental under `aiwrapper/unstable/realtime`.
 
+Native speech-to-speech models use a separate experimental API because they
+keep one live audio conversation instead of exposing independent transcription
+and synthesis steps:
+
+```ts
+import { SpeechToSpeech } from "aiwrapper/unstable/speech";
+
+const provider = SpeechToSpeech.openaiRealtime({
+  apiKey: process.env.OPENAI_API_KEY!,
+  model: "gpt-realtime-2.1",
+  voice: "marin",
+});
+
+const session = await provider.createSession({
+  instructions: "Be concise and helpful.",
+  onEvent(event) {
+    if (event.type === "output-audio") speaker.push(event.frame);
+    if (event.type === "input-transcript") {
+      console.log("user", event.transcript);
+    }
+    if (event.type === "output-transcript") {
+      console.log("assistant", event.transcript);
+    }
+    if (event.type === "response-interrupted") speaker.clear();
+    if (event.type === "error") console.error(event.error);
+  },
+});
+
+await session.appendAudio(microphoneFrame);
+await session.close();
+```
+
+Change only provider construction to use Gemini Live:
+
+```ts
+const provider = SpeechToSpeech.geminiLive({
+  apiKey: process.env.GOOGLE_API_KEY!,
+  model: "gemini-3.1-flash-live-preview",
+  voice: "Kore",
+});
+```
+
+Both adapters use one persistent server-side WebSocket per session and let the
+provider manage turn taking. OpenAI declares 24 kHz input and output. Gemini
+declares 16 kHz input and 24 kHz output. Applications should read
+`provider.inputFormat` and resample explicitly at the microphone boundary when
+needed. The shared API does not expose either provider's WebSocket messages.
+
+`SpeechToSpeech.mock()` records received frames and can emit deterministic
+audio, transcripts, delays, and interruption events for application tests.
+The initial API deliberately leaves microphone capture, playback, resampling,
+tools, text input, reconnection, and portable session state to the application.
+
 ## Audio contract
 
 Speech providers use mono signed 16-bit little-endian PCM represented as an

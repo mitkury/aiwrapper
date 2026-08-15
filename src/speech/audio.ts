@@ -178,6 +178,22 @@ export function decodeBase64(value: string): Uint8Array {
   return Uint8Array.from(decoded, (character) => character.charCodeAt(0));
 }
 
+export function decodeBase64Pcm(
+  value: string,
+  providerName: string,
+): Int16Array {
+  const bytes = decodeBase64(value);
+  if (bytes.byteLength % 2 !== 0) {
+    throw new Error(`${providerName} returned an incomplete PCM sample`);
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const samples = new Int16Array(bytes.byteLength / 2);
+  for (let index = 0; index < samples.length; index++) {
+    samples[index] = view.getInt16(index * 2, true);
+  }
+  return samples;
+}
+
 function toSigned16(low: number, high: number): number {
   const unsigned = low | (high << 8);
   return unsigned >= 0x8000 ? unsigned - 0x10000 : unsigned;

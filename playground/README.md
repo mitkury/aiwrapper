@@ -8,6 +8,8 @@ the top navigation to switch between test suites:
   editable transcript with OpenAI or ElevenLabs.
 - **Realtime** runs a continuous streaming STT -> selected LLM -> streaming TTS
   cascade with barge-in interruption and optional camera context.
+- **Live voice** streams microphone audio directly through OpenAI Realtime or
+  Gemini Live using the same speech-to-speech interface.
 
 ## Providers
 
@@ -72,6 +74,13 @@ Optional realtime STT defaults are `DEEPGRAM_FLUX_MODEL` (normally
 The realtime playground defaults ElevenLabs TTS to the low-latency
 `eleven_flash_v2_5`; set `ELEVENLABS_TTS_MODEL` to override it.
 
+The Live voice page uses `OPENAI_API_KEY` for OpenAI Realtime and
+`GOOGLE_API_KEY` for Gemini Live. Optional defaults are
+`OPENAI_SPEECH_TO_SPEECH_MODEL`, `OPENAI_SPEECH_TO_SPEECH_VOICE`,
+`GEMINI_LIVE_MODEL`, and `GEMINI_LIVE_VOICE`. Provider and model controls are
+disabled during an active session because live conversation state cannot be
+transferred losslessly between providers.
+
 Realtime exposes STT, LLM, and TTS as three independent pipeline controls. A
 server-owned session creates the selected providers and one `RealtimeAgent`, so
 credentials, VAD/turn detection, the conversation, tool execution, LLM
@@ -106,7 +115,7 @@ npm --prefix playground run dev
 
 Then open the single URL printed by Vite. The general playground is at `/`,
 voice is at `/speech`, and the cascade experiment is at `/realtime`; all use
-that same process.
+that same process. Native live models are at `/speech-to-speech`.
 
 Validate the app with:
 

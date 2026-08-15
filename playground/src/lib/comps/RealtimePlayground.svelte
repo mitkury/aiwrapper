@@ -10,6 +10,7 @@
 		type ProviderId
 	} from '$lib/provider-config';
 	import { PcmStreamPlayer } from '$lib/realtime/pcm-player';
+	import { resampleToPcm } from '$lib/realtime/pcm';
 	import {
 		RemoteRealtimeSession,
 		type RemoteRealtimeEvent
@@ -531,23 +532,6 @@
 		ttsInputMs = undefined;
 		ttsFirstAudioMs = undefined;
 		turnCompleteMs = undefined;
-	}
-
-	function resampleToPcm(input: Float32Array, sourceRate: number, targetRate: number): Int16Array {
-		const length = Math.max(1, Math.round((input.length * targetRate) / sourceRate));
-		const output = new Int16Array(length);
-		for (let index = 0; index < length; index++) {
-			const sourcePosition = (index * sourceRate) / targetRate;
-			const left = Math.min(input.length - 1, Math.floor(sourcePosition));
-			const right = Math.min(input.length - 1, left + 1);
-			const fraction = sourcePosition - left;
-			const sample = Math.max(
-				-1,
-				Math.min(1, input[left] * (1 - fraction) + input[right] * fraction)
-			);
-			output[index] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
-		}
-		return output;
 	}
 
 	function errorMessage(value: unknown): string {

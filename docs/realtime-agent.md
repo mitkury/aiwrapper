@@ -77,6 +77,10 @@ Its values are wall-clock intervals; LLM generation and TTS overlap after audio
 starts. See
 [the playground README](../playground/README.md) for environment setup.
 
+The separate `/speech-to-speech` page tests native live models through
+`SpeechToSpeechProvider`. It bypasses the STT, language, and TTS cascade while
+keeping the same browser microphone and PCM playback boundary.
+
 Camera context starts off because multimodal requests are slower. Enable it for
 turns that need vision. The playground's latency profile also disables optional
 reasoning where supported and limits spoken replies to 256 tokens. Regular chat
