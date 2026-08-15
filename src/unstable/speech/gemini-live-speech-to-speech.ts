@@ -19,6 +19,7 @@ import type {
   SpeechToSpeechSession,
   SpeechToSpeechSessionOptions,
 } from "./types.js";
+import { createObservableSpeechToSpeechSession } from "./session-events.js";
 
 type SocketEvent = {
   data?: unknown;
@@ -80,18 +81,20 @@ export class GeminiLiveSpeechToSpeech implements SpeechToSpeechProvider {
   async createSession(
     options: SpeechToSpeechSessionOptions = {},
   ): Promise<SpeechToSpeechSession> {
-    const session = new GeminiLiveSpeechToSpeechSession(this.options, options);
-    try {
-      await session.connect();
-      return session;
-    } catch (error) {
-      await session.close();
-      throw error;
-    }
+    return createObservableSpeechToSpeechSession(options, async (events) => {
+      const session = new GeminiLiveSpeechToSpeechSession(this.options, events);
+      try {
+        await session.connect();
+        return session;
+      } catch (error) {
+        await session.close();
+        throw error;
+      }
+    });
   }
 }
 
-class GeminiLiveSpeechToSpeechSession implements SpeechToSpeechSession {
+class GeminiLiveSpeechToSpeechSession {
   private readonly controller = new AbortController();
   private readonly unlinkAbort: () => void;
   private socket?: RealtimeSpeechWebSocket;

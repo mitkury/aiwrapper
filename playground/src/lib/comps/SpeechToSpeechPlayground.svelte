@@ -7,6 +7,11 @@
 		type RemoteSpeechToSpeechEvent,
 		type SpeechToSpeechProviderId
 	} from '$lib/speech-to-speech/remote-speech-to-speech-session';
+	import {
+		updateSpeechToSpeechTranscripts,
+		type SpeechToSpeechTranscriptEntry
+	} from '$lib/speech-to-speech/transcript-list';
+	import type { SpeechToSpeechTimelineStage } from '$lib/realtime/realtime-session-protocol';
 
 	type ProviderConfig = {
 		configured: boolean;
@@ -15,16 +20,23 @@
 	};
 	type LiveConfig = Record<SpeechToSpeechProviderId, ProviderConfig>;
 	type Phase = 'disconnected' | 'connecting' | 'listening' | 'thinking' | 'speaking';
-	type TranscriptEntry = {
-		id: number;
-		speaker: 'user' | 'assistant';
-		text: string;
-		final: boolean;
+	type TimelineEntry = {
+		stage: Exclude<SpeechToSpeechTimelineStage, 'session-ready'>;
+		milliseconds: number;
+	};
+	type TimelinePart = TimelineEntry & {
+		label: string;
+		description: string;
+		duration: number;
+		tone: 'input' | 'model' | 'audio' | 'finish' | 'error';
 	};
 
 	let config = $state<LiveConfig>({
 		openai: { configured: false, model: 'gpt-realtime-2.1', voice: 'marin' },
-		gemini: { configured: false, model: 'gemini-3.1-flash-live-preview', voice: 'Kore' }
+		gemini: { configured: false, model: 'gemini-3.1-flash-live-preview', voice: 'Kore' },
+		xai: { configured: false, model: 'grok-voice-think-fast-2.0', voice: 'eve' },
+		azure: { configured: false, model: 'gpt-realtime', voice: 'alloy' },
+		nova: { configured: true, model: 'amazon.nova-2-sonic-v1:0', voice: 'tiffany' }
 	});
 	let configLoaded = $state(false);
 	let provider = $state<SpeechToSpeechProviderId>('openai');
@@ -34,9 +46,12 @@
 		'You are a concise live voice assistant. Reply naturally and keep spoken answers brief.'
 	);
 	let phase = $state<Phase>('disconnected');
-	let transcripts: TranscriptEntry[] = $state([]);
+	let transcripts: SpeechToSpeechTranscriptEntry[] = $state([]);
 	let error = $state('');
 	let sessionInputRate = $state<number | undefined>();
+	let connectionMs = $state<number | undefined>();
+	let timelineTurnId = $state(0);
+	let timelineEntries: TimelineEntry[] = $state([]);
 
 	let session: RemoteSpeechToSpeechSession | undefined;
 	let unsubscribe: (() => void) | undefined;
@@ -54,6 +69,20 @@
 		configLoaded && selectedConfig.configured && model.trim() && voice.trim()
 	);
 	const connected = $derived(phase !== 'disconnected' && phase !== 'connecting');
+	const timelineParts = $derived.by(() => {
+		let previous = 0;
+		return timelineEntries.map((entry) => {
+			const details = timelineStageDetails(entry.stage);
+			const part: TimelinePart = {
+				...entry,
+				...details,
+				duration: Math.max(0, entry.milliseconds - previous)
+			};
+			previous = entry.milliseconds;
+			return part;
+		});
+	});
+	const timelineTotalMs = $derived(timelineEntries.at(-1)?.milliseconds ?? 0);
 
 	onMount(() => {
 		void loadConfig();
@@ -71,7 +100,13 @@
 				? 'openai'
 				: config.gemini.configured
 					? 'gemini'
-					: 'openai';
+					: config.xai.configured
+						? 'xai'
+						: config.azure.configured
+							? 'azure'
+							: config.nova.configured
+								? 'nova'
+								: 'openai';
 			selectProvider(initialProvider);
 		} catch (value) {
 			error = errorMessage(value);
@@ -86,10 +121,29 @@
 		voice = config[next].voice;
 	}
 
+	function providerLabel(value: SpeechToSpeechProviderId): string {
+		if (value === 'openai') return 'OpenAI Realtime';
+		if (value === 'gemini') return 'Gemini Live';
+		if (value === 'xai') return 'xAI Voice';
+		if (value === 'azure') return 'Azure Voice Live';
+		return 'Amazon Nova Sonic';
+	}
+
+	function providerEnvironmentKey(value: SpeechToSpeechProviderId): string {
+		if (value === 'openai') return 'OPENAI_API_KEY';
+		if (value === 'gemini') return 'GOOGLE_API_KEY';
+		if (value === 'xai') return 'XAI_API_KEY';
+		if (value === 'azure') return 'AZURE_VOICE_LIVE_ENDPOINT and credentials';
+		return 'AWS credential chain';
+	}
+
 	async function connect() {
 		if (!canConnect || phase !== 'disconnected') return;
 		error = '';
 		transcripts = [];
+		connectionMs = undefined;
+		timelineTurnId = 0;
+		timelineEntries = [];
 		phase = 'connecting';
 		try {
 			mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -153,6 +207,21 @@
 	}
 
 	function handleEvent(event: RemoteSpeechToSpeechEvent) {
+		if (event.type === 'timeline') {
+			if (event.stage === 'session-ready') {
+				connectionMs = event.milliseconds;
+				return;
+			}
+			if (event.turnId !== timelineTurnId) {
+				timelineTurnId = event.turnId;
+				timelineEntries = [];
+			}
+			const existing = timelineEntries.findIndex((entry) => entry.stage === event.stage);
+			const entry = { stage: event.stage, milliseconds: event.milliseconds };
+			if (existing === -1) timelineEntries = [...timelineEntries, entry];
+			else timelineEntries = timelineEntries.with(existing, entry);
+			return;
+		}
 		if (event.type === 'audio') {
 			player?.enqueue(event.frame);
 			return;
@@ -184,29 +253,7 @@
 	}
 
 	function updateTranscript(event: Extract<RemoteSpeechToSpeechEvent, { type: 'transcript' }>) {
-		const last = transcripts[transcripts.length - 1];
-		if (!event.final) {
-			if (last && !last.final && last.speaker === event.speaker) {
-				last.text += event.text;
-				transcripts = [...transcripts];
-			} else {
-				transcripts = [
-					...transcripts,
-					{ id: ++transcriptId, speaker: event.speaker, text: event.text, final: false }
-				];
-			}
-			return;
-		}
-		if (last && !last.final && last.speaker === event.speaker) {
-			last.text = event.text;
-			last.final = true;
-			transcripts = [...transcripts];
-		} else {
-			transcripts = [
-				...transcripts,
-				{ id: ++transcriptId, speaker: event.speaker, text: event.text, final: true }
-			];
-		}
+		transcripts = updateSpeechToSpeechTranscripts(transcripts, event, ++transcriptId);
 	}
 
 	function finalizeTranscripts() {
@@ -254,6 +301,41 @@
 		if (value === 'speaking') return 'Speaking';
 		return 'Disconnected';
 	}
+
+	function timelineStageDetails(stage: TimelineEntry['stage']): {
+		label: string;
+		description: string;
+		tone: TimelinePart['tone'];
+	} {
+		if (stage === 'input-start') {
+			return { label: 'Input heard', description: 'First normalized user transcript', tone: 'input' };
+		}
+		if (stage === 'input-final') {
+			return { label: 'Input final', description: 'Provider finalized the user transcript', tone: 'input' };
+		}
+		if (stage === 'response-start') {
+			return { label: 'Response start', description: 'Provider began a model response', tone: 'model' };
+		}
+		if (stage === 'first-text') {
+			return { label: 'First text', description: 'First normalized response transcript', tone: 'model' };
+		}
+		if (stage === 'first-audio') {
+			return { label: 'First audio', description: 'First playable PCM frame', tone: 'audio' };
+		}
+		if (stage === 'response-end') {
+			return { label: 'Complete', description: 'Provider completed the turn', tone: 'finish' };
+		}
+		if (stage === 'response-interrupted') {
+			return { label: 'Interrupted', description: 'User speech stopped the response', tone: 'finish' };
+		}
+		return { label: 'Error', description: 'Provider reported an error', tone: 'error' };
+	}
+
+	function formatDuration(milliseconds: number): string {
+		return milliseconds < 1000
+			? `${Math.round(milliseconds)} ms`
+			: `${(milliseconds / 1000).toFixed(2)} s`;
+	}
 </script>
 
 <main class="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
@@ -297,6 +379,15 @@
 					<option value="gemini" disabled={configLoaded && !config.gemini.configured}>
 						Gemini Live{config.gemini.configured ? ' ✓' : ''}
 					</option>
+					<option value="xai" disabled={configLoaded && !config.xai.configured}>
+						xAI Voice{config.xai.configured ? ' ✓' : ''}
+					</option>
+					<option value="azure" disabled={configLoaded && !config.azure.configured}>
+						Azure Voice Live{config.azure.configured ? ' ✓' : ''}
+					</option>
+					<option value="nova" disabled={configLoaded && !config.nova.configured}>
+						Amazon Nova 2 Sonic{config.nova.configured ? ' ✓' : ''}
+					</option>
 				</select>
 			</div>
 			<div>
@@ -314,8 +405,19 @@
 						<option value="gpt-realtime-2.1-mini"></option>
 						<option value="gpt-realtime-2"></option>
 						<option value="gpt-realtime-1.5"></option>
-					{:else}
+					{:else if provider === 'gemini'}
 						<option value="gemini-3.1-flash-live-preview"></option>
+					{:else if provider === 'xai'}
+						<option value="grok-voice-think-fast-2.0"></option>
+						<option value="grok-voice-latest"></option>
+						<option value="grok-voice-think-fast-1.0"></option>
+					{:else if provider === 'azure'}
+						<option value="gpt-realtime"></option>
+						<option value="gpt-realtime-mini"></option>
+						<option value="azure-realtime"></option>
+						<option value="phi4-mm-realtime"></option>
+					{:else}
+						<option value="amazon.nova-2-sonic-v1:0"></option>
 					{/if}
 				</datalist>
 			</div>
@@ -333,10 +435,26 @@
 						<option value="marin"></option>
 						<option value="cedar"></option>
 						<option value="coral"></option>
-					{:else}
+					{:else if provider === 'gemini'}
 						<option value="Kore"></option>
 						<option value="Puck"></option>
 						<option value="Aoede"></option>
+					{:else if provider === 'xai'}
+						<option value="eve"></option>
+						<option value="ara"></option>
+						<option value="leo"></option>
+						<option value="rex"></option>
+						<option value="sal"></option>
+					{:else if provider === 'azure'}
+						<option value="alloy"></option>
+						<option value="en-US-Ava:DragonHDLatestNeural"></option>
+					{:else}
+						<option value="tiffany"></option>
+						<option value="matthew"></option>
+						<option value="amy"></option>
+						<option value="olivia"></option>
+						<option value="lupe"></option>
+						<option value="carlos"></option>
 					{/if}
 				</datalist>
 			</div>
@@ -354,10 +472,12 @@
 		<p class="mt-3 text-xs text-neutral-500">
 			{#if !configLoaded}
 				Loading server configuration…
+			{:else if provider === 'nova'}
+				The server will use the standard AWS credential chain.
 			{:else if selectedConfig.configured}
-				{provider === 'openai' ? 'OPENAI_API_KEY' : 'GOOGLE_API_KEY'} is configured on the server.
+				{providerEnvironmentKey(provider)} is configured on the server.
 			{:else}
-				Add {provider === 'openai' ? 'OPENAI_API_KEY' : 'GOOGLE_API_KEY'} to the repository .env file.
+				Add {providerEnvironmentKey(provider)} to the repository .env file.
 			{/if}
 		</p>
 	</section>
@@ -367,6 +487,61 @@
 			{error}
 		</div>
 	{/if}
+
+	<section class="mt-4 rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+		<div class="flex items-center justify-between gap-3 text-xs">
+			<div>
+				<span class="font-medium text-neutral-800">Live timeline</span>
+				{#if timelineTurnId}
+					<span class="ml-2 text-neutral-400">Turn {timelineTurnId}</span>
+				{/if}
+			</div>
+			<div class="font-mono text-[10px] text-neutral-500">
+				{#if connectionMs !== undefined}connected {formatDuration(connectionMs)}{/if}
+				{#if connectionMs !== undefined && timelineParts.length} · {/if}
+				{timelineParts.length ? `${formatDuration(timelineTotalMs)} turn` : ''}
+			</div>
+		</div>
+		{#if timelineParts.length}
+			<div class="mt-3 flex h-2.5 overflow-hidden rounded-full bg-neutral-100">
+				{#each timelineParts as part}
+					<div
+						class="min-w-px"
+						class:bg-amber-400={part.tone === 'input'}
+						class:bg-indigo-500={part.tone === 'model'}
+						class:bg-violet-400={part.tone === 'audio'}
+						class:bg-emerald-400={part.tone === 'finish'}
+						class:bg-red-400={part.tone === 'error'}
+						style={`flex-grow: ${Math.max(part.duration, 1)}; flex-basis: 0`}
+						title={`${part.label}: +${formatDuration(part.milliseconds)}`}
+					></div>
+				{/each}
+			</div>
+			<div class="mt-3 grid gap-1.5 sm:grid-cols-2">
+				{#each timelineParts as part}
+					<div class="flex items-center gap-2 text-[11px]" title={part.description}>
+						<span
+							class="h-2 w-2 shrink-0 rounded-full"
+							class:bg-amber-400={part.tone === 'input'}
+							class:bg-indigo-500={part.tone === 'model'}
+							class:bg-violet-400={part.tone === 'audio'}
+							class:bg-emerald-400={part.tone === 'finish'}
+							class:bg-red-400={part.tone === 'error'}
+						></span>
+						<span class="min-w-0 flex-1 truncate text-neutral-600">{part.label}</span>
+						<span class="font-mono text-neutral-700">+{formatDuration(part.milliseconds)}</span>
+					</div>
+				{/each}
+			</div>
+			<p class="mt-2 text-[10px] leading-snug text-neutral-400">
+				Provider-neutral server arrival times; transcript and audio generation can overlap.
+			</p>
+		{:else}
+			<p class="mt-3 text-[11px] text-neutral-400">
+				Connect and speak to record normalized request and response milestones.
+			</p>
+		{/if}
+	</section>
 
 	<section
 		class="mt-4 flex min-h-[420px] flex-col rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm"
@@ -378,7 +553,7 @@
 				{phaseLabel(phase)}
 			</span>
 			<span class="rounded-full bg-neutral-100 px-2.5 py-1 text-neutral-600">
-				{provider === 'openai' ? 'OpenAI Realtime' : 'Gemini Live'} · {model}
+				{providerLabel(provider)} · {model}
 			</span>
 			{#if sessionInputRate}
 				<span class="rounded-full bg-neutral-100 px-2.5 py-1 text-neutral-600">

@@ -15,7 +15,10 @@ keep one live audio conversation instead of exposing independent transcription
 and synthesis steps:
 
 ```ts
-import { SpeechToSpeech } from "aiwrapper/unstable/speech";
+import {
+  SpeechToSpeech,
+  type SpeechToSpeechEvent,
+} from "aiwrapper/unstable/speech";
 
 const provider = SpeechToSpeech.openaiRealtime({
   apiKey: process.env.OPENAI_API_KEY!,
@@ -42,6 +45,44 @@ await session.appendAudio(microphoneFrame);
 await session.close();
 ```
 
+`onEvent` remains convenient during session construction. A created session is
+also an observable event source, so independent consumers can subscribe without
+combining callbacks themselves:
+
+```ts
+const logEvent = (event: SpeechToSpeechEvent) => console.log(event);
+const clearPlayback = () => speaker.clear();
+
+session.addEventListener("event", logEvent); // every normalized event
+session.addEventListener("response-interrupted", clearPlayback);
+
+session.removeEventListener("response-interrupted", clearPlayback);
+session.removeEventListener("event", logEvent);
+```
+
+Specific event names are type-narrowed. Observer errors are isolated from the
+provider stream and from other observers. Provider adapters continue to expose
+one normalized event vocabulary: transcripts, output audio, response start,
+response completion, interruption, and errors.
+
+Applications can also subscribe to provider-neutral turn milestones without
+reimplementing the Playground timeline:
+
+```ts
+import { observeSpeechToSpeechTimeline } from "aiwrapper/unstable/speech";
+
+const stopTimeline = observeSpeechToSpeechTimeline(session, (milestone) => {
+  timelineView.update(milestone);
+});
+
+stopTimeline();
+```
+
+Milestones include input start and final, response start, first text, first
+audio, response end, interruption, and error. Each includes a turn ID and the
+milliseconds elapsed since that turn's first observed event. Session connection
+timing remains application-owned because it begins before a session exists.
+
 Change only provider construction to use Gemini Live:
 
 ```ts
@@ -52,11 +93,50 @@ const provider = SpeechToSpeech.geminiLive({
 });
 ```
 
-Both adapters use one persistent server-side WebSocket per session and let the
-provider manage turn taking. OpenAI declares 24 kHz input and output. Gemini
-declares 16 kHz input and 24 kHz output. Applications should read
+Or use xAI Voice through the same session interface:
+
+```ts
+const provider = SpeechToSpeech.xaiVoice({
+  apiKey: process.env.XAI_API_KEY!,
+  model: "grok-voice-think-fast-2.0",
+  voice: "eve",
+});
+```
+
+Azure Voice Live is another drop-in provider:
+
+```ts
+const provider = SpeechToSpeech.azureVoiceLive({
+  endpoint: process.env.AZURE_VOICE_LIVE_ENDPOINT!,
+  apiKey: process.env.AZURE_VOICE_LIVE_API_KEY!,
+  model: "gpt-realtime",
+  voice: "alloy",
+});
+```
+
+Amazon Nova 2 Sonic uses the standard AWS SDK credential chain and Bedrock's
+bidirectional streaming API:
+
+```ts
+const provider = SpeechToSpeech.amazonNovaSonic({
+  region: process.env.AWS_REGION ?? "us-east-1",
+  model: "amazon.nova-2-sonic-v1:0",
+  voice: "tiffany",
+});
+```
+
+OpenAI, Gemini, xAI, and Azure use one persistent server-side WebSocket per
+session. Nova keeps the same public session interface over one Bedrock HTTP/2
+bidirectional stream. All providers manage turn taking themselves. OpenAI,
+xAI, and Azure declare 24 kHz input and output. Gemini and Nova declare 16 kHz
+input and 24 kHz output. Applications should read
 `provider.inputFormat` and resample explicitly at the microphone boundary when
-needed. The shared API does not expose either provider's WebSocket messages.
+needed. The shared API does not expose provider-specific transport messages.
+
+Final transcript events may include an `id`. Providers can revise a transcript
+for the same utterance more than once, so interfaces that render conversation
+bubbles should replace an existing entry with the same ID instead of appending
+a duplicate.
 
 `SpeechToSpeech.mock()` records received frames and can emit deterministic
 audio, transcripts, delays, and interruption events for application tests.
@@ -203,6 +283,8 @@ Provider references:
 - [OpenAI realtime transcription](https://developers.openai.com/api/docs/guides/realtime-transcription)
 - [OpenAI speech generation](https://developers.openai.com/api/docs/guides/text-to-speech)
 - [ElevenLabs streaming speech](https://elevenlabs.io/docs/api-reference/text-to-speech/stream)
+- [Amazon Nova 2 Sonic bidirectional events](https://docs.aws.amazon.com/nova/latest/nova2-userguide/sonic-input-events.html)
+- [Azure Voice Live API](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/voice-live-api-reference-2026-04-10)
 
 ## Mocks
 

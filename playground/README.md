@@ -8,8 +8,9 @@ the top navigation to switch between test suites:
   editable transcript with OpenAI or ElevenLabs.
 - **Realtime** runs a continuous streaming STT -> selected LLM -> streaming TTS
   cascade with barge-in interruption and optional camera context.
-- **Live voice** streams microphone audio directly through OpenAI Realtime or
-  Gemini Live using the same speech-to-speech interface.
+- **Live voice** streams microphone audio directly through OpenAI Realtime,
+  Gemini Live, xAI Voice, Azure Voice Live, or Amazon Nova 2 Sonic using the
+  same speech-to-speech interface.
 
 ## Providers
 
@@ -48,6 +49,10 @@ GROQ_API_KEY=
 DEEPSEEK_API_KEY=
 KIMI_API_KEY=
 XAI_API_KEY=
+AZURE_VOICE_LIVE_ENDPOINT=
+AZURE_VOICE_LIVE_API_KEY=
+AWS_REGION=us-east-1
+# AWS_PROFILE=default
 COHERE_API_KEY=
 MISTRAL_API_KEY=
 OPENROUTER_API_KEY=
@@ -74,12 +79,26 @@ Optional realtime STT defaults are `DEEPGRAM_FLUX_MODEL` (normally
 The realtime playground defaults ElevenLabs TTS to the low-latency
 `eleven_flash_v2_5`; set `ELEVENLABS_TTS_MODEL` to override it.
 
-The Live voice page uses `OPENAI_API_KEY` for OpenAI Realtime and
-`GOOGLE_API_KEY` for Gemini Live. Optional defaults are
-`OPENAI_SPEECH_TO_SPEECH_MODEL`, `OPENAI_SPEECH_TO_SPEECH_VOICE`,
-`GEMINI_LIVE_MODEL`, and `GEMINI_LIVE_VOICE`. Provider and model controls are
+The Live voice page uses `OPENAI_API_KEY` for OpenAI Realtime,
+`GOOGLE_API_KEY` for Gemini Live, `XAI_API_KEY` for xAI Voice,
+`AZURE_VOICE_LIVE_ENDPOINT` plus either `AZURE_VOICE_LIVE_API_KEY` or
+`AZURE_VOICE_LIVE_ACCESS_TOKEN` for Azure, and the standard AWS SDK credential
+chain for Nova. Optional defaults are `OPENAI_SPEECH_TO_SPEECH_MODEL`,
+`OPENAI_SPEECH_TO_SPEECH_VOICE`, `GEMINI_LIVE_MODEL`, `GEMINI_LIVE_VOICE`,
+`XAI_SPEECH_TO_SPEECH_MODEL`, `XAI_SPEECH_TO_SPEECH_VOICE`,
+`AZURE_VOICE_LIVE_MODEL`, `AZURE_VOICE_LIVE_VOICE`,
+`AZURE_VOICE_LIVE_VOICE_TYPE`, `AMAZON_NOVA_SONIC_MODEL`, and
+`AMAZON_NOVA_SONIC_VOICE`. Nova defaults to `AWS_REGION` or
+`AWS_DEFAULT_REGION`, then `us-east-1`; set `AMAZON_NOVA_SONIC_ENABLED=false`
+to hide it from the page. Provider and model controls are
 disabled during an active session because live conversation state cannot be
 transferred losslessly between providers.
+
+The page derives a provider-neutral turn timeline from the shared
+speech-to-speech events. It reports connection setup, first/final input
+transcript, response start, first response text, first playable audio,
+completion, interruption, and errors using server arrival times. This is
+diagnostic timing rather than provider billing or token telemetry.
 
 Realtime exposes STT, LLM, and TTS as three independent pipeline controls. A
 server-owned session creates the selected providers and one `RealtimeAgent`, so

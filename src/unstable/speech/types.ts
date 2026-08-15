@@ -19,9 +19,35 @@ export type SpeechToSpeechSessionOptions = {
   onEvent?: (event: SpeechToSpeechEvent) => void;
 };
 
+export type SpeechToSpeechEventType = SpeechToSpeechEvent["type"];
+
+export type SpeechToSpeechEventListener<
+  Type extends SpeechToSpeechEventType = SpeechToSpeechEventType,
+> = (event: Extract<SpeechToSpeechEvent, { type: Type }>) => void;
+
+export type SpeechToSpeechAnyEventListener = (
+  event: SpeechToSpeechEvent,
+) => void;
+
 export interface SpeechToSpeechSession {
   appendAudio(frame: PcmAudioFrame): Promise<void>;
   close(): Promise<void>;
+  addEventListener(
+    type: "event",
+    listener: SpeechToSpeechAnyEventListener,
+  ): void;
+  addEventListener<Type extends SpeechToSpeechEventType>(
+    type: Type,
+    listener: SpeechToSpeechEventListener<Type>,
+  ): void;
+  removeEventListener(
+    type: "event",
+    listener: SpeechToSpeechAnyEventListener,
+  ): void;
+  removeEventListener<Type extends SpeechToSpeechEventType>(
+    type: Type,
+    listener: SpeechToSpeechEventListener<Type>,
+  ): void;
 }
 
 export interface SpeechToSpeechProvider {

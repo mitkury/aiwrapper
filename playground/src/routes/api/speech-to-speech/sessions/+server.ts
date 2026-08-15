@@ -15,7 +15,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		if (!speechToSpeechConfig()[config.provider].configured) {
 			return json(
 				{
-					error: `${config.provider === 'openai' ? 'OPENAI_API_KEY' : 'GOOGLE_API_KEY'} is not configured`
+					error: `${providerEnvironmentKey(config.provider)} is not configured`
 				},
 				{ status: 503 }
 			);
@@ -37,7 +37,13 @@ function parseConfig(value: unknown): SpeechToSpeechSessionConfig {
 		throw new RequestValidationError('Session config is required');
 	}
 	const rawProvider = Reflect.get(value, 'provider');
-	if (rawProvider !== 'openai' && rawProvider !== 'gemini') {
+	if (
+		rawProvider !== 'openai' &&
+		rawProvider !== 'gemini' &&
+		rawProvider !== 'xai' &&
+		rawProvider !== 'azure' &&
+		rawProvider !== 'nova'
+	) {
 		throw new RequestValidationError('Unsupported speech-to-speech provider');
 	}
 	const provider: SpeechToSpeechProviderId = rawProvider;
@@ -47,6 +53,14 @@ function parseConfig(value: unknown): SpeechToSpeechSessionConfig {
 		voice: requiredShortString(value, 'voice'),
 		instructions: shortString(value, 'instructions', 4000)
 	};
+}
+
+function providerEnvironmentKey(provider: SpeechToSpeechProviderId): string {
+	if (provider === 'openai') return 'OPENAI_API_KEY';
+	if (provider === 'gemini') return 'GOOGLE_API_KEY';
+	if (provider === 'xai') return 'XAI_API_KEY';
+	if (provider === 'azure') return 'AZURE_VOICE_LIVE_ENDPOINT and credentials';
+	return 'AWS credentials';
 }
 
 function requiredShortString(value: object, key: string): string {

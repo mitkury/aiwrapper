@@ -10,6 +10,7 @@ import type {
   SpeechToSpeechSession,
   SpeechToSpeechSessionOptions,
 } from "./types.js";
+import { createObservableSpeechToSpeechSession } from "./session-events.js";
 
 export type MockSpeechToSpeechOptions = {
   inputSampleRate?: number;
@@ -60,16 +61,18 @@ export class MockSpeechToSpeech implements SpeechToSpeechProvider {
   async createSession(
     options: SpeechToSpeechSessionOptions = {},
   ): Promise<SpeechToSpeechSession> {
-    return new MockSpeechToSpeechSession(
-      this.inputFormat,
-      options,
-      (frame) => {
-        this.receivedFrames.push({
-          ...frame,
-          samples: new Int16Array(frame.samples),
-        });
-      },
-      (signal) => this.emitOutput(options, signal),
+    return createObservableSpeechToSpeechSession(options, async (events) =>
+      new MockSpeechToSpeechSession(
+        this.inputFormat,
+        events,
+        (frame) => {
+          this.receivedFrames.push({
+            ...frame,
+            samples: new Int16Array(frame.samples),
+          });
+        },
+        (signal) => this.emitOutput(events, signal),
+      ),
     );
   }
 
@@ -111,7 +114,7 @@ export class MockSpeechToSpeech implements SpeechToSpeechProvider {
   }
 }
 
-class MockSpeechToSpeechSession implements SpeechToSpeechSession {
+class MockSpeechToSpeechSession {
   private readonly controller = new AbortController();
   private readonly unlinkAbort: () => void;
   private outputTask?: Promise<void>;

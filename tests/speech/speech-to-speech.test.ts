@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  AmazonNovaSonicSpeechToSpeech,
+  AzureVoiceLiveSpeechToSpeech,
   GeminiLiveSpeechToSpeech,
   MockSpeechToSpeech,
   OpenAIRealtimeSpeechToSpeech,
   SpeechToSpeech,
+  XAIVoiceSpeechToSpeech,
   type PcmAudioFrame,
   type RealtimeSpeechWebSocketData,
   type SpeechToSpeechEvent,
@@ -84,6 +87,40 @@ const frame = (samples: number[], sampleRate: number): PcmAudioFrame => ({
 });
 
 describe("speech-to-speech mock", () => {
+  it("supports typed event listeners without letting observers break the stream", async () => {
+    const provider = SpeechToSpeech.mock({ outputTranscript: "hello" });
+    const session = await provider.createSession();
+    const allEvents: string[] = [];
+    const responseEvents: string[] = [];
+    const onAnyEvent = (event: SpeechToSpeechEvent) => {
+      allEvents.push(event.type);
+    };
+    const onResponseStart = () => {
+      responseEvents.push("started");
+    };
+    session.addEventListener("event", onAnyEvent);
+    session.addEventListener("response-start", onResponseStart);
+    session.addEventListener("response-start", () => {
+      throw new Error("Observer failure");
+    });
+
+    const completed = deferred<void>();
+    session.addEventListener("response-end", () => completed.resolve());
+    await session.appendAudio(frame([1], 24000));
+    await completed.promise;
+
+    expect(responseEvents).toEqual(["started"]);
+    expect(allEvents).toEqual([
+      "response-start",
+      "output-audio",
+      "output-transcript",
+      "response-end",
+    ]);
+    session.removeEventListener("event", onAnyEvent);
+    session.removeEventListener("response-start", onResponseStart);
+    await session.close();
+  });
+
   it("records input and emits deterministic streaming events", async () => {
     const events: SpeechToSpeechEvent[] = [];
     const completed = deferred<void>();
@@ -270,6 +307,414 @@ describe("OpenAI realtime speech-to-speech", () => {
   });
 });
 
+describe("Azure Voice Live speech-to-speech", () => {
+  it("configures Azure and normalizes its realtime audio event names", async () => {
+    const socket = new FakeLiveSocket({ type: "session.updated" });
+    const events: SpeechToSpeechEvent[] = [];
+    let connection:
+      { url: string; headers: Record<string, string> } | undefined;
+    const provider = new AzureVoiceLiveSpeechToSpeech({
+      endpoint: "https://voice-resource.services.ai.azure.com",
+      apiKey: "azure key",
+      model: "gpt-realtime-mini",
+      voice: "alloy",
+      createWebSocket: (url, headers) => {
+        connection = { url, headers };
+        return socket;
+      },
+    });
+    const session = await provider.createSession({
+      instructions: "Be brief.",
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(connection).toEqual({
+      url: "wss://voice-resource.services.ai.azure.com/voice-live/realtime?api-version=2026-04-10&model=gpt-realtime-mini",
+      headers: { "api-key": "azure key" },
+    });
+    expect(socket.sent[0]).toEqual({
+      type: "session.update",
+      session: {
+        modalities: ["text", "audio"],
+        voice: { type: "openai", name: "alloy" },
+        instructions: "Be brief.",
+        input_audio_format: "pcm16",
+        output_audio_format: "pcm16",
+        input_audio_sampling_rate: 24000,
+        input_audio_transcription: { model: "whisper-1" },
+        turn_detection: {
+          type: "azure_semantic_vad",
+          threshold: 0.5,
+          prefix_padding_ms: 420,
+          silence_duration_ms: 500,
+        },
+      },
+    });
+
+    socket.serverMessage({ type: "response.created" });
+    socket.serverMessage({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "azure-user",
+      transcript: "hello",
+    });
+    socket.serverMessage({
+      type: "response.audio_transcript.delta",
+      item_id: "azure-assistant",
+      delta: "hi",
+    });
+    socket.serverMessage({
+      type: "response.audio.delta",
+      item_id: "azure-assistant",
+      delta: "AQD+/w==",
+    });
+    socket.serverMessage({
+      type: "response.audio_transcript.done",
+      item_id: "azure-assistant",
+      transcript: "hi there",
+    });
+    socket.serverMessage({ type: "response.done", response: {} });
+    await settleMessages();
+
+    expect(events).toMatchObject([
+      { type: "response-start" },
+      {
+        type: "input-transcript",
+        transcript: { type: "final", text: "hello", id: "azure-user" },
+      },
+      {
+        type: "output-transcript",
+        transcript: { type: "delta", text: "hi" },
+      },
+      { type: "output-audio", frame: { sampleRate: 24000 } },
+      {
+        type: "output-transcript",
+        transcript: {
+          type: "final",
+          text: "hi there",
+          id: "azure-assistant",
+        },
+      },
+      { type: "response-end" },
+    ]);
+
+    await session.close();
+  });
+});
+
+describe("Amazon Nova Sonic speech-to-speech", () => {
+  it("uses the Bedrock stream while preserving normalized session events", async () => {
+    const outputs = new PushAsyncIterable<unknown>();
+    const inputs: Record<string, any>[] = [];
+    const events: SpeechToSpeechEvent[] = [];
+    let invocation:
+      { modelId: string; region: string } | undefined;
+    const provider = new AmazonNovaSonicSpeechToSpeech({
+      model: "amazon.nova-2-sonic-v1:0",
+      region: "us-west-2",
+      voice: "matthew",
+      invoke: async ({ modelId, region, body }) => {
+        invocation = { modelId, region };
+        void (async () => {
+          for await (const message of body) {
+            inputs.push(
+              JSON.parse(new TextDecoder().decode(message.chunk.bytes)),
+            );
+          }
+        })();
+        return { body: outputs };
+      },
+    });
+    const session = await provider.createSession({
+      instructions: "Be brief.",
+      onEvent: (event) => events.push(event),
+    });
+    await settleMessages();
+
+    expect(invocation).toEqual({
+      modelId: "amazon.nova-2-sonic-v1:0",
+      region: "us-west-2",
+    });
+    expect(provider.inputFormat.sampleRate).toBe(16000);
+    expect(provider.outputFormat.sampleRate).toBe(24000);
+    expect(inputs[0]).toMatchObject({
+      event: {
+        sessionStart: {
+          inferenceConfiguration: {
+            maxTokens: 1024,
+            topP: 0.9,
+            temperature: 0.7,
+          },
+          turnDetectionConfiguration: { endpointingSensitivity: "MEDIUM" },
+        },
+      },
+    });
+    expect(inputs[1]).toMatchObject({
+      event: {
+        promptStart: {
+          audioOutputConfiguration: {
+            sampleRateHertz: 24000,
+            voiceId: "matthew",
+          },
+        },
+      },
+    });
+    expect(inputs[2]).toMatchObject({
+      event: {
+        contentStart: { role: "SYSTEM", interactive: false },
+      },
+    });
+
+    await session.appendAudio(frame([1, -2], 16000));
+    await settleMessages();
+    expect(inputs.at(-1)).toMatchObject({
+      event: { audioInput: { content: "AQD+/w==" } },
+    });
+
+    outputs.push(novaEvent({ completionStart: { completionId: "turn-1" } }));
+    outputs.push(
+      novaEvent({
+        contentStart: {
+          contentId: "user-text",
+          type: "TEXT",
+          role: "USER",
+          additionalModelFields: '{"generationStage":"FINAL"}',
+        },
+      }),
+    );
+    outputs.push(
+      novaEvent({
+        textOutput: { contentId: "user-text", content: "hello" },
+      }),
+    );
+    outputs.push(
+      novaEvent({
+        contentEnd: {
+          contentId: "user-text",
+          type: "TEXT",
+          stopReason: "END_TURN",
+        },
+      }),
+    );
+    outputs.push(
+      novaEvent({
+        contentStart: {
+          contentId: "preview",
+          type: "TEXT",
+          role: "ASSISTANT",
+          additionalModelFields: '{"generationStage":"SPECULATIVE"}',
+        },
+      }),
+    );
+    outputs.push(
+      novaEvent({
+        textOutput: { contentId: "preview", content: "ignored preview" },
+      }),
+    );
+    outputs.push(
+      novaEvent({
+        contentEnd: { contentId: "preview", type: "TEXT" },
+      }),
+    );
+    outputs.push(
+      novaEvent({
+        audioOutput: { contentId: "audio", content: "AQD+/w==" },
+      }),
+    );
+    outputs.push(
+      novaEvent({
+        contentStart: {
+          contentId: "assistant-text",
+          type: "TEXT",
+          role: "ASSISTANT",
+          additionalModelFields: '{"generationStage":"FINAL"}',
+        },
+      }),
+    );
+    outputs.push(
+      novaEvent({
+        textOutput: { contentId: "assistant-text", content: "hi there" },
+      }),
+    );
+    outputs.push(
+      novaEvent({
+        contentEnd: {
+          contentId: "assistant-text",
+          type: "TEXT",
+          stopReason: "END_TURN",
+        },
+      }),
+    );
+    outputs.push(novaEvent({ completionEnd: { stopReason: "END_TURN" } }));
+    await settleMessages();
+
+    expect(events).toMatchObject([
+      { type: "response-start" },
+      {
+        type: "input-transcript",
+        transcript: { type: "final", text: "hello", id: "user-text" },
+      },
+      { type: "output-audio", frame: { sampleRate: 24000 } },
+      {
+        type: "output-transcript",
+        transcript: {
+          type: "final",
+          text: "hi there",
+          id: "assistant-text",
+        },
+      },
+      { type: "response-end" },
+    ]);
+
+    outputs.push(novaEvent({ completionStart: { completionId: "turn-2" } }));
+    outputs.push(
+      novaEvent({
+        contentEnd: {
+          contentId: "interrupted-audio",
+          type: "AUDIO",
+          stopReason: "INTERRUPTED",
+        },
+      }),
+    );
+    outputs.push(novaEvent({ completionEnd: { stopReason: "INTERRUPTED" } }));
+    await settleMessages();
+    expect(events.slice(-2)).toMatchObject([
+      { type: "response-start" },
+      { type: "response-interrupted" },
+    ]);
+
+    await session.close();
+    await settleMessages();
+    expect(inputs.slice(-3).map((input) => Object.keys(input.event)[0])).toEqual([
+      "contentEnd",
+      "promptEnd",
+      "sessionEnd",
+    ]);
+  });
+});
+
+describe("xAI Voice speech-to-speech", () => {
+  it("configures xAI and normalizes its OpenAI-compatible events", async () => {
+    const socket = new FakeLiveSocket({ type: "session.updated" });
+    const events: SpeechToSpeechEvent[] = [];
+    let connection:
+      { url: string; headers: Record<string, string> } | undefined;
+    const provider = new XAIVoiceSpeechToSpeech({
+      apiKey: "xai key",
+      model: "grok-voice-think-fast-2.0",
+      voice: "eve",
+      createWebSocket: (url, headers) => {
+        connection = { url, headers };
+        return socket;
+      },
+    });
+    const session = await provider.createSession({
+      instructions: "Be brief.",
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(connection).toEqual({
+      url: "wss://api.x.ai/v1/realtime?model=grok-voice-think-fast-2.0",
+      headers: { Authorization: "Bearer xai key" },
+    });
+    expect(socket.sent[0]).toEqual({
+      type: "session.update",
+      session: {
+        voice: "eve",
+        instructions: "Be brief.",
+        turn_detection: { type: "server_vad" },
+        audio: {
+          input: {
+            format: { type: "audio/pcm", rate: 24000 },
+            transcription: { model: "grok-transcribe" },
+          },
+          output: {
+            format: { type: "audio/pcm", rate: 24000 },
+          },
+        },
+      },
+    });
+
+    await session.appendAudio(frame([1, -2], 24000));
+    expect(socket.sent[1]).toEqual({
+      type: "input_audio_buffer.append",
+      audio: "AQD+/w==",
+    });
+    socket.serverMessage({
+      type: "conversation.item.input_audio_transcription.updated",
+      transcript: "hel",
+    });
+    socket.serverMessage({
+      type: "conversation.item.input_audio_transcription.completed",
+      transcript: "hel",
+      item_id: "user-item",
+    });
+    socket.serverMessage({
+      type: "conversation.item.input_audio_transcription.completed",
+      transcript: "hello",
+      item_id: "user-item",
+    });
+    socket.serverMessage({ type: "response.created" });
+    socket.serverMessage({
+      type: "response.output_audio_transcript.delta",
+      delta: "hi",
+    });
+    socket.serverMessage({
+      type: "response.output_audio.delta",
+      delta: "AQD+/w==",
+    });
+    socket.serverMessage({ type: "response.done", response: {} });
+    await settleMessages();
+
+    expect(events.map((event) => event.type)).toEqual([
+      "input-transcript",
+      "input-transcript",
+      "response-start",
+      "output-transcript",
+      "output-audio",
+      "response-end",
+    ]);
+    expect(events[0]).toEqual({
+      type: "input-transcript",
+      transcript: { type: "final", text: "hel", id: "user-item" },
+    });
+    expect(events[1]).toEqual({
+      type: "input-transcript",
+      transcript: { type: "final", text: "hello", id: "user-item" },
+    });
+    const audioEvent = events.find(
+      (
+        event,
+      ): event is Extract<SpeechToSpeechEvent, { type: "output-audio" }> =>
+        event.type === "output-audio",
+    );
+    expect(audioEvent?.frame.samples).toEqual(new Int16Array([1, -2]));
+    await session.close();
+    expect(socket.closed).toBe(true);
+  });
+
+  it("keeps the session open after a recoverable provider error", async () => {
+    const socket = new FakeLiveSocket({ type: "session.updated" });
+    const events: SpeechToSpeechEvent[] = [];
+    const session = await SpeechToSpeech.xaiVoice({
+      apiKey: "test",
+      createWebSocket: () => socket,
+    }).createSession({ onEvent: (event) => events.push(event) });
+
+    socket.serverMessage({
+      error: { message: "Turn rejected" },
+      type: "error",
+    });
+    await settleMessages();
+
+    expect(events).toMatchObject([
+      { type: "error", error: { message: "Turn rejected" } },
+    ]);
+    expect(socket.closed).toBe(false);
+    await session.appendAudio(frame([1], 24000));
+    await session.close();
+  });
+});
+
 describe("Gemini Live speech-to-speech", () => {
   it("preserves the provider close reason when setup is rejected", async () => {
     const socket = new FakeLiveSocket();
@@ -390,6 +835,39 @@ describe("Gemini Live speech-to-speech", () => {
 
 async function settleMessages(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function novaEvent(event: Record<string, unknown>): {
+  chunk: { bytes: Uint8Array };
+} {
+  return {
+    chunk: {
+      bytes: new TextEncoder().encode(JSON.stringify({ event })),
+    },
+  };
+}
+
+class PushAsyncIterable<T> implements AsyncIterable<T> {
+  private readonly values: T[] = [];
+  private readonly readers: Array<(value: IteratorResult<T>) => void> = [];
+
+  push(value: T): void {
+    const reader = this.readers.shift();
+    if (reader) reader({ value, done: false });
+    else this.values.push(value);
+  }
+
+  [Symbol.asyncIterator](): AsyncIterator<T> {
+    return {
+      next: () => {
+        const value = this.values.shift();
+        if (value !== undefined) return Promise.resolve({ value, done: false });
+        return new Promise<IteratorResult<T>>((resolve) => {
+          this.readers.push(resolve);
+        });
+      },
+    };
+  }
 }
 
 function deferred<T>(): {

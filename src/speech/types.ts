@@ -10,8 +10,8 @@ export type PcmAudioFrame = PcmAudioFormat & {
 };
 
 export type TranscriptEvent =
-  | { type: "delta"; text: string }
-  | { type: "final"; text: string; languages?: string[] };
+  | { type: "delta"; text: string; id?: string }
+  | { type: "final"; text: string; id?: string; languages?: string[] };
 
 export type SpeechActivityEvent = {
   type: "start" | "end";

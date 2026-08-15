@@ -4,7 +4,7 @@ import {
 	type RemoteAudioSessionEvent
 } from '$lib/realtime/remote-audio-session';
 
-export type SpeechToSpeechProviderId = 'openai' | 'gemini';
+export type SpeechToSpeechProviderId = 'openai' | 'gemini' | 'xai' | 'azure' | 'nova';
 
 export type SpeechToSpeechSessionConfig = {
 	provider: SpeechToSpeechProviderId;

@@ -32,12 +32,25 @@ describe('RemoteAudioSession', () => {
 					return Response.json({ id: 'session-1', inputSampleRate: 16000 });
 				}
 				if (url === '/sessions/session-1' && method === 'GET') {
-					return eventResponse([{ type: 'connected' }], init.signal);
+					return eventResponse(
+						[
+							{ type: 'connected' },
+							{
+								type: 'timeline',
+								turnId: 1,
+								stage: 'first-audio',
+								milliseconds: 125
+							}
+						],
+						init.signal
+					);
 				}
 				return new Response(null, { status: method === 'POST' ? 202 : 204 });
 			})
 		);
 		const session = createSession();
+		const events: RemoteAudioSessionEvent[] = [];
+		session.subscribe((event) => events.push(event));
 
 		await session.connect();
 		await session.sendAudio({
@@ -49,6 +62,12 @@ describe('RemoteAudioSession', () => {
 		await session.close();
 
 		expect(session.inputSampleRate).toBe(16000);
+		expect(events).toContainEqual({
+			type: 'timeline',
+			turnId: 1,
+			stage: 'first-audio',
+			milliseconds: 125
+		});
 		expect(requests).toContainEqual({
 			url: '/sessions/session-1',
 			method: 'POST',

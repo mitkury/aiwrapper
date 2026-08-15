@@ -13,33 +13,19 @@ import type {
   SpeechToSpeechSessionOptions,
 } from "./types.js";
 
-export type OpenAIRealtimeTurnDetection =
-  | {
-      type: "server_vad";
-      threshold?: number;
-      prefix_padding_ms?: number;
-      silence_duration_ms?: number;
-    }
-  | {
-      type: "semantic_vad";
-      eagerness?: "low" | "medium" | "high" | "auto";
-    };
-
-export type OpenAIRealtimeSpeechToSpeechOptions = {
+export type XAIVoiceSpeechToSpeechOptions = {
   apiKey: string;
   model?: string;
   voice?: string;
   baseURL?: string;
   headers?: Record<string, string>;
   transcriptionModel?: string;
-  turnDetection?: OpenAIRealtimeTurnDetection;
-  noiseReduction?: null | { type: "near_field" | "far_field" };
   createWebSocket?: RealtimeSpeechWebSocketFactory;
 };
 
-type OpenAIRealtimeSpeechToSpeechConfig = Required<
+type XAIVoiceSpeechToSpeechConfig = Required<
   Pick<
-    OpenAIRealtimeSpeechToSpeechOptions,
+    XAIVoiceSpeechToSpeechOptions,
     | "apiKey"
     | "model"
     | "voice"
@@ -49,7 +35,7 @@ type OpenAIRealtimeSpeechToSpeechConfig = Required<
   >
 > &
   Omit<
-    OpenAIRealtimeSpeechToSpeechOptions,
+    XAIVoiceSpeechToSpeechOptions,
     | "apiKey"
     | "model"
     | "voice"
@@ -58,26 +44,25 @@ type OpenAIRealtimeSpeechToSpeechConfig = Required<
     | "createWebSocket"
   >;
 
-export class OpenAIRealtimeSpeechToSpeech implements SpeechToSpeechProvider {
+export class XAIVoiceSpeechToSpeech implements SpeechToSpeechProvider {
   readonly inputFormat;
   readonly outputFormat;
   private readonly protocol: OpenAICompatibleRealtimeSpeechToSpeech;
 
-  constructor(options: OpenAIRealtimeSpeechToSpeechOptions) {
+  constructor(options: XAIVoiceSpeechToSpeechOptions) {
     if (!options.apiKey) {
-      throw new Error("OpenAI realtime speech-to-speech requires an API key");
+      throw new Error("xAI Voice speech-to-speech requires an API key");
     }
-    const config: OpenAIRealtimeSpeechToSpeechConfig = {
+    const config: XAIVoiceSpeechToSpeechConfig = {
       ...options,
-      model: options.model ?? "gpt-realtime-2.1",
-      voice: options.voice ?? "marin",
-      baseURL: options.baseURL ?? "https://api.openai.com/v1",
-      transcriptionModel:
-        options.transcriptionModel ?? "gpt-4o-mini-transcribe",
+      model: options.model ?? "grok-voice-think-fast-2.0",
+      voice: options.voice ?? "eve",
+      baseURL: options.baseURL ?? "https://api.x.ai/v1",
+      transcriptionModel: options.transcriptionModel ?? "grok-transcribe",
       createWebSocket: options.createWebSocket ?? createNodeWebSocket,
     };
     this.protocol = new OpenAICompatibleRealtimeSpeechToSpeech(
-      openAIProtocolConfig(config),
+      xaiProtocolConfig(config),
     );
     this.inputFormat = this.protocol.inputFormat;
     this.outputFormat = this.protocol.outputFormat;
@@ -90,45 +75,32 @@ export class OpenAIRealtimeSpeechToSpeech implements SpeechToSpeechProvider {
   }
 }
 
-function openAIProtocolConfig(
-  config: OpenAIRealtimeSpeechToSpeechConfig,
+function xaiProtocolConfig(
+  config: XAIVoiceSpeechToSpeechConfig,
 ): OpenAICompatibleRealtimeSpeechToSpeechConfig {
   return {
-    providerName: "OpenAI realtime",
-    audioLabel: "OpenAI",
+    providerName: "xAI Voice",
+    audioLabel: "xAI Voice",
     url: `${websocketURL(config.baseURL, "/realtime")}?model=${encodeURIComponent(config.model)}`,
     headers: {
       Authorization: `Bearer ${config.apiKey}`,
       ...config.headers,
     },
     createWebSocket: config.createWebSocket,
+    recoverableServerErrors: true,
     createSessionUpdate: (session) => ({
       type: "session.update",
       session: {
-        type: "realtime",
-        output_modalities: ["audio"],
+        voice: config.voice,
         ...(session.instructions ? { instructions: session.instructions } : {}),
+        turn_detection: { type: "server_vad" },
         audio: {
           input: {
             format: { type: "audio/pcm", rate: 24000 },
             transcription: { model: config.transcriptionModel },
-            noise_reduction:
-              config.noiseReduction === undefined
-                ? { type: "near_field" }
-                : config.noiseReduction,
-            turn_detection: {
-              ...(config.turnDetection ?? {
-                type: "server_vad",
-                silence_duration_ms: 350,
-                prefix_padding_ms: 300,
-              }),
-              create_response: true,
-              interrupt_response: true,
-            },
           },
           output: {
             format: { type: "audio/pcm", rate: 24000 },
-            voice: config.voice,
           },
         },
       },

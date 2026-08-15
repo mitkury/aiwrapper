@@ -40,9 +40,10 @@ round trip. The ElevenLabs streaming test requires both `ELEVENLABS_API_KEY`
 and `ELEVENLABS_VOICE_ID`. Limit a run with `PROVIDERS=openai` or
 `PROVIDERS=elevenlabs`.
 
-Speech-to-speech unit tests use injected WebSockets for OpenAI Realtime and
-Gemini Live, so protocol translation, PCM formats, events, abort, and close
-behavior remain deterministic and credential-free.
+Speech-to-speech unit tests use injected WebSockets for OpenAI Realtime, Gemini
+Live, xAI Voice, and Azure Voice Live, plus an injected bidirectional stream for
+Amazon Nova Sonic. Protocol translation, PCM formats, events, abort, and close
+behavior therefore remain deterministic and credential-free.
 
 ## Model check
 

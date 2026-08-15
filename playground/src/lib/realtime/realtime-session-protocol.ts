@@ -1,4 +1,7 @@
 import type { PcmAudioFrame } from 'aiwrapper/speech';
+import type {
+	SpeechToSpeechTimelineStage as SpeechToSpeechTurnTimelineStage
+} from 'aiwrapper/unstable/speech';
 import type { ProviderId } from '$lib/provider-config';
 
 export type RealtimeSessionConfig = {
@@ -15,15 +18,26 @@ export type RealtimeServerError = {
 	requestId?: string;
 };
 
+export type SpeechToSpeechTimelineStage =
+	| 'session-ready'
+	| SpeechToSpeechTurnTimelineStage;
+
 export type RealtimeServerEvent =
 	| { type: 'connected' }
 	| { type: 'heartbeat' }
+	| {
+			type: 'timeline';
+			turnId: number;
+			stage: SpeechToSpeechTimelineStage;
+			milliseconds: number;
+	  }
 	| { type: 'speech'; speaker: 'user' | 'assistant'; active: boolean }
 	| {
 			type: 'transcript';
 			speaker: 'user' | 'assistant';
 			text: string;
 			final: boolean;
+			id?: string;
 	  }
 	| { type: 'interrupted'; reason: 'user_speech' | 'new_turn' | 'manual' | 'closed' }
 	| {
