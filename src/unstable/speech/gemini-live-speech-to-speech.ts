@@ -20,7 +20,12 @@ import type {
   SpeechToSpeechSessionOptions,
 } from "./types.js";
 
-type SocketEvent = { data?: unknown; error?: unknown };
+type SocketEvent = {
+  data?: unknown;
+  error?: unknown;
+  code?: unknown;
+  reason?: unknown;
+};
 
 export type GeminiLiveSpeechToSpeechOptions = {
   apiKey: string;
@@ -67,8 +72,7 @@ export class GeminiLiveSpeechToSpeech implements SpeechToSpeechProvider {
       ...options,
       model: options.model ?? "gemini-3.1-flash-live-preview",
       voice: options.voice ?? "Kore",
-      baseURL:
-        options.baseURL ?? "https://generativelanguage.googleapis.com",
+      baseURL: options.baseURL ?? "https://generativelanguage.googleapis.com",
       createWebSocket: options.createWebSocket ?? createNodeWebSocket,
     };
   }
@@ -138,9 +142,9 @@ class GeminiLiveSpeechToSpeechSession implements SpeechToSpeechSession {
     this.fail(toError(event.error, "Gemini Live speech-to-speech failed"));
   };
 
-  private readonly onClose = (): void => {
+  private readonly onClose = (event: SocketEvent): void => {
     if (this.state === "closed") return;
-    this.fail(new Error("Gemini Live speech-to-speech connection closed"));
+    this.fail(geminiCloseError(event));
   };
 
   constructor(
@@ -276,8 +280,7 @@ class GeminiLiveSpeechToSpeechSession implements SpeechToSpeechSession {
     for (const part of content.modelTurn?.parts ?? []) {
       if (!part || typeof part !== "object") continue;
       const inlineData = Reflect.get(part, "inlineData") as
-        | { data?: unknown }
-        | undefined;
+        { data?: unknown } | undefined;
       if (typeof inlineData?.data !== "string" || !inlineData.data) continue;
       this.ensureResponseStarted();
       this.session.onEvent?.({
@@ -359,6 +362,15 @@ function geminiLiveURL(baseURL: string, apiKey: string): string {
   const path =
     "/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
   return `${websocketURL(baseURL, path)}?key=${encodeURIComponent(apiKey)}`;
+}
+
+function geminiCloseError(event: SocketEvent): Error {
+  const code = typeof event.code === "number" ? String(event.code) : "";
+  const reason = typeof event.reason === "string" ? event.reason.trim() : "";
+  const details = [code, reason].filter(Boolean).join(": ");
+  return new Error(
+    `Gemini Live speech-to-speech connection closed${details ? ` (${details})` : ""}`,
+  );
 }
 
 function toError(

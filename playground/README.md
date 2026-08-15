@@ -64,8 +64,8 @@ available voices without exposing the key to the browser.
 the standalone Voice playground. `OPENAI_REALTIME_TRANSCRIPTION_MODEL` optionally
 sets the realtime transcription model, and
 `OPENAI_REALTIME_TRANSCRIPTION_LANGUAGE` can pin an ISO-639-1 language such as
-`en` to reduce false language detection. Restart the playground after changing
-`.env`.
+`en` to reduce false language detection. In development, changing `.env`
+automatically restarts the playground server.
 
 Optional realtime STT defaults are `DEEPGRAM_FLUX_MODEL` (normally
 `flux-general-en` or `flux-general-multi`) and `ELEVENLABS_STT_MODEL` (normally

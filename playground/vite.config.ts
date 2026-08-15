@@ -4,6 +4,7 @@ import { defineConfig } from 'vite';
 import { fileURLToPath, URL } from 'node:url';
 
 export default defineConfig({
+	envDir: '..',
 	plugins: [tailwindcss(), sveltekit()],
 	optimizeDeps: {
 		// Keep a locally linked aimodels package out of Vite's persistent

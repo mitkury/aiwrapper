@@ -393,7 +393,7 @@
 		<p class="mt-4 text-xs leading-relaxed text-neutral-500">
 			Keys stay on the SvelteKit server. Add <code>OPENAI_API_KEY</code>,
 			<code>ELEVENLABS_API_KEY</code>, and <code>ELEVENLABS_VOICE_ID</code> to the repository
-			<code>.env</code>, then restart the development server.
+			<code>.env</code>. The development server reloads automatically when it changes.
 		</p>
 	</main>
 </div>

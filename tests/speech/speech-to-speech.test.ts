@@ -9,7 +9,14 @@ import {
   type SpeechToSpeechEvent,
 } from "../../src/unstable/speech/index.ts";
 
-type SocketListener = (event: { data?: unknown; error?: unknown }) => void;
+type SocketEvent = {
+  data?: unknown;
+  error?: unknown;
+  code?: unknown;
+  reason?: unknown;
+};
+
+type SocketListener = (event: SocketEvent) => void;
 
 class FakeLiveSocket {
   readonly sent: Record<string, any>[] = [];
@@ -17,7 +24,7 @@ class FakeLiveSocket {
   closed = false;
   private readonly listeners = new Map<string, Set<SocketListener>>();
 
-  constructor(private readonly setupReply: Record<string, unknown>) {
+  constructor(private readonly setupReply?: Record<string, unknown>) {
     queueMicrotask(() => {
       this.readyState = 1;
       this.emit("open", {});
@@ -38,7 +45,10 @@ class FakeLiveSocket {
     if (typeof value !== "string") throw new Error("Expected JSON");
     const message = JSON.parse(value);
     this.sent.push(message);
-    if (message.type === "session.update" || message.setup) {
+    if (
+      this.setupReply &&
+      (message.type === "session.update" || message.setup)
+    ) {
       queueMicrotask(() => this.serverMessage(this.setupReply));
     }
   }
@@ -54,7 +64,14 @@ class FakeLiveSocket {
     this.emit("message", { data: JSON.stringify(payload) });
   }
 
-  private emit(type: string, event: { data?: unknown; error?: unknown }): void {
+  serverClose(code: number, reason: string): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.readyState = 3;
+    this.emit("close", { code, reason });
+  }
+
+  private emit(type: string, event: SocketEvent): void {
     for (const listener of this.listeners.get(type) ?? []) listener(event);
   }
 }
@@ -108,7 +125,8 @@ describe("speech-to-speech mock", () => {
     const session = await provider.createSession({
       onEvent(event) {
         events.push(event);
-        if (event.type === "response-interrupted") interrupted.resolve(undefined);
+        if (event.type === "response-interrupted")
+          interrupted.resolve(undefined);
       },
     });
 
@@ -124,9 +142,9 @@ describe("speech-to-speech mock", () => {
     ]);
 
     const controller = new AbortController();
-    const delayed = await new MockSpeechToSpeech({ delayMs: 1000 }).createSession(
-      { signal: controller.signal },
-    );
+    const delayed = await new MockSpeechToSpeech({
+      delayMs: 1000,
+    }).createSession({ signal: controller.signal });
     await delayed.appendAudio(frame([1], 24000));
     controller.abort();
     await expect(delayed.appendAudio(frame([1], 24000))).rejects.toMatchObject({
@@ -141,7 +159,8 @@ describe("OpenAI realtime speech-to-speech", () => {
   it("configures one live session and normalizes audio, transcripts, and interruption", async () => {
     const socket = new FakeLiveSocket({ type: "session.updated" });
     const events: SpeechToSpeechEvent[] = [];
-    let connection: { url: string; headers: Record<string, string> } | undefined;
+    let connection:
+      { url: string; headers: Record<string, string> } | undefined;
     const provider = new OpenAIRealtimeSpeechToSpeech({
       apiKey: "test key",
       model: "voice-model",
@@ -216,7 +235,9 @@ describe("OpenAI realtime speech-to-speech", () => {
       "response-interrupted",
     ]);
     const audioEvent = events.find(
-      (event): event is Extract<SpeechToSpeechEvent, { type: "output-audio" }> =>
+      (
+        event,
+      ): event is Extract<SpeechToSpeechEvent, { type: "output-audio" }> =>
         event.type === "output-audio",
     );
     expect(audioEvent?.frame.samples).toEqual(new Int16Array([1, -2]));
@@ -250,6 +271,21 @@ describe("OpenAI realtime speech-to-speech", () => {
 });
 
 describe("Gemini Live speech-to-speech", () => {
+  it("preserves the provider close reason when setup is rejected", async () => {
+    const socket = new FakeLiveSocket();
+    const connection = new GeminiLiveSpeechToSpeech({
+      apiKey: "invalid key",
+      createWebSocket: () => socket,
+    }).createSession();
+    await settleMessages();
+
+    socket.serverClose(1007, "API key not valid");
+
+    await expect(connection).rejects.toThrow(
+      "Gemini Live speech-to-speech connection closed (1007: API key not valid)",
+    );
+  });
+
   it("uses Gemini formats while preserving the same application events", async () => {
     const socket = new FakeLiveSocket({ setupComplete: {} });
     const events: SpeechToSpeechEvent[] = [];
