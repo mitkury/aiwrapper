@@ -5,19 +5,25 @@ import {
   encodePcmAsBase64,
   linkAbortSignal,
   throwIfAborted,
-} from "../../speech/audio.js";
-import type { PcmAudioFormat, PcmAudioFrame } from "../../speech/types.js";
+} from "../speech/audio.js";
+import type { PcmAudioFormat, PcmAudioFrame } from "../speech/types.js";
 import {
   socketDataToText,
   type RealtimeSpeechWebSocket,
   type RealtimeSpeechWebSocketFactory,
-} from "../../speech/realtime-websocket.js";
+} from "../speech/realtime-websocket.js";
 import type {
   SpeechToSpeechProvider,
   SpeechToSpeechSession,
   SpeechToSpeechSessionOptions,
 } from "./types.js";
 import { createObservableSpeechToSpeechSession } from "./session-events.js";
+import {
+  executeSpeechToSpeechToolCall,
+  parseSpeechToSpeechToolCall,
+  serializeSpeechToSpeechToolResult,
+} from "./live-lang-tools.js";
+import type { LangToolExecutionResult } from "../lang/tool-execution.js";
 
 type SocketEvent = {
   data?: unknown;
@@ -79,6 +85,12 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
   private configurationSent = false;
   private responseActive = false;
   private responseInterrupted = false;
+  private messageTask: Promise<void> = Promise.resolve();
+  private readonly seenToolCallIds = new Set<string>();
+  private readonly pendingToolCalls = new Map<
+    string,
+    Promise<LangToolExecutionResult>
+  >();
   private resolveConfigured?: () => void;
   private rejectConfigured?: (error: Error) => void;
 
@@ -93,9 +105,9 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
   };
 
   private readonly onMessage = (event: SocketEvent): void => {
-    void this.handleMessage(event.data).catch((error) =>
-      this.fail(toError(error)),
-    );
+    this.messageTask = this.messageTask
+      .then(() => this.handleMessage(event.data))
+      .catch((error) => this.fail(toError(error)));
   };
 
   private readonly onError = (event: SocketEvent): void => {
@@ -195,6 +207,7 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
       return;
     }
     if (type === "response.created") {
+      this.seenToolCallIds.clear();
       this.responseActive = true;
       this.responseInterrupted = false;
       this.session.onEvent?.({ type: "response-start" });
@@ -255,15 +268,40 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
       this.emitInterrupted();
       return;
     }
+    if (type === "response.function_call_arguments.done") {
+      this.queueToolCall(
+        parseSpeechToSpeechToolCall(
+          event.call_id,
+          event.name,
+          event.arguments,
+        ),
+      );
+      return;
+    }
+    if (type === "response.output_item.done") {
+      const item = objectValue(event.item);
+      if (item?.type === "function_call") {
+        this.queueToolCall(
+          parseSpeechToSpeechToolCall(
+            item.call_id,
+            item.name,
+            item.arguments,
+          ),
+        );
+      }
+      return;
+    }
     if (type === "response.done") {
       const response = event.response as
         | {
             status?: unknown;
+            output?: unknown;
             status_details?: {
               error?: { message?: unknown };
             } | null;
           }
         | undefined;
+      this.queueResponseToolCalls(response?.output);
       if (response?.status === "cancelled") this.emitInterrupted();
       else if (response?.status === "failed") {
         this.emitError(
@@ -273,6 +311,10 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
               : `${this.provider.providerName} realtime response failed`,
           ),
         );
+      } else if (this.pendingToolCalls.size > 0) {
+        this.responseActive = false;
+        await this.completeToolCalls();
+        return;
       } else if (!this.responseInterrupted) {
         this.session.onEvent?.({ type: "response-end" });
       }
@@ -324,6 +366,53 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
     this.session.onEvent?.({ type: "error", error });
   }
 
+  private queueResponseToolCalls(value: unknown): void {
+    if (!Array.isArray(value)) return;
+    for (const rawItem of value) {
+      const item = objectValue(rawItem);
+      if (item?.type !== "function_call") continue;
+      this.queueToolCall(
+        parseSpeechToSpeechToolCall(
+          item.call_id,
+          item.name,
+          item.arguments,
+        ),
+      );
+    }
+  }
+
+  private queueToolCall(
+    call: ReturnType<typeof parseSpeechToSpeechToolCall>,
+  ): void {
+    if (!call || this.seenToolCallIds.has(call.callId)) return;
+    this.seenToolCallIds.add(call.callId);
+    this.pendingToolCalls.set(
+      call.callId,
+      executeSpeechToSpeechToolCall(
+        this.session,
+        call,
+        this.controller.signal,
+      ),
+    );
+  }
+
+  private async completeToolCalls(): Promise<void> {
+    const calls = [...this.pendingToolCalls.values()];
+    this.pendingToolCalls.clear();
+    const results = await Promise.all(calls);
+    for (const result of results) {
+      this.send({
+        type: "conversation.item.create",
+        item: {
+          type: "function_call_output",
+          call_id: result.callId,
+          output: serializeSpeechToSpeechToolResult(result.result),
+        },
+      });
+    }
+    this.send({ type: "response.create" });
+  }
+
   private send(event: Record<string, unknown>): void {
     if (!this.socket || this.socket.readyState !== 1) {
       throw new Error(
@@ -365,6 +454,12 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
     this.socket?.removeEventListener("error", this.onError);
     this.socket?.removeEventListener("close", this.onClose);
   }
+}
+
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object"
+    ? value as Record<string, unknown>
+    : undefined;
 }
 
 function providerCloseError(providerName: string, event: SocketEvent): Error {

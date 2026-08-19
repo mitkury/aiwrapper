@@ -75,6 +75,27 @@ const result = await lang.ask("Say hi!");
 console.log(result.answer);
 ```
 
+### Connect to a Live Model
+
+Persistent native-audio models use the experimental `LiveLang` API:
+
+```javascript
+import { LiveLang } from "aiwrapper";
+
+const live = LiveLang.openai({
+  apiKey: "YOUR KEY",
+  model: "gpt-realtime-2.1",
+  voice: "marin",
+});
+const session = await live.connect({
+  instructions: "Be concise and helpful.",
+  onEvent: (event) => console.log(event),
+});
+
+await session.appendAudio(microphoneFrame);
+await session.close();
+```
+
 ## Lang (LLM) Examples
 
 ### Initialize a Model

@@ -1,7 +1,5 @@
-import type { PcmAudioFrame } from 'aiwrapper/speech';
-import type {
-	SpeechToSpeechTimelineStage as SpeechToSpeechTurnTimelineStage
-} from 'aiwrapper/unstable/speech';
+import type { PcmAudioFrame } from 'aiwrapper';
+import type { LiveLangTimelineStage } from 'aiwrapper';
 import type { ProviderId } from '$lib/provider-config';
 
 export type RealtimeSessionConfig = {
@@ -18,9 +16,7 @@ export type RealtimeServerError = {
 	requestId?: string;
 };
 
-export type SpeechToSpeechTimelineStage =
-	| 'session-ready'
-	| SpeechToSpeechTurnTimelineStage;
+export type SpeechToSpeechTimelineStage = 'session-ready' | LiveLangTimelineStage;
 
 export type RealtimeServerEvent =
 	| { type: 'connected' }
@@ -39,6 +35,20 @@ export type RealtimeServerEvent =
 			final: boolean;
 			id?: string;
 	  }
+	| {
+			type: 'tool';
+			phase: 'call';
+			callId: string;
+			name: string;
+			arguments: Record<string, unknown>;
+	  }
+	| {
+			type: 'tool';
+			phase: 'result';
+			callId: string;
+			name: string;
+			result: unknown;
+	  }
 	| { type: 'interrupted'; reason: 'user_speech' | 'new_turn' | 'manual' | 'closed' }
 	| {
 			type: 'latency';
@@ -55,8 +65,7 @@ export type RealtimeServerEvent =
 	| { type: 'error'; error: RealtimeServerError };
 
 export type RealtimeServerPacket =
-	| { type: 'event'; event: RealtimeServerEvent }
-	| { type: 'audio'; frame: PcmAudioFrame };
+	{ type: 'event'; event: RealtimeServerEvent } | { type: 'audio'; frame: PcmAudioFrame };
 
 const headerBytes = 5;
 const eventPacket = 0;

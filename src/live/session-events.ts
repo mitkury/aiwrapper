@@ -6,6 +6,7 @@ import type {
   SpeechToSpeechSession,
   SpeechToSpeechSessionOptions,
 } from "./types.js";
+import { speechToSpeechFunctionDeclarations } from "./live-lang-tools.js";
 
 type Listener = (event: SpeechToSpeechEvent) => void;
 type ListenerType = SpeechToSpeechEventType | "event";
@@ -20,6 +21,7 @@ export async function createObservableSpeechToSpeechSession(
     options: SpeechToSpeechSessionOptions,
   ) => Promise<SpeechToSpeechSessionTransport>,
 ): Promise<SpeechToSpeechSession> {
+  speechToSpeechFunctionDeclarations(options);
   const listeners = new Map<ListenerType, Set<Listener>>();
   const dispatch = (event: SpeechToSpeechEvent): void => {
     callListener(options.onEvent, event);

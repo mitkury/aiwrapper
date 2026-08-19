@@ -9,6 +9,8 @@ export type SpeechToSpeechTimelineStage =
   | "response-start"
   | "first-text"
   | "first-audio"
+  | "tool-call"
+  | "tool-result"
   | "response-end"
   | "response-interrupted"
   | "error";
@@ -98,6 +100,8 @@ function stagesForEvent(
   if (event.type === "response-start") return ["response-start"];
   if (event.type === "output-transcript") return ["first-text"];
   if (event.type === "output-audio") return ["first-audio"];
+  if (event.type === "tool-call") return ["tool-call"];
+  if (event.type === "tool-result") return ["tool-result"];
   if (event.type === "response-end") return ["response-end"];
   if (event.type === "response-interrupted") {
     return ["response-interrupted"];

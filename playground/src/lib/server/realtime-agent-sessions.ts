@@ -1,6 +1,12 @@
-import { HttpRequestError, type AgentEvent, type LangMessages, type LangTool } from 'aiwrapper';
-import { RealtimeAgent, type RealtimeAgentEvent } from 'aiwrapper/unstable/realtime';
-import type { PcmAudioFrame } from 'aiwrapper/speech';
+import {
+	HttpRequestError,
+	RealtimeAgent,
+	type AgentEvent,
+	type LangMessages,
+	type LangTool,
+	type PcmAudioFrame,
+	type RealtimeAgentEvent
+} from 'aiwrapper';
 import { getProviderConfig } from '$lib/provider-config';
 import type {
 	RealtimeServerError,

@@ -5,21 +5,27 @@ import {
   encodePcmAsBase64,
   linkAbortSignal,
   throwIfAborted,
-} from "../../speech/audio.js";
-import type { PcmAudioFormat, PcmAudioFrame } from "../../speech/types.js";
+} from "../speech/audio.js";
+import type { PcmAudioFormat, PcmAudioFrame } from "../speech/types.js";
 import {
   createNodeWebSocket,
   socketDataToText,
   websocketURL,
   type RealtimeSpeechWebSocket,
   type RealtimeSpeechWebSocketFactory,
-} from "../../speech/realtime-websocket.js";
+} from "../speech/realtime-websocket.js";
 import type {
   SpeechToSpeechProvider,
   SpeechToSpeechSession,
   SpeechToSpeechSessionOptions,
 } from "./types.js";
 import { createObservableSpeechToSpeechSession } from "./session-events.js";
+import {
+  executeSpeechToSpeechToolCall,
+  jsonSpeechToSpeechToolResult,
+  parseSpeechToSpeechToolCall,
+  speechToSpeechFunctionDeclarations,
+} from "./live-lang-tools.js";
 
 type SocketEvent = {
   data?: unknown;
@@ -101,12 +107,15 @@ class GeminiLiveSpeechToSpeechSession {
   private state: "connecting" | "open" | "closed" = "connecting";
   private setupSent = false;
   private responseActive = false;
+  private messageTask: Promise<void> = Promise.resolve();
+  private readonly seenToolCallIds = new Set<string>();
   private resolveConfigured?: () => void;
   private rejectConfigured?: (error: Error) => void;
 
   private readonly onOpen = (): void => {
     if (this.setupSent) return;
     try {
+      const tools = speechToSpeechFunctionDeclarations(this.session);
       this.send({
         setup: {
           model: modelResourceName(this.provider.model),
@@ -127,6 +136,9 @@ class GeminiLiveSpeechToSpeechSession {
             : {}),
           inputAudioTranscription: {},
           outputAudioTranscription: {},
+          ...(tools.length
+            ? { tools: [{ functionDeclarations: tools }] }
+            : {}),
         },
       });
       this.setupSent = true;
@@ -136,9 +148,9 @@ class GeminiLiveSpeechToSpeechSession {
   };
 
   private readonly onMessage = (event: SocketEvent): void => {
-    void this.handleMessage(event.data).catch((error) =>
-      this.fail(toError(error)),
-    );
+    this.messageTask = this.messageTask
+      .then(() => this.handleMessage(event.data))
+      .catch((error) => this.fail(toError(error)));
   };
 
   private readonly onError = (event: SocketEvent): void => {
@@ -253,6 +265,46 @@ class GeminiLiveSpeechToSpeechSession {
       return;
     }
 
+    const toolCall = message.toolCall as
+      | { functionCalls?: unknown }
+      | undefined;
+    if (Array.isArray(toolCall?.functionCalls)) {
+      const calls = toolCall.functionCalls.flatMap((value) => {
+        const call = value && typeof value === "object"
+          ? value as Record<string, unknown>
+          : undefined;
+        const parsed = call
+          ? parseSpeechToSpeechToolCall(call.id, call.name, call.args)
+          : undefined;
+        if (!parsed || this.seenToolCallIds.has(parsed.callId)) return [];
+        this.seenToolCallIds.add(parsed.callId);
+        return [parsed];
+      });
+      const results = await Promise.all(
+        calls.map((call) =>
+          executeSpeechToSpeechToolCall(
+            this.session,
+            call,
+            this.controller.signal,
+          )
+        ),
+      );
+      if (results.length) {
+        this.send({
+          toolResponse: {
+            functionResponses: results.map((result) => ({
+              id: result.callId,
+              name: result.name,
+              response: {
+                result: jsonSpeechToSpeechToolResult(result.result),
+              },
+            })),
+          },
+        });
+      }
+      return;
+    }
+
     const content = message.serverContent as
       | {
           modelTurn?: { parts?: unknown[] };
@@ -300,6 +352,7 @@ class GeminiLiveSpeechToSpeechSession {
         this.session.onEvent?.({ type: "response-interrupted" });
       }
       this.responseActive = false;
+      this.seenToolCallIds.clear();
       return;
     }
     if (content.turnComplete === true) {
@@ -307,6 +360,7 @@ class GeminiLiveSpeechToSpeechSession {
         this.session.onEvent?.({ type: "response-end" });
       }
       this.responseActive = false;
+      this.seenToolCallIds.clear();
     }
   }
 

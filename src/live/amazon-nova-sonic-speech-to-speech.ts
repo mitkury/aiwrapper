@@ -5,14 +5,20 @@ import {
   encodePcmAsBase64,
   linkAbortSignal,
   throwIfAborted,
-} from "../../speech/audio.js";
-import type { PcmAudioFormat, PcmAudioFrame } from "../../speech/types.js";
+} from "../speech/audio.js";
+import type { PcmAudioFormat, PcmAudioFrame } from "../speech/types.js";
 import type {
   SpeechToSpeechProvider,
   SpeechToSpeechSession,
   SpeechToSpeechSessionOptions,
 } from "./types.js";
 import { createObservableSpeechToSpeechSession } from "./session-events.js";
+import {
+  executeSpeechToSpeechToolCall,
+  parseSpeechToSpeechToolCall,
+  serializeSpeechToSpeechToolResult,
+  speechToSpeechFunctionDeclarations,
+} from "./live-lang-tools.js";
 
 export type AmazonNovaSonicStreamInput = { chunk: { bytes: Uint8Array } };
 export type AmazonNovaSonicInvocation = {
@@ -99,6 +105,7 @@ class AmazonNovaSonicSession {
   private responseActive = false;
   private responseInterrupted = false;
   private readonly contents = new Map<string, NovaContent>();
+  private readonly seenToolCallIds = new Set<string>();
 
   constructor(
     private readonly config: AmazonNovaSonicConfig,
@@ -164,6 +171,7 @@ class AmazonNovaSonicSession {
   }
 
   private startInput(): void {
+    const tools = speechToSpeechFunctionDeclarations(this.session);
     this.pushEvent({
       sessionStart: {
         inferenceConfiguration: {
@@ -189,6 +197,23 @@ class AmazonNovaSonicSession {
           encoding: "base64",
           audioType: "SPEECH",
         },
+        ...(tools.length
+          ? {
+              toolUseOutputConfiguration: {
+                mediaType: "application/json",
+              },
+              toolConfiguration: {
+                tools: tools.map((tool) => ({
+                  toolSpec: {
+                    name: tool.name,
+                    description: tool.description,
+                    inputSchema: { json: tool.parameters },
+                  },
+                })),
+                toolChoice: { auto: {} },
+              },
+            }
+          : {}),
       },
     });
     if (this.session.instructions) {
@@ -256,6 +281,7 @@ class AmazonNovaSonicSession {
 
   private handleEvent(event: Record<string, unknown>): void {
     if (event.completionStart) {
+      this.seenToolCallIds.clear();
       this.responseActive = true;
       this.responseInterrupted = false;
       this.session.onEvent?.({ type: "response-start" });
@@ -292,6 +318,29 @@ class AmazonNovaSonicSession {
           },
         });
       }
+      return;
+    }
+    const toolUse = objectValue(event.toolUse);
+    if (toolUse) {
+      const call = parseSpeechToSpeechToolCall(
+        toolUse.toolUseId,
+        toolUse.toolName,
+        toolUse.content,
+      );
+      const promptName = stringValue(toolUse.promptName) || this.promptName;
+      const contentName = stringValue(toolUse.contentId);
+      if (!call || !contentName) {
+        this.session.onEvent?.({
+          type: "error",
+          error: new Error("Amazon Nova Sonic returned an invalid tool call"),
+        });
+        return;
+      }
+      if (this.seenToolCallIds.has(call.callId)) return;
+      this.seenToolCallIds.add(call.callId);
+      void this.handleToolCall(call, promptName, contentName).catch((error) =>
+        this.fail(toError(error))
+      );
       return;
     }
     const contentEnd = objectValue(event.contentEnd);
@@ -335,6 +384,25 @@ class AmazonNovaSonicSession {
     if (!this.responseActive || this.responseInterrupted) return;
     this.responseInterrupted = true;
     this.session.onEvent?.({ type: "response-interrupted" });
+  }
+
+  private async handleToolCall(
+    call: NonNullable<ReturnType<typeof parseSpeechToSpeechToolCall>>,
+    promptName: string,
+    contentName: string,
+  ): Promise<void> {
+    const result = await executeSpeechToSpeechToolCall(
+      this.session,
+      call,
+      this.controller.signal,
+    );
+    this.pushEvent({
+      toolResult: {
+        promptName,
+        contentName,
+        content: serializeSpeechToSpeechToolResult(result.result),
+      },
+    });
   }
 
   private pushEvent(event: Record<string, unknown>): void {

@@ -1,13 +1,12 @@
 import { env } from '$env/dynamic/private';
 import {
-	SpeechToSpeech,
-	createSpeechToSpeechTimeline,
-	type PcmAudioFrame,
-	type SpeechToSpeechEvent,
-	type SpeechToSpeechProvider,
-	type SpeechToSpeechSession,
-	type SpeechToSpeechTimeline
-} from 'aiwrapper/unstable/speech';
+	LiveLang,
+	createLiveLangTimeline,
+	type LiveLangEvent,
+	type LiveLangSession,
+	type LiveLangTimeline,
+	type PcmAudioFrame
+} from 'aiwrapper';
 import type {
 	SpeechToSpeechProviderId,
 	SpeechToSpeechSessionConfig
@@ -21,12 +20,12 @@ import type {
 export type SpeechToSpeechRecord = {
 	id: string;
 	providerId: SpeechToSpeechProviderId;
-	provider: SpeechToSpeechProvider;
-	session: SpeechToSpeechSession;
+	provider: LiveLang;
+	session: LiveLangSession;
 	listeners: Set<(packet: RealtimeServerPacket) => void>;
 	pendingPackets: RealtimeServerPacket[];
 	lastAccessAt: number;
-	timeline: SpeechToSpeechTimeline;
+	timeline: LiveLangTimeline;
 };
 
 const records = new Map<string, SpeechToSpeechRecord>();
@@ -52,7 +51,7 @@ export function speechToSpeechConfig() {
 		azure: {
 			configured: Boolean(
 				env.AZURE_VOICE_LIVE_ENDPOINT?.trim() &&
-					(env.AZURE_VOICE_LIVE_API_KEY?.trim() || env.AZURE_VOICE_LIVE_ACCESS_TOKEN?.trim())
+				(env.AZURE_VOICE_LIVE_API_KEY?.trim() || env.AZURE_VOICE_LIVE_ACCESS_TOKEN?.trim())
 			),
 			model: env.AZURE_VOICE_LIVE_MODEL || 'gpt-realtime',
 			voice: env.AZURE_VOICE_LIVE_VOICE || 'alloy'
@@ -72,14 +71,22 @@ export async function createSpeechToSpeechSession(
 	const connectingAt = performance.now();
 	const provider = createProvider(config);
 	const listeners = new Set<(packet: RealtimeServerPacket) => void>();
-	const pendingEvents: SpeechToSpeechEvent[] = [];
+	const pendingEvents: LiveLangEvent[] = [];
 	let record: SpeechToSpeechRecord | undefined;
-	let session: SpeechToSpeechSession | undefined;
+	let session: LiveLangSession | undefined;
 	try {
-		session = await provider.createSession({
+		session = await provider.connect({
 			instructions:
 				config.instructions ||
 				'You are a concise live voice assistant. Reply naturally and keep spoken answers brief.',
+			tools: [
+				{
+					name: 'get_current_time',
+					description: 'Get the current server date and time in ISO 8601 format',
+					parameters: { type: 'object', properties: {}, additionalProperties: false },
+					handler: () => ({ now: new Date().toISOString() })
+				}
+			],
 			onEvent: (event) => {
 				if (record) broadcastEvent(record, event);
 				else pendingEvents.push(event);
@@ -93,7 +100,7 @@ export async function createSpeechToSpeechSession(
 			listeners,
 			pendingPackets: [],
 			lastAccessAt: Date.now(),
-			timeline: createSpeechToSpeechTimeline()
+			timeline: createLiveLangTimeline()
 		};
 		records.set(record.id, record);
 		broadcastTimeline(record, 'session-ready', performance.now() - connectingAt, 0);
@@ -140,10 +147,10 @@ export async function closeSpeechToSpeechSession(id: string): Promise<void> {
 	await record.session.close().catch(() => undefined);
 }
 
-function createProvider(config: SpeechToSpeechSessionConfig): SpeechToSpeechProvider {
+function createProvider(config: SpeechToSpeechSessionConfig): LiveLang {
 	if (config.provider === 'gemini') {
 		if (!env.GOOGLE_API_KEY) throw new Error('GOOGLE_API_KEY is not configured');
-		return SpeechToSpeech.geminiLive({
+		return LiveLang.google({
 			apiKey: env.GOOGLE_API_KEY,
 			model: config.model || env.GEMINI_LIVE_MODEL || undefined,
 			voice: config.voice || env.GEMINI_LIVE_VOICE || undefined
@@ -151,7 +158,7 @@ function createProvider(config: SpeechToSpeechSessionConfig): SpeechToSpeechProv
 	}
 	if (config.provider === 'xai') {
 		if (!env.XAI_API_KEY) throw new Error('XAI_API_KEY is not configured');
-		return SpeechToSpeech.xaiVoice({
+		return LiveLang.xai({
 			apiKey: env.XAI_API_KEY,
 			model: config.model || env.XAI_SPEECH_TO_SPEECH_MODEL || undefined,
 			voice: config.voice || env.XAI_SPEECH_TO_SPEECH_VOICE || undefined
@@ -162,9 +169,11 @@ function createProvider(config: SpeechToSpeechSessionConfig): SpeechToSpeechProv
 			throw new Error('AZURE_VOICE_LIVE_ENDPOINT is not configured');
 		}
 		if (!env.AZURE_VOICE_LIVE_API_KEY && !env.AZURE_VOICE_LIVE_ACCESS_TOKEN) {
-			throw new Error('AZURE_VOICE_LIVE_API_KEY or AZURE_VOICE_LIVE_ACCESS_TOKEN is not configured');
+			throw new Error(
+				'AZURE_VOICE_LIVE_API_KEY or AZURE_VOICE_LIVE_ACCESS_TOKEN is not configured'
+			);
 		}
-		return SpeechToSpeech.azureVoiceLive({
+		return LiveLang.azure({
 			endpoint: env.AZURE_VOICE_LIVE_ENDPOINT,
 			apiKey: env.AZURE_VOICE_LIVE_API_KEY || undefined,
 			accessToken: env.AZURE_VOICE_LIVE_ACCESS_TOKEN || undefined,
@@ -178,21 +187,21 @@ function createProvider(config: SpeechToSpeechSessionConfig): SpeechToSpeechProv
 		});
 	}
 	if (config.provider === 'nova') {
-		return SpeechToSpeech.amazonNovaSonic({
+		return LiveLang.aws({
 			model: config.model || env.AMAZON_NOVA_SONIC_MODEL || undefined,
 			voice: config.voice || env.AMAZON_NOVA_SONIC_VOICE || undefined,
 			region: env.AWS_REGION || env.AWS_DEFAULT_REGION || undefined
 		});
 	}
 	if (!env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not configured');
-	return SpeechToSpeech.openaiRealtime({
+	return LiveLang.openai({
 		apiKey: env.OPENAI_API_KEY,
 		model: config.model || env.OPENAI_SPEECH_TO_SPEECH_MODEL || undefined,
 		voice: config.voice || env.OPENAI_SPEECH_TO_SPEECH_VOICE || undefined
 	});
 }
 
-function broadcastEvent(record: SpeechToSpeechRecord, event: SpeechToSpeechEvent): void {
+function broadcastEvent(record: SpeechToSpeechRecord, event: LiveLangEvent): void {
 	record.lastAccessAt = Date.now();
 	recordTimeline(record, event);
 	let packet: RealtimeServerPacket;
@@ -216,6 +225,28 @@ function broadcastEvent(record: SpeechToSpeechRecord, event: SpeechToSpeechEvent
 		};
 	} else if (event.type === 'response-end') {
 		packet = { type: 'event', event: { type: 'turn_complete' } };
+	} else if (event.type === 'tool-call') {
+		packet = {
+			type: 'event',
+			event: {
+				type: 'tool',
+				phase: 'call',
+				callId: event.call.callId,
+				name: event.call.name,
+				arguments: event.call.arguments
+			}
+		};
+	} else if (event.type === 'tool-result') {
+		packet = {
+			type: 'event',
+			event: {
+				type: 'tool',
+				phase: 'result',
+				callId: event.result.callId,
+				name: event.result.name,
+				result: event.result.result
+			}
+		};
 	} else if (event.type === 'error') {
 		packet = {
 			type: 'event',
@@ -230,7 +261,7 @@ function broadcastEvent(record: SpeechToSpeechRecord, event: SpeechToSpeechEvent
 	broadcastPacket(record, packet);
 }
 
-function recordTimeline(record: SpeechToSpeechRecord, event: SpeechToSpeechEvent): void {
+function recordTimeline(record: SpeechToSpeechRecord, event: LiveLangEvent): void {
 	for (const milestone of record.timeline.record(event)) {
 		broadcastTimeline(record, milestone.stage, milestone.milliseconds, milestone.turnId);
 	}

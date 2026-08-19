@@ -1,5 +1,5 @@
-import type { LangMessages } from "../../lang/messages.js";
-import type { PcmAudioFrame } from "../../speech/types.js";
+import type { LangMessages } from "../lang/messages.js";
+import type { PcmAudioFrame } from "../speech/types.js";
 
 export type RealtimeAgentSpeaker = "user" | "assistant";
 

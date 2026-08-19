@@ -1,6 +1,6 @@
 import { env } from '$env/dynamic/private';
 import { json } from '@sveltejs/kit';
-import { SpeechToText } from 'aiwrapper/speech';
+import { SpeechToText } from 'aiwrapper';
 import type { RequestHandler } from './$types';
 import { speechError } from '$lib/server/speech-response';
 

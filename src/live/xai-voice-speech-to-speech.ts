@@ -1,8 +1,8 @@
 import {
   createNodeWebSocket,
   websocketURL,
-} from "../../speech/realtime-websocket.js";
-import type { RealtimeSpeechWebSocketFactory } from "../../speech/realtime-websocket.js";
+} from "../speech/realtime-websocket.js";
+import type { RealtimeSpeechWebSocketFactory } from "../speech/realtime-websocket.js";
 import {
   OpenAICompatibleRealtimeSpeechToSpeech,
   type OpenAICompatibleRealtimeSpeechToSpeechConfig,
@@ -12,6 +12,7 @@ import type {
   SpeechToSpeechSession,
   SpeechToSpeechSessionOptions,
 } from "./types.js";
+import { speechToSpeechFunctionDeclarations } from "./live-lang-tools.js";
 
 export type XAIVoiceSpeechToSpeechOptions = {
   apiKey: string;
@@ -88,22 +89,33 @@ function xaiProtocolConfig(
     },
     createWebSocket: config.createWebSocket,
     recoverableServerErrors: true,
-    createSessionUpdate: (session) => ({
-      type: "session.update",
-      session: {
-        voice: config.voice,
-        ...(session.instructions ? { instructions: session.instructions } : {}),
-        turn_detection: { type: "server_vad" },
-        audio: {
-          input: {
-            format: { type: "audio/pcm", rate: 24000 },
-            transcription: { model: config.transcriptionModel },
-          },
-          output: {
-            format: { type: "audio/pcm", rate: 24000 },
+    createSessionUpdate: (session) => {
+      const tools = speechToSpeechFunctionDeclarations(session);
+      return {
+        type: "session.update",
+        session: {
+          voice: config.voice,
+          ...(session.instructions
+            ? { instructions: session.instructions }
+            : {}),
+          ...(tools.length
+            ? {
+                tools: tools.map((tool) => ({ type: "function", ...tool })),
+                tool_choice: "auto",
+              }
+            : {}),
+          turn_detection: { type: "server_vad" },
+          audio: {
+            input: {
+              format: { type: "audio/pcm", rate: 24000 },
+              transcription: { model: config.transcriptionModel },
+            },
+            output: {
+              format: { type: "audio/pcm", rate: 24000 },
+            },
           },
         },
-      },
-    }),
+      };
+    },
   };
 }

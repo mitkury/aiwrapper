@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import type { PcmAudioFormat, PcmAudioFrame } from 'aiwrapper/speech';
+import type { PcmAudioFormat, PcmAudioFrame } from 'aiwrapper';
 
 export async function pcmStreamResponse(
 	frames: AsyncIterable<PcmAudioFrame>,

@@ -23,6 +23,9 @@ import {
   type XAIVoiceSpeechToSpeechOptions,
 } from "./xai-voice-speech-to-speech.js";
 
+/**
+ * @deprecated Use LiveLang from aiwrapper for new code.
+ */
 export abstract class SpeechToSpeech {
   static amazonNovaSonic(
     options: AmazonNovaSonicSpeechToSpeechOptions = {},
@@ -58,13 +61,3 @@ export abstract class SpeechToSpeech {
     return new MockSpeechToSpeech(options);
   }
 }
-
-export * from "../../speech/index.js";
-export * from "./types.js";
-export * from "./mock-speech-to-speech.js";
-export * from "./openai-realtime-speech-to-speech.js";
-export * from "./gemini-live-speech-to-speech.js";
-export * from "./xai-voice-speech-to-speech.js";
-export * from "./azure-voice-live-speech-to-speech.js";
-export * from "./amazon-nova-sonic-speech-to-speech.js";
-export * from "./speech-to-speech-timeline.js";

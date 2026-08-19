@@ -3,14 +3,16 @@ import {
   createAbortError,
   linkAbortSignal,
   throwIfAborted,
-} from "../../speech/audio.js";
-import type { PcmAudioFormat, PcmAudioFrame } from "../../speech/types.js";
+} from "../speech/audio.js";
+import type { PcmAudioFormat, PcmAudioFrame } from "../speech/types.js";
 import type {
   SpeechToSpeechProvider,
   SpeechToSpeechSession,
   SpeechToSpeechSessionOptions,
 } from "./types.js";
 import { createObservableSpeechToSpeechSession } from "./session-events.js";
+import { executeSpeechToSpeechToolCall } from "./live-lang-tools.js";
+import type { ToolRequest } from "../lang/messages.js";
 
 export type MockSpeechToSpeechOptions = {
   inputSampleRate?: number;
@@ -20,6 +22,7 @@ export type MockSpeechToSpeechOptions = {
   outputTranscript?: string;
   interruptAfterFrame?: number;
   delayMs?: number;
+  toolCalls?: ToolRequest[];
 };
 
 export class MockSpeechToSpeech implements SpeechToSpeechProvider {
@@ -86,6 +89,10 @@ export class MockSpeechToSpeech implements SpeechToSpeechProvider {
         type: "input-transcript",
         transcript: { type: "final", text: this.options.inputTranscript },
       });
+    }
+
+    for (const call of this.options.toolCalls ?? []) {
+      await executeSpeechToSpeechToolCall(session, call, signal);
     }
 
     for (let index = 0; index < this.outputFrames.length; index++) {

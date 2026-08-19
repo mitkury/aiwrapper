@@ -1,4 +1,5 @@
 import extractJSON from "./json/extract-json.js";
+import { executeLangToolCall } from "./tool-execution.js";
 
 export type LangMessageRole = "user" | "assistant" | "tool-results";
 export type LangMessageContent = string | LangContentPart[] | ToolRequest[] | ToolResult[];
@@ -419,70 +420,26 @@ export class LangMessages extends Array<LangMessage> {
       return null;
     }
 
-    const toolsWithHandlers = (options.tools ?? this.availableTools ?? []).filter(
-      (tool): tool is LangToolWithHandler =>
-        'handler' in tool && typeof tool.handler === "function"
-    );
-
     // Execute requested tools from the last message only
     const toolResults: LangMessageItemToolResult[] = [];
     for (const requestedTool of toolRequests) {
-      throwIfAborted(options.signal);
-
       const toolName = requestedTool.name as string | undefined;
       if (!toolName) continue;
-
-      const tool = toolsWithHandlers.find(t => t.name === toolName);
-      if (!tool) {
-        // Tool was requested but not found - add error result so LLM can respond
-        const id = requestedTool.callId;
-        toolResults.push({
-          type: "tool-result",
-          callId: id,
-          name: toolName,
-          result: {
-            error: true,
-            name: "ToolNotFound",
-            message: `Tool "${toolName}" is not available. Available tools: ${toolsWithHandlers.map(t => t.name).join(", ") || "none"}`,
-          }
-        });
-        continue;
-      }
-
-      let result: any;
       try {
-        result = await Promise.resolve(tool.handler(
-          requestedTool.arguments || {},
+        const executed = await executeLangToolCall(
           {
             callId: requestedTool.callId,
             name: toolName,
-            signal: options.signal,
+            arguments: requestedTool.arguments || {},
           },
-        ));
-        throwIfAborted(options.signal);
+          options.tools ?? this.availableTools ?? [],
+          { signal: options.signal },
+        );
+        toolResults.push({ type: "tool-result", ...executed });
       } catch (error) {
-        if (isAbortError(error) || options.signal?.aborted) {
-          this.aborted = true;
-          throw isAbortError(error) ? error : createAbortError();
-        }
-        const normalizedError = error instanceof Error
-          ? error
-          : new Error(String(error));
-        result = {
-          ...Object.fromEntries(Object.entries(normalizedError)),
-          error: true,
-          name: normalizedError.name,
-          message: normalizedError.message,
-        };
+        this.aborted = true;
+        throw error;
       }
-
-      const id = requestedTool.callId;
-      toolResults.push({
-        type: "tool-result",
-        callId: id,
-        name: toolName,
-        result,
-      });
     }
 
     if (toolResults.length === 0) return null;
@@ -498,20 +455,6 @@ export class LangMessages extends Array<LangMessage> {
     }
     return out.join("\n\n");
   }
-}
-
-function createAbortError(): Error {
-  const error = new Error("The operation was aborted");
-  error.name = "AbortError";
-  return error;
-}
-
-function isAbortError(error: unknown): error is Error {
-  return error instanceof Error && error.name === "AbortError";
-}
-
-function throwIfAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) throw createAbortError();
 }
 
 /**

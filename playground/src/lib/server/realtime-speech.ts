@@ -1,5 +1,5 @@
 import { env } from '$env/dynamic/private';
-import { SpeechToText, TextToSpeech } from 'aiwrapper/speech';
+import { SpeechToText, TextToSpeech } from 'aiwrapper';
 import type { RealtimeSessionConfig } from '$lib/realtime/realtime-session-protocol';
 
 export function createRealtimeSpeechToText(config: RealtimeSessionConfig['stt']) {

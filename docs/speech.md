@@ -6,28 +6,41 @@ Speech-to-text and text-to-speech providers are part of the main package:
 import { SpeechToText, TextToSpeech } from "aiwrapper";
 ```
 
-The focused `aiwrapper/speech` subpath exports the same factories, provider
-classes, contracts, and audio helpers. Realtime agent orchestration remains
-experimental under `aiwrapper/unstable/realtime`.
+The main `aiwrapper` package also exports provider classes, contracts, audio
+helpers, live language models, and realtime agent orchestration.
 
-Native speech-to-speech models use a separate experimental API because they
-keep one live audio conversation instead of exposing independent transcription
-and synthesis steps:
+Native speech-to-speech models use `LiveLang` because they keep one live audio
+conversation instead of exposing independent transcription and synthesis
+steps:
 
 ```ts
 import {
-  SpeechToSpeech,
-  type SpeechToSpeechEvent,
-} from "aiwrapper/unstable/speech";
+  LiveLang,
+  type LangTool,
+  type LiveLangEvent,
+} from "aiwrapper";
 
-const provider = SpeechToSpeech.openaiRealtime({
+const tools: LangTool[] = [{
+  name: "get_weather",
+  description: "Get the current weather for a location",
+  parameters: {
+    type: "object",
+    properties: { location: { type: "string" } },
+    required: ["location"],
+  },
+  handler: async ({ location }, { signal }) =>
+    weatherService.current(location, { signal }),
+}];
+
+const live = LiveLang.openai({
   apiKey: process.env.OPENAI_API_KEY!,
   model: "gpt-realtime-2.1",
   voice: "marin",
 });
 
-const session = await provider.createSession({
+const session = await live.connect({
   instructions: "Be concise and helpful.",
+  tools,
   onEvent(event) {
     if (event.type === "output-audio") speaker.push(event.frame);
     if (event.type === "input-transcript") {
@@ -37,6 +50,8 @@ const session = await provider.createSession({
       console.log("assistant", event.transcript);
     }
     if (event.type === "response-interrupted") speaker.clear();
+    if (event.type === "tool-call") console.log("tool call", event.call);
+    if (event.type === "tool-result") console.log("tool result", event.result);
     if (event.type === "error") console.error(event.error);
   },
 });
@@ -50,7 +65,7 @@ also an observable event source, so independent consumers can subscribe without
 combining callbacks themselves:
 
 ```ts
-const logEvent = (event: SpeechToSpeechEvent) => console.log(event);
+const logEvent = (event: LiveLangEvent) => console.log(event);
 const clearPlayback = () => speaker.clear();
 
 session.addEventListener("event", logEvent); // every normalized event
@@ -63,15 +78,23 @@ session.removeEventListener("event", logEvent);
 Specific event names are type-narrowed. Observer errors are isolated from the
 provider stream and from other observers. Provider adapters continue to expose
 one normalized event vocabulary: transcripts, output audio, response start,
-response completion, interruption, and errors.
+response completion, interruption, tool calls, tool results, and errors.
+
+`LangTool` is the one tool contract across ordinary `Lang` calls, agents,
+cascade realtime, and native speech-to-speech. Native speech providers translate
+the JSON Schema declaration into their own wire format, execute the same local
+handler, and return its result to the model automatically. Handler metadata,
+structured errors, and cancellation behavior are identical to non-realtime
+language models. Provider-managed built-in tools are not portable and are not
+accepted by native speech sessions; use local tools with handlers there.
 
 Applications can also subscribe to provider-neutral turn milestones without
 reimplementing the Playground timeline:
 
 ```ts
-import { observeSpeechToSpeechTimeline } from "aiwrapper/unstable/speech";
+import { observeLiveLangTimeline } from "aiwrapper";
 
-const stopTimeline = observeSpeechToSpeechTimeline(session, (milestone) => {
+const stopTimeline = observeLiveLangTimeline(session, (milestone) => {
   timelineView.update(milestone);
 });
 
@@ -79,14 +102,15 @@ stopTimeline();
 ```
 
 Milestones include input start and final, response start, first text, first
-audio, response end, interruption, and error. Each includes a turn ID and the
-milliseconds elapsed since that turn's first observed event. Session connection
-timing remains application-owned because it begins before a session exists.
+audio, tool call and result, response end, interruption, and error. Each includes
+a turn ID and the milliseconds elapsed since that turn's first observed event.
+Session connection timing remains application-owned because it begins before a
+session exists.
 
 Change only provider construction to use Gemini Live:
 
 ```ts
-const provider = SpeechToSpeech.geminiLive({
+const live = LiveLang.google({
   apiKey: process.env.GOOGLE_API_KEY!,
   model: "gemini-3.1-flash-live-preview",
   voice: "Kore",
@@ -96,7 +120,7 @@ const provider = SpeechToSpeech.geminiLive({
 Or use xAI Voice through the same session interface:
 
 ```ts
-const provider = SpeechToSpeech.xaiVoice({
+const live = LiveLang.xai({
   apiKey: process.env.XAI_API_KEY!,
   model: "grok-voice-think-fast-2.0",
   voice: "eve",
@@ -106,7 +130,7 @@ const provider = SpeechToSpeech.xaiVoice({
 Azure Voice Live is another drop-in provider:
 
 ```ts
-const provider = SpeechToSpeech.azureVoiceLive({
+const live = LiveLang.azure({
   endpoint: process.env.AZURE_VOICE_LIVE_ENDPOINT!,
   apiKey: process.env.AZURE_VOICE_LIVE_API_KEY!,
   model: "gpt-realtime",
@@ -118,7 +142,7 @@ Amazon Nova 2 Sonic uses the standard AWS SDK credential chain and Bedrock's
 bidirectional streaming API:
 
 ```ts
-const provider = SpeechToSpeech.amazonNovaSonic({
+const live = LiveLang.aws({
   region: process.env.AWS_REGION ?? "us-east-1",
   model: "amazon.nova-2-sonic-v1:0",
   voice: "tiffany",
@@ -130,7 +154,7 @@ session. Nova keeps the same public session interface over one Bedrock HTTP/2
 bidirectional stream. All providers manage turn taking themselves. OpenAI,
 xAI, and Azure declare 24 kHz input and output. Gemini and Nova declare 16 kHz
 input and 24 kHz output. Applications should read
-`provider.inputFormat` and resample explicitly at the microphone boundary when
+`live.inputFormat` and resample explicitly at the microphone boundary when
 needed. The shared API does not expose provider-specific transport messages.
 
 Final transcript events may include an `id`. Providers can revise a transcript
@@ -138,10 +162,15 @@ for the same utterance more than once, so interfaces that render conversation
 bubbles should replace an existing entry with the same ID instead of appending
 a duplicate.
 
-`SpeechToSpeech.mock()` records received frames and can emit deterministic
-audio, transcripts, delays, and interruption events for application tests.
-The initial API deliberately leaves microphone capture, playback, resampling,
-tools, text input, reconnection, and portable session state to the application.
+`LiveLang.mock()` records received frames and can emit deterministic
+audio, transcripts, tool calls, delays, and interruption events for application
+tests. The initial API deliberately leaves microphone capture, playback,
+resampling, text input, reconnection, and portable session state to the
+application.
+
+`SpeechToSpeech` remains available from `aiwrapper` as the lower-level
+compatibility API. It returns provider adapters with `createSession()`. New
+application code should use `LiveLang` and `connect()`.
 
 ## Audio contract
 

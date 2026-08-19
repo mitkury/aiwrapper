@@ -8,7 +8,7 @@
 - [Realtime agents](realtime-agent.md)
 - [Interrupted tool calls](handling-broken-messages.md)
 - [Tool calling](dev/tools.md)
-- [Speech providers](speech.md)
+- [Live language and speech providers](speech.md)
 
 The root [README](../README.md) contains installation and introductory examples.
 

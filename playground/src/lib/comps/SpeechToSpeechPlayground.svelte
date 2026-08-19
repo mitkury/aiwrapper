@@ -28,7 +28,14 @@
 		label: string;
 		description: string;
 		duration: number;
-		tone: 'input' | 'model' | 'audio' | 'finish' | 'error';
+		tone: 'input' | 'model' | 'audio' | 'tool' | 'finish' | 'error';
+	};
+	type ToolEntry = {
+		callId: string;
+		name: string;
+		arguments: Record<string, unknown>;
+		complete: boolean;
+		result?: unknown;
 	};
 
 	let config = $state<LiveConfig>({
@@ -52,6 +59,7 @@
 	let connectionMs = $state<number | undefined>();
 	let timelineTurnId = $state(0);
 	let timelineEntries: TimelineEntry[] = $state([]);
+	let toolEntries: ToolEntry[] = $state([]);
 
 	let session: RemoteSpeechToSpeechSession | undefined;
 	let unsubscribe: (() => void) | undefined;
@@ -144,6 +152,7 @@
 		connectionMs = undefined;
 		timelineTurnId = 0;
 		timelineEntries = [];
+		toolEntries = [];
 		phase = 'connecting';
 		try {
 			mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -231,6 +240,36 @@
 			if (event.speaker === 'user') phase = 'thinking';
 			return;
 		}
+		if (event.type === 'tool') {
+			const index = toolEntries.findIndex((entry) => entry.callId === event.callId);
+			if (event.phase === 'call') {
+				const entry = {
+					callId: event.callId,
+					name: event.name,
+					arguments: event.arguments,
+					complete: false
+				};
+				toolEntries = index === -1 ? [...toolEntries, entry] : toolEntries.with(index, entry);
+			} else if (index !== -1) {
+				toolEntries = toolEntries.with(index, {
+					...toolEntries[index],
+					complete: true,
+					result: event.result
+				});
+			} else {
+				toolEntries = [
+					...toolEntries,
+					{
+						callId: event.callId,
+						name: event.name,
+						arguments: {},
+						complete: true,
+						result: event.result
+					}
+				];
+			}
+			return;
+		}
 		if (event.type === 'speech' && event.speaker === 'assistant') {
 			phase = event.active ? 'speaking' : 'listening';
 			return;
@@ -308,25 +347,51 @@
 		tone: TimelinePart['tone'];
 	} {
 		if (stage === 'input-start') {
-			return { label: 'Input heard', description: 'First normalized user transcript', tone: 'input' };
+			return {
+				label: 'Input heard',
+				description: 'First normalized user transcript',
+				tone: 'input'
+			};
 		}
 		if (stage === 'input-final') {
-			return { label: 'Input final', description: 'Provider finalized the user transcript', tone: 'input' };
+			return {
+				label: 'Input final',
+				description: 'Provider finalized the user transcript',
+				tone: 'input'
+			};
 		}
 		if (stage === 'response-start') {
-			return { label: 'Response start', description: 'Provider began a model response', tone: 'model' };
+			return {
+				label: 'Response start',
+				description: 'Provider began a model response',
+				tone: 'model'
+			};
 		}
 		if (stage === 'first-text') {
-			return { label: 'First text', description: 'First normalized response transcript', tone: 'model' };
+			return {
+				label: 'First text',
+				description: 'First normalized response transcript',
+				tone: 'model'
+			};
 		}
 		if (stage === 'first-audio') {
 			return { label: 'First audio', description: 'First playable PCM frame', tone: 'audio' };
+		}
+		if (stage === 'tool-call') {
+			return { label: 'Tool call', description: 'Model requested a local tool', tone: 'tool' };
+		}
+		if (stage === 'tool-result') {
+			return { label: 'Tool result', description: 'Local tool completed', tone: 'tool' };
 		}
 		if (stage === 'response-end') {
 			return { label: 'Complete', description: 'Provider completed the turn', tone: 'finish' };
 		}
 		if (stage === 'response-interrupted') {
-			return { label: 'Interrupted', description: 'User speech stopped the response', tone: 'finish' };
+			return {
+				label: 'Interrupted',
+				description: 'User speech stopped the response',
+				tone: 'finish'
+			};
 		}
 		return { label: 'Error', description: 'Provider reported an error', tone: 'error' };
 	}
@@ -335,6 +400,10 @@
 		return milliseconds < 1000
 			? `${Math.round(milliseconds)} ms`
 			: `${(milliseconds / 1000).toFixed(2)} s`;
+	}
+
+	function formatToolResult(result: unknown): string {
+		return JSON.stringify(result) ?? 'undefined';
 	}
 </script>
 
@@ -480,6 +549,10 @@
 				Add {providerEnvironmentKey(provider)} to the repository .env file.
 			{/if}
 		</p>
+		<p class="mt-2 text-xs text-neutral-500">
+			Every provider receives the same local <code>get_current_time</code> tool. Ask for the current time
+			to test tool calling.
+		</p>
 	</section>
 
 	{#if error}
@@ -498,7 +571,9 @@
 			</div>
 			<div class="font-mono text-[10px] text-neutral-500">
 				{#if connectionMs !== undefined}connected {formatDuration(connectionMs)}{/if}
-				{#if connectionMs !== undefined && timelineParts.length} · {/if}
+				{#if connectionMs !== undefined && timelineParts.length}
+					·
+				{/if}
 				{timelineParts.length ? `${formatDuration(timelineTotalMs)} turn` : ''}
 			</div>
 		</div>
@@ -510,6 +585,7 @@
 						class:bg-amber-400={part.tone === 'input'}
 						class:bg-indigo-500={part.tone === 'model'}
 						class:bg-violet-400={part.tone === 'audio'}
+						class:bg-cyan-400={part.tone === 'tool'}
 						class:bg-emerald-400={part.tone === 'finish'}
 						class:bg-red-400={part.tone === 'error'}
 						style={`flex-grow: ${Math.max(part.duration, 1)}; flex-basis: 0`}
@@ -525,6 +601,7 @@
 							class:bg-amber-400={part.tone === 'input'}
 							class:bg-indigo-500={part.tone === 'model'}
 							class:bg-violet-400={part.tone === 'audio'}
+							class:bg-cyan-400={part.tone === 'tool'}
 							class:bg-emerald-400={part.tone === 'finish'}
 							class:bg-red-400={part.tone === 'error'}
 						></span>
@@ -540,6 +617,25 @@
 			<p class="mt-3 text-[11px] text-neutral-400">
 				Connect and speak to record normalized request and response milestones.
 			</p>
+		{/if}
+		{#if toolEntries.length}
+			<div class="mt-4 space-y-2 border-t border-neutral-100 pt-4">
+				{#each toolEntries as tool (tool.callId)}
+					<div class="rounded-xl bg-cyan-50 px-3 py-2.5 text-xs text-cyan-950">
+						<div class="flex items-center justify-between gap-3">
+							<span class="font-medium">{tool.name}</span>
+							<span class="text-[10px] text-cyan-700">
+								{tool.complete ? 'Complete' : 'Running…'}
+							</span>
+						</div>
+						<pre
+							class="mt-1 overflow-x-auto font-mono text-[10px] leading-relaxed whitespace-pre-wrap">{JSON.stringify(
+								tool.arguments
+							)}{#if tool.complete}
+								→ {formatToolResult(tool.result)}{/if}</pre>
+					</div>
+				{/each}
+			</div>
 		{/if}
 	</section>
 

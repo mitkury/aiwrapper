@@ -1,4 +1,4 @@
-import type { PcmAudioFrame } from 'aiwrapper/speech';
+import type { PcmAudioFrame } from 'aiwrapper';
 import { encodeAudioPacket } from './audio-upload-protocol';
 import { pcmSamplesToBytes } from './pcm';
 import {

@@ -11,6 +11,7 @@ import type { LangOptions, LangResponseSchema } from "./language-provider.js";
 export { Lang, LanguageProvider, LangResult, z, MockOpenAILikeLang, MockResponseStreamLang };
 
 export * from "./messages.js";
+export * from "./tool-execution.js";
 
 // Export types
 export type { LangOptions, LangResponseSchema };

@@ -4,7 +4,7 @@ import {
   observeSpeechToSpeechTimeline,
   type SpeechToSpeechEvent,
   type SpeechToSpeechSession,
-} from "../../src/unstable/speech/index.ts";
+} from "../../src/index.ts";
 
 describe("speech-to-speech timeline", () => {
   it("records each useful milestone once and starts a new turn", () => {

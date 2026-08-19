@@ -1,19 +1,15 @@
 # Realtime agents
 
-The experimental realtime agent composes the existing provider abstractions into
-a low-latency voice cascade:
+The realtime agent composes the existing provider abstractions into a
+low-latency voice cascade:
 
 ```text
 microphone -> streaming STT -> ChatAgent -> streaming TTS -> speaker
                               + latest camera frame
 ```
 
-It is available from an unstable subpath while live interruption and playback
-accounting are refined:
-
 ```ts
-import { Lang, SpeechToText, TextToSpeech } from "aiwrapper";
-import { RealtimeAgent } from "aiwrapper/unstable/realtime";
+import { Lang, RealtimeAgent, SpeechToText, TextToSpeech } from "aiwrapper";
 
 const agent = new RealtimeAgent(
   Lang.openai({ apiKey: process.env.OPENAI_API_KEY! }),
@@ -78,8 +74,8 @@ starts. See
 [the playground README](../playground/README.md) for environment setup.
 
 The separate `/speech-to-speech` page tests native live models through
-`SpeechToSpeechProvider`. It bypasses the STT, language, and TTS cascade while
-keeping the same browser microphone and PCM playback boundary.
+`LiveLang`. It bypasses the STT, language, and TTS cascade while keeping the
+same browser microphone and PCM playback boundary.
 
 Camera context starts off because multimodal requests are slower. Enable it for
 turns that need vision. The playground's latency profile also disables optional

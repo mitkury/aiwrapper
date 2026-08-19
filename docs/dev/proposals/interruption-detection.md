@@ -14,7 +14,7 @@ policy.
 
 The first complete implementation should be proven in a real voice application.
 Once it has run end to end, AIWrapper can extract the proven detector contract
-under `aiwrapper/speech`.
+from the main `aiwrapper` package.
 
 ## Why interruption is layered
 
@@ -102,7 +102,7 @@ detectors unnecessarily dependent on transcription and product policy.
    in a consuming voice application with an internal detector.
 2. Use deterministic audio fixtures to establish event timing and false
    interruption behavior.
-3. Extract `SpeechActivityDetector` into AIWrapper's unstable speech subpath.
+3. Extract `SpeechActivityDetector` into AIWrapper's main package.
 4. Ship a mock and one small reference implementation with the contract.
 5. Add WebRTC, Silero, or provider adapters independently as demand proves them.
 6. Consider `TurnClassifier` only after at least two classification strategies

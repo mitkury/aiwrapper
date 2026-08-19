@@ -47,14 +47,6 @@
     "./speech": {
       "types": "./dist/speech/index.d.ts",
       "import": "./dist/speech/index.js"
-    },
-    "./unstable/speech": {
-      "types": "./dist/unstable/speech/index.d.ts",
-      "import": "./dist/unstable/speech/index.js"
-    },
-    "./unstable/realtime": {
-      "types": "./dist/unstable/realtime/index.d.ts",
-      "import": "./dist/unstable/realtime/index.js"
     }
   },
   "engines": {

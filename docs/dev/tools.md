@@ -1,31 +1,36 @@
 # Tool calling
 
 AIWrapper supports local function tools and provider-managed built-in tools.
+`LangTool` is the canonical definition everywhere an LLM can execute tools,
+including ordinary language providers, agents, cascade realtime, and native
+speech-to-speech providers.
 
 ## Local tools
 
 A local tool has a name, description, JSON Schema parameters, and a handler.
 
 ```ts
-import { Lang, LangMessages } from "aiwrapper";
+import { Lang, LangMessages, type LangTool } from "aiwrapper";
+
+const tools: LangTool[] = [
+  {
+    name: "add",
+    description: "Add two numbers",
+    parameters: {
+      type: "object",
+      properties: {
+        a: { type: "number" },
+        b: { type: "number" },
+      },
+      required: ["a", "b"],
+    },
+    handler: ({ a, b }) => a + b,
+  },
+];
 
 const lang = Lang.openai({ apiKey: process.env.OPENAI_API_KEY });
 const messages = new LangMessages("Add 2 and 3 using the tool", {
-  tools: [
-    {
-      name: "add",
-      description: "Add two numbers",
-      parameters: {
-        type: "object",
-        properties: {
-          a: { type: "number" },
-          b: { type: "number" },
-        },
-        required: ["a", "b"],
-      },
-      handler: ({ a, b }) => a + b,
-    },
-  ],
+  tools,
 });
 
 const result = await lang.chat(messages);
@@ -57,6 +62,27 @@ await lang.chat(messages, {
 The same signal is passed to local tool handlers. An `AbortError` from a handler
 is propagated as request cancellation instead of being converted into a tool
 error for the model.
+
+The same array can be passed to a native speech session without changing the
+tool or handler:
+
+```ts
+import { LiveLang } from "aiwrapper";
+
+const session = await LiveLang.openai({
+  apiKey: process.env.OPENAI_API_KEY!,
+}).connect({ tools });
+
+session.addEventListener("tool-call", ({ call }) => console.log(call));
+session.addEventListener("tool-result", ({ result }) => console.log(result));
+```
+
+OpenAI Realtime, xAI Voice, Gemini Live, Azure Voice Live, and Amazon Nova
+Sonic map `LangTool` declarations to their provider protocols and automatically
+continue the model after local handlers finish. Native speech sessions currently
+support text and JSON-serializable results. Provider-managed built-in tools and
+image tool results remain provider-specific and are rejected by this portable
+surface.
 
 ## Inspecting calls and results
 

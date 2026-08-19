@@ -1,8 +1,8 @@
 import {
   createNodeWebSocket,
   websocketURL,
-} from "../../speech/realtime-websocket.js";
-import type { RealtimeSpeechWebSocketFactory } from "../../speech/realtime-websocket.js";
+} from "../speech/realtime-websocket.js";
+import type { RealtimeSpeechWebSocketFactory } from "../speech/realtime-websocket.js";
 import {
   OpenAICompatibleRealtimeSpeechToSpeech,
   type OpenAICompatibleRealtimeSpeechToSpeechConfig,
@@ -12,6 +12,7 @@ import type {
   SpeechToSpeechSession,
   SpeechToSpeechSessionOptions,
 } from "./types.js";
+import { speechToSpeechFunctionDeclarations } from "./live-lang-tools.js";
 
 export type OpenAIRealtimeTurnDetection =
   | {
@@ -102,36 +103,47 @@ function openAIProtocolConfig(
       ...config.headers,
     },
     createWebSocket: config.createWebSocket,
-    createSessionUpdate: (session) => ({
-      type: "session.update",
-      session: {
-        type: "realtime",
-        output_modalities: ["audio"],
-        ...(session.instructions ? { instructions: session.instructions } : {}),
-        audio: {
-          input: {
-            format: { type: "audio/pcm", rate: 24000 },
-            transcription: { model: config.transcriptionModel },
-            noise_reduction:
-              config.noiseReduction === undefined
-                ? { type: "near_field" }
-                : config.noiseReduction,
-            turn_detection: {
-              ...(config.turnDetection ?? {
-                type: "server_vad",
-                silence_duration_ms: 350,
-                prefix_padding_ms: 300,
-              }),
-              create_response: true,
-              interrupt_response: true,
+    createSessionUpdate: (session) => {
+      const tools = speechToSpeechFunctionDeclarations(session);
+      return {
+        type: "session.update",
+        session: {
+          type: "realtime",
+          output_modalities: ["audio"],
+          ...(session.instructions
+            ? { instructions: session.instructions }
+            : {}),
+          ...(tools.length
+            ? {
+                tools: tools.map((tool) => ({ type: "function", ...tool })),
+                tool_choice: "auto",
+              }
+            : {}),
+          audio: {
+            input: {
+              format: { type: "audio/pcm", rate: 24000 },
+              transcription: { model: config.transcriptionModel },
+              noise_reduction:
+                config.noiseReduction === undefined
+                  ? { type: "near_field" }
+                  : config.noiseReduction,
+              turn_detection: {
+                ...(config.turnDetection ?? {
+                  type: "server_vad",
+                  silence_duration_ms: 350,
+                  prefix_padding_ms: 300,
+                }),
+                create_response: true,
+                interrupt_response: true,
+              },
+            },
+            output: {
+              format: { type: "audio/pcm", rate: 24000 },
+              voice: config.voice,
             },
           },
-          output: {
-            format: { type: "audio/pcm", rate: 24000 },
-            voice: config.voice,
-          },
         },
-      },
-    }),
+      };
+    },
   };
 }

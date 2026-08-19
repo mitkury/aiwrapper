@@ -1,6 +1,6 @@
-import { Agent } from "../../agents/agent.js";
-import { ChatAgent } from "../../agents/ChatAgent.js";
-import type { LanguageProvider } from "../../lang/language-provider.js";
+import { Agent } from "../agents/agent.js";
+import { ChatAgent } from "../agents/ChatAgent.js";
+import type { LanguageProvider } from "../lang/language-provider.js";
 import {
   LangMessage,
   type LangContentImage,
@@ -8,15 +8,15 @@ import {
   type LangMessageItemImage,
   type LangMessages,
   type LangTool,
-} from "../../lang/messages.js";
-import { isAbortError, normalizeError } from "../../errors.js";
+} from "../lang/messages.js";
+import { isAbortError, normalizeError } from "../errors.js";
 import type {
   PcmAudioFrame,
   SpeechToTextProvider,
   SpeechToTextSession,
   TextToSpeechProvider,
   TranscriptEvent,
-} from "../../speech/types.js";
+} from "../speech/types.js";
 import {
   StreamingTextSegmenter,
   type StreamingTextSegmenterOptions,

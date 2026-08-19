@@ -2,7 +2,9 @@ import type {
   PcmAudioFormat,
   PcmAudioFrame,
   TranscriptEvent,
-} from "../../speech/types.js";
+} from "../speech/types.js";
+import type { LangTool, ToolRequest } from "../lang/messages.js";
+import type { LangToolExecutionResult } from "../lang/tool-execution.js";
 
 export type SpeechToSpeechEvent =
   | { type: "output-audio"; frame: PcmAudioFrame }
@@ -11,11 +13,14 @@ export type SpeechToSpeechEvent =
   | { type: "response-start" }
   | { type: "response-end" }
   | { type: "response-interrupted" }
+  | { type: "tool-call"; call: ToolRequest }
+  | { type: "tool-result"; result: LangToolExecutionResult }
   | { type: "error"; error: Error };
 
 export type SpeechToSpeechSessionOptions = {
   signal?: AbortSignal;
   instructions?: string;
+  tools?: LangTool[];
   onEvent?: (event: SpeechToSpeechEvent) => void;
 };
 

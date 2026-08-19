@@ -1,4 +1,4 @@
-import type { PcmAudioFrame } from 'aiwrapper/speech';
+import type { PcmAudioFrame } from 'aiwrapper';
 import { RemoteAudioSession, type RemoteAudioSessionEvent } from './remote-audio-session';
 import type { RealtimeSessionConfig } from './realtime-session-protocol';
 

@@ -1,6 +1,6 @@
 import { env } from '$env/dynamic/private';
 import { json } from '@sveltejs/kit';
-import { TextToSpeech } from 'aiwrapper/speech';
+import { TextToSpeech } from 'aiwrapper';
 import type { RequestHandler } from './$types';
 import { pcmStreamResponse, speechError } from '$lib/server/speech-response';
 

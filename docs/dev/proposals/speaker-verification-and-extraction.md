@@ -169,7 +169,7 @@ ISO/IEC 30107 family.
    speech using consented or licensed recordings.
 3. Establish threshold, enrollment-quality, cancellation, and reference-version
    behavior.
-4. Extract unstable AIWrapper contracts with deterministic mocks and one real
+4. Extract AIWrapper contracts with deterministic mocks and one real
    adapter.
 5. Add target-speaker extraction only after overlapping speech is demonstrated
    as a material failure in the target device pipeline.

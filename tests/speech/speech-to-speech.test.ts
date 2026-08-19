@@ -7,10 +7,13 @@ import {
   OpenAIRealtimeSpeechToSpeech,
   SpeechToSpeech,
   XAIVoiceSpeechToSpeech,
+  createSpeechToSpeechTimeline,
   type PcmAudioFrame,
   type RealtimeSpeechWebSocketData,
   type SpeechToSpeechEvent,
-} from "../../src/unstable/speech/index.ts";
+  type LangTool,
+} from "../../src/index.ts";
+import { parseSpeechToSpeechToolCall } from "../../src/live/live-lang-tools.ts";
 
 type SocketEvent = {
   data?: unknown;
@@ -87,6 +90,101 @@ const frame = (samples: number[], sampleRate: number): PcmAudioFrame => ({
 });
 
 describe("speech-to-speech mock", () => {
+  it("rejects malformed provider tool arguments instead of inventing them", () => {
+    expect(parseSpeechToSpeechToolCall("call-1", "noop", undefined)).toEqual({
+      callId: "call-1",
+      name: "noop",
+      arguments: {},
+    });
+    expect(() =>
+      parseSpeechToSpeechToolCall("call-1", "add", "not json")
+    ).toThrow('Live tool "add" returned invalid JSON arguments');
+    expect(() =>
+      parseSpeechToSpeechToolCall("call-1", "add", [1, 2])
+    ).toThrow('Live tool "add" arguments must be a JSON object');
+  });
+
+  it("uses LangTool and emits normalized calls and results", async () => {
+    const contexts: unknown[] = [];
+    const tools: LangTool[] = [{
+      name: "add",
+      description: "Add two numbers",
+      parameters: {
+        type: "object",
+        properties: { a: { type: "number" }, b: { type: "number" } },
+        required: ["a", "b"],
+      },
+      handler: ({ a, b }, context) => {
+        contexts.push(context);
+        return Number(a) + Number(b);
+      },
+    }];
+    const events: SpeechToSpeechEvent[] = [];
+    const completed = deferred<void>();
+    const session = await SpeechToSpeech.mock({
+      toolCalls: [{
+        callId: "call-add",
+        name: "add",
+        arguments: { a: 2, b: 3 },
+      }],
+    }).createSession({
+      tools,
+      onEvent(event) {
+        events.push(event);
+        if (event.type === "response-end") completed.resolve();
+      },
+    });
+
+    await session.appendAudio(frame([1], 24000));
+    await completed.promise;
+
+    expect(events).toContainEqual({
+      type: "tool-call",
+      call: {
+        callId: "call-add",
+        name: "add",
+        arguments: { a: 2, b: 3 },
+      },
+    });
+    expect(events).toContainEqual({
+      type: "tool-result",
+      result: { callId: "call-add", name: "add", result: 5 },
+    });
+    expect(contexts).toMatchObject([{
+      callId: "call-add",
+      name: "add",
+      signal: expect.any(AbortSignal),
+    }]);
+    await session.close();
+  });
+
+  it("rejects provider-managed tools that cannot share local handlers", async () => {
+    await expect(
+      SpeechToSpeech.mock().createSession({
+        tools: [{ name: "web_search" }],
+      }),
+    ).rejects.toThrow(
+      "Native speech sessions only support local function tools with handlers",
+    );
+  });
+
+  it("records tool calls and results in the shared timeline", () => {
+    const timeline = createSpeechToSpeechTimeline();
+
+    expect(timeline.record({
+      type: "tool-call",
+      call: { callId: "call-1", name: "add", arguments: { a: 1 } },
+    }, 100)).toEqual([
+      { turnId: 1, stage: "tool-call", milliseconds: 0 },
+    ]);
+    expect(timeline.record({
+      type: "tool-result",
+      result: { callId: "call-1", name: "add", result: 2 },
+    }, 125)).toEqual([
+      { turnId: 1, stage: "tool-result", milliseconds: 25 },
+    ]);
+  });
+
   it("supports typed event listeners without letting observers break the stream", async () => {
     const provider = SpeechToSpeech.mock({ outputTranscript: "hello" });
     const session = await provider.createSession();
@@ -193,6 +291,95 @@ describe("speech-to-speech mock", () => {
 });
 
 describe("OpenAI realtime speech-to-speech", () => {
+  it("executes shared tools and returns function outputs before continuing", async () => {
+    const socket = new FakeLiveSocket({ type: "session.updated" });
+    const events: SpeechToSpeechEvent[] = [];
+    const session = await SpeechToSpeech.openaiRealtime({
+      apiKey: "test",
+      createWebSocket: () => socket,
+    }).createSession({
+      tools: [weatherTool()],
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(socket.sent[0]).toMatchObject({
+      session: {
+        tools: [{
+          type: "function",
+          name: "get_weather",
+          description: "Get current weather",
+          parameters: { type: "object" },
+        }],
+        tool_choice: "auto",
+      },
+    });
+    socket.serverMessage({ type: "response.created" });
+    socket.serverMessage({
+      type: "response.function_call_arguments.done",
+      call_id: "call-weather",
+      name: "get_weather",
+      arguments: '{"location":"Paris"}',
+    });
+    socket.serverMessage({
+      type: "response.done",
+      response: { status: "completed" },
+    });
+    await settleMessages();
+
+    expect(events).toContainEqual({
+      type: "tool-call",
+      call: {
+        callId: "call-weather",
+        name: "get_weather",
+        arguments: { location: "Paris" },
+      },
+    });
+    expect(events).toContainEqual({
+      type: "tool-result",
+      result: {
+        callId: "call-weather",
+        name: "get_weather",
+        result: { location: "Paris", temperature: 21 },
+      },
+    });
+    expect(socket.sent.slice(-2)).toEqual([
+      {
+        type: "conversation.item.create",
+        item: {
+          type: "function_call_output",
+          call_id: "call-weather",
+          output: '{"location":"Paris","temperature":21}',
+        },
+      },
+      { type: "response.create" },
+    ]);
+    expect(events.some((event) => event.type === "response-end")).toBe(false);
+
+    socket.serverMessage({
+      type: "response.output_item.done",
+      item: {
+        type: "function_call",
+        call_id: "call-weather",
+        name: "get_weather",
+        arguments: '{"location":"Paris"}',
+      },
+    });
+    socket.serverMessage({
+      type: "response.done",
+      response: { status: "completed" },
+    });
+    await settleMessages();
+    expect(
+      events.filter((event) => event.type === "tool-call"),
+    ).toHaveLength(1);
+    expect(
+      socket.sent.filter((message) =>
+        message.type === "conversation.item.create"
+      ),
+    ).toHaveLength(1);
+    await session.close();
+  });
+
   it("configures one live session and normalizes audio, transcripts, and interruption", async () => {
     const socket = new FakeLiveSocket({ type: "session.updated" });
     const events: SpeechToSpeechEvent[] = [];
@@ -209,6 +396,7 @@ describe("OpenAI realtime speech-to-speech", () => {
     });
     const session = await provider.createSession({
       instructions: "Be brief.",
+      tools: [weatherTool()],
       onEvent: (event) => events.push(event),
     });
 
@@ -325,6 +513,7 @@ describe("Azure Voice Live speech-to-speech", () => {
     });
     const session = await provider.createSession({
       instructions: "Be brief.",
+      tools: [weatherTool()],
       onEvent: (event) => events.push(event),
     });
 
@@ -338,6 +527,13 @@ describe("Azure Voice Live speech-to-speech", () => {
         modalities: ["text", "audio"],
         voice: { type: "openai", name: "alloy" },
         instructions: "Be brief.",
+        tools: [{
+          type: "function",
+          name: "get_weather",
+          description: "Get current weather",
+          parameters: weatherTool().parameters,
+        }],
+        tool_choice: "auto",
         input_audio_format: "pcm16",
         output_audio_format: "pcm16",
         input_audio_sampling_rate: 24000,
@@ -402,6 +598,72 @@ describe("Azure Voice Live speech-to-speech", () => {
 });
 
 describe("Amazon Nova Sonic speech-to-speech", () => {
+  it("maps shared tools to Nova tool configuration and tool results", async () => {
+    const outputs = new PushAsyncIterable<unknown>();
+    const inputs: Record<string, any>[] = [];
+    const events: SpeechToSpeechEvent[] = [];
+    const session = await SpeechToSpeech.amazonNovaSonic({
+      invoke: async ({ body }) => {
+        void (async () => {
+          for await (const message of body) {
+            inputs.push(
+              JSON.parse(new TextDecoder().decode(message.chunk.bytes)),
+            );
+          }
+        })();
+        return { body: outputs };
+      },
+    }).createSession({
+      tools: [weatherTool()],
+      onEvent: (event) => events.push(event),
+    });
+    await settleMessages();
+
+    expect(inputs[1]).toMatchObject({
+      event: {
+        promptStart: {
+          toolUseOutputConfiguration: { mediaType: "application/json" },
+          toolConfiguration: {
+            tools: [{
+              toolSpec: {
+                name: "get_weather",
+                description: "Get current weather",
+                inputSchema: { json: { type: "object" } },
+              },
+            }],
+            toolChoice: { auto: {} },
+          },
+        },
+      },
+    });
+    outputs.push(novaEvent({
+      toolUse: {
+        promptName: "prompt-1",
+        contentId: "content-1",
+        toolUseId: "nova-weather",
+        toolName: "get_weather",
+        content: '{"location":"Paris"}',
+      },
+    }));
+    await settleMessages();
+    await settleMessages();
+
+    expect(events.map((event) => event.type)).toEqual([
+      "tool-call",
+      "tool-result",
+    ]);
+    expect(inputs.at(-1)).toEqual({
+      event: {
+        toolResult: {
+          promptName: "prompt-1",
+          contentName: "content-1",
+          content: '{"location":"Paris","temperature":21}',
+        },
+      },
+    });
+    await session.close();
+  });
+
   it("uses the Bedrock stream while preserving normalized session events", async () => {
     const outputs = new PushAsyncIterable<unknown>();
     const inputs: Record<string, any>[] = [];
@@ -426,6 +688,7 @@ describe("Amazon Nova Sonic speech-to-speech", () => {
     });
     const session = await provider.createSession({
       instructions: "Be brief.",
+      tools: [weatherTool()],
       onEvent: (event) => events.push(event),
     });
     await settleMessages();
@@ -609,6 +872,7 @@ describe("xAI Voice speech-to-speech", () => {
     });
     const session = await provider.createSession({
       instructions: "Be brief.",
+      tools: [weatherTool()],
       onEvent: (event) => events.push(event),
     });
 
@@ -621,6 +885,13 @@ describe("xAI Voice speech-to-speech", () => {
       session: {
         voice: "eve",
         instructions: "Be brief.",
+        tools: [{
+          type: "function",
+          name: "get_weather",
+          description: "Get current weather",
+          parameters: weatherTool().parameters,
+        }],
+        tool_choice: "auto",
         turn_detection: { type: "server_vad" },
         audio: {
           input: {
@@ -716,6 +987,62 @@ describe("xAI Voice speech-to-speech", () => {
 });
 
 describe("Gemini Live speech-to-speech", () => {
+  it("maps the shared tools to Live function calls and responses", async () => {
+    const socket = new FakeLiveSocket({ setupComplete: {} });
+    const events: SpeechToSpeechEvent[] = [];
+    const session = await SpeechToSpeech.geminiLive({
+      apiKey: "test",
+      createWebSocket: () => socket,
+    }).createSession({
+      tools: [weatherTool()],
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(socket.sent[0]).toMatchObject({
+      setup: {
+        tools: [{
+          functionDeclarations: [{
+            name: "get_weather",
+            description: "Get current weather",
+            parameters: { type: "object" },
+          }],
+        }],
+      },
+    });
+    const toolCall = {
+      toolCall: {
+        functionCalls: [{
+          id: "gemini-weather",
+          name: "get_weather",
+          args: { location: "Paris" },
+        }],
+      },
+    };
+    socket.serverMessage(toolCall);
+    socket.serverMessage(toolCall);
+    await settleMessages();
+
+    expect(events.map((event) => event.type)).toEqual([
+      "tool-call",
+      "tool-result",
+    ]);
+    expect(socket.sent.at(-1)).toEqual({
+      toolResponse: {
+        functionResponses: [{
+          id: "gemini-weather",
+          name: "get_weather",
+          response: {
+            result: { location: "Paris", temperature: 21 },
+          },
+        }],
+      },
+    });
+    expect(socket.sent.filter((message) => message.toolResponse)).toHaveLength(
+      1,
+    );
+    await session.close();
+  });
+
   it("preserves the provider close reason when setup is rejected", async () => {
     const socket = new FakeLiveSocket();
     const connection = new GeminiLiveSpeechToSpeech({
@@ -844,6 +1171,19 @@ function novaEvent(event: Record<string, unknown>): {
     chunk: {
       bytes: new TextEncoder().encode(JSON.stringify({ event })),
     },
+  };
+}
+
+function weatherTool(): LangTool {
+  return {
+    name: "get_weather",
+    description: "Get current weather",
+    parameters: {
+      type: "object",
+      properties: { location: { type: "string" } },
+      required: ["location"],
+    },
+    handler: ({ location }) => ({ location, temperature: 21 }),
   };
 }
 

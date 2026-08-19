@@ -1,5 +1,5 @@
-import { createNodeWebSocket } from "../../speech/realtime-websocket.js";
-import type { RealtimeSpeechWebSocketFactory } from "../../speech/realtime-websocket.js";
+import { createNodeWebSocket } from "../speech/realtime-websocket.js";
+import type { RealtimeSpeechWebSocketFactory } from "../speech/realtime-websocket.js";
 import {
   OpenAICompatibleRealtimeSpeechToSpeech,
   type OpenAICompatibleRealtimeSpeechToSpeechConfig,
@@ -9,6 +9,7 @@ import type {
   SpeechToSpeechSession,
   SpeechToSpeechSessionOptions,
 } from "./types.js";
+import { speechToSpeechFunctionDeclarations } from "./live-lang-tools.js";
 
 export type AzureVoiceLiveVoiceType = "openai" | "azure-standard";
 
@@ -102,24 +103,35 @@ function azureVoiceLiveProtocolConfig(
       ...config.headers,
     },
     createWebSocket: config.createWebSocket,
-    createSessionUpdate: (session) => ({
-      type: "session.update",
-      session: {
-        modalities: ["text", "audio"],
-        voice: { type: config.voiceType, name: config.voice },
-        ...(session.instructions ? { instructions: session.instructions } : {}),
-        input_audio_format: "pcm16",
-        output_audio_format: "pcm16",
-        input_audio_sampling_rate: 24000,
-        input_audio_transcription: { model: config.transcriptionModel },
-        turn_detection: {
-          type: "azure_semantic_vad",
-          threshold: 0.5,
-          prefix_padding_ms: 420,
-          silence_duration_ms: 500,
+    createSessionUpdate: (session) => {
+      const tools = speechToSpeechFunctionDeclarations(session);
+      return {
+        type: "session.update",
+        session: {
+          modalities: ["text", "audio"],
+          voice: { type: config.voiceType, name: config.voice },
+          ...(session.instructions
+            ? { instructions: session.instructions }
+            : {}),
+          ...(tools.length
+            ? {
+                tools: tools.map((tool) => ({ type: "function", ...tool })),
+                tool_choice: "auto",
+              }
+            : {}),
+          input_audio_format: "pcm16",
+          output_audio_format: "pcm16",
+          input_audio_sampling_rate: 24000,
+          input_audio_transcription: { model: config.transcriptionModel },
+          turn_detection: {
+            type: "azure_semantic_vad",
+            threshold: 0.5,
+            prefix_padding_ms: 420,
+            silence_duration_ms: 500,
+          },
         },
-      },
-    }),
+      };
+    },
   };
 }
 

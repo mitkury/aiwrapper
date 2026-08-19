@@ -1,16 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
-import { Lang } from "../../src/lang/lang.ts";
-import { LanguageProvider } from "../../src/lang/language-provider.ts";
-import { RealtimeAgent } from "../../src/unstable/realtime/realtime-agent.ts";
-import { StreamingTextSegmenter } from "../../src/unstable/realtime/text-segmenter.ts";
 import {
+  Lang,
+  LanguageProvider,
+  RealtimeAgent,
   SpeechToText,
+  StreamingTextSegmenter,
   TextToSpeech,
   type PcmAudioFrame,
   type SpeechToTextProvider,
   type StreamingTextToSpeechSession,
   type TextToSpeechProvider,
-} from "../../src/speech/index.ts";
+} from "../../src/index.ts";
 
 const frame = (samples: number[]): PcmAudioFrame => ({
   encoding: "pcm_s16le",
