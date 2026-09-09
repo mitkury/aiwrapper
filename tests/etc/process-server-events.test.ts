@@ -80,4 +80,20 @@ describe("processServerEvents", () => {
       throw consumerError;
     })).rejects.toBe(consumerError);
   });
+
+  it("cancels a still-open response when the consumer fails", async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('data: {"ok":true}\n'));
+      },
+      cancel() { cancelled = true; },
+    });
+    const error = new Error("Stop consuming");
+    await expect(processServerEvents(new Response(body), () => {
+      throw error;
+    })).rejects.toBe(error);
+    expect(cancelled).toBe(true);
+    expect(body.locked).toBe(false);
+  });
 });

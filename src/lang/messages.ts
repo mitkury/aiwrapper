@@ -1,5 +1,7 @@
 import extractJSON from "./json/extract-json.js";
 import { executeLangToolCall } from "./tool-execution.js";
+import { attachPartialResult, isAbortError } from "../errors.js";
+import { encodeBytesAsBase64 } from "../base64.js";
 
 export type LangMessageRole = "user" | "assistant" | "tool-results";
 export type LangMessageContent = string | LangContentPart[] | ToolRequest[] | ToolResult[];
@@ -118,32 +120,6 @@ export function normalizeLangToolResultImage(
   }
 
   throw new Error("Tool result image must include a non-empty URL, base64 value, or byte array.");
-}
-
-function encodeBytesAsBase64(bytes: ArrayBuffer | Uint8Array): string {
-  const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-
-  const globalObject: any = typeof globalThis !== "undefined" ? globalThis : {};
-
-  if (globalObject.Buffer) {
-    return globalObject.Buffer.from(view).toString("base64");
-  }
-
-  const btoaFn: ((data: string) => string) | undefined = typeof globalObject.btoa === "function"
-    ? globalObject.btoa.bind(globalObject)
-    : undefined;
-
-  if (btoaFn) {
-    let binary = "";
-    const chunkSize = 0x8000;
-    for (let i = 0; i < view.length; i += chunkSize) {
-      const chunk = view.subarray(i, i + chunkSize);
-      binary += String.fromCharCode(...chunk);
-    }
-    return btoaFn(binary);
-  }
-
-  throw new Error("Unable to convert byte images to base64 in this environment. Provide base64 or a URL instead.");
 }
 
 export type LangImageOutput = {
@@ -420,31 +396,30 @@ export class LangMessages extends Array<LangMessage> {
       return null;
     }
 
-    // Execute requested tools from the last message only
     const toolResults: LangMessageItemToolResult[] = [];
-    for (const requestedTool of toolRequests) {
-      const toolName = requestedTool.name as string | undefined;
-      if (!toolName) continue;
-      try {
+    try {
+      for (const requestedTool of toolRequests) {
+        if (!requestedTool.name) continue;
         const executed = await executeLangToolCall(
-          {
-            callId: requestedTool.callId,
-            name: toolName,
-            arguments: requestedTool.arguments || {},
-          },
+          requestedTool,
           options.tools ?? this.availableTools ?? [],
           { signal: options.signal },
         );
         toolResults.push({ type: "tool-result", ...executed });
-      } catch (error) {
-        this.aborted = true;
-        throw error;
       }
+    } catch (error) {
+      if (isAbortError(error)) {
+        this.aborted = true;
+        throw attachPartialResult(error, this);
+      }
+      throw error;
+    } finally {
+      // Completed tools may have side effects. Retain their results even when
+      // a later tool is cancelled, so resuming cannot mistake them for aborted calls.
+      if (toolResults.length) this.addToolResultsMessage(toolResults);
     }
 
     if (toolResults.length === 0) return null;
-
-    this.addToolResultsMessage(toolResults);
     return this[this.length - 1];
   }
 

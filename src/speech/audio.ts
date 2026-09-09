@@ -1,4 +1,7 @@
 import type { PcmAudioFormat, PcmAudioFrame } from "./types.js";
+import { createAbortError, throwIfAborted } from "../errors.js";
+import { encodeBytesAsBase64 } from "../base64.js";
+export { createAbortError, throwIfAborted } from "../errors.js";
 
 export function assertPcmFrame(frame: PcmAudioFrame): void {
   if (frame.encoding !== "pcm_s16le") {
@@ -117,16 +120,6 @@ export async function* responsePcmFrames(
   }
 }
 
-export function createAbortError(): Error {
-  const error = new Error("The operation was aborted");
-  error.name = "AbortError";
-  return error;
-}
-
-export function throwIfAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) throw createAbortError();
-}
-
 export function linkAbortSignal(
   source: AbortSignal | undefined,
   controller: AbortController,
@@ -147,24 +140,7 @@ export function encodePcmAsBase64(samples: Int16Array): string {
     samples.byteOffset,
     samples.byteLength,
   );
-  const alphabet =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  let result = "";
-
-  for (let index = 0; index < bytes.length; index += 3) {
-    const first = bytes[index];
-    const hasSecond = index + 1 < bytes.length;
-    const hasThird = index + 2 < bytes.length;
-    const second = hasSecond ? bytes[index + 1] : 0;
-    const third = hasThird ? bytes[index + 2] : 0;
-    const value = (first << 16) | (second << 8) | third;
-    result += alphabet[(value >> 18) & 63];
-    result += alphabet[(value >> 12) & 63];
-    result += hasSecond ? alphabet[(value >> 6) & 63] : "=";
-    result += hasThird ? alphabet[value & 63] : "=";
-  }
-
-  return result;
+  return encodeBytesAsBase64(bytes);
 }
 
 export function decodeBase64(value: string): Uint8Array {

@@ -1,3 +1,5 @@
+import { createAbortError, isAbortError } from "./errors.js";
+
 export type HttpRequestInit = RequestInit;
 
 export type HttpResponseOnErrorAction =
@@ -154,16 +156,6 @@ function parseRetryAfter(retryAfter: string): number {
 
   // Fallback: if parsing fails, return 0 (don't wait)
   return 0;
-}
-
-function createAbortError(): Error {
-  const abortError = new Error("The operation was aborted");
-  abortError.name = "AbortError";
-  return abortError;
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === "AbortError";
 }
 
 function toRequestInit(options: HttpResponseWithRetries): RequestInit {

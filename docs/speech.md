@@ -80,6 +80,12 @@ provider stream and from other observers. Provider adapters continue to expose
 one normalized event vocabulary: transcripts, output audio, response start,
 response completion, interruption, tool calls, tool results, and errors.
 
+`close()` stops event delivery and cancels session work, including local tool
+handlers through their `AbortSignal`. Repeated calls are safe. Tool handlers run
+independently of incoming message parsing so a slow tool does not delay provider
+errors or interruption events. A tool's signal currently follows the session
+lifetime, not individual spoken turns.
+
 `LangTool` is the one tool contract across ordinary `Lang` calls, agents,
 cascade realtime, and native speech-to-speech. Native speech providers translate
 the JSON Schema declaration into their own wire format, execute the same local

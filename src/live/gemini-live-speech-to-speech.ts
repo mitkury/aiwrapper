@@ -20,6 +20,7 @@ import type {
   SpeechToSpeechSessionOptions,
 } from "./types.js";
 import { createObservableSpeechToSpeechSession } from "./session-events.js";
+import type { ToolRequest } from "../lang/messages.js";
 import {
   executeSpeechToSpeechToolCall,
   jsonSpeechToSpeechToolResult,
@@ -234,17 +235,25 @@ class GeminiLiveSpeechToSpeechSession {
         // Closing the socket is sufficient when the stream-end message fails.
       }
     }
+    this.terminate(createAbortError());
+  }
+
+  private terminate(error: Error): void {
+    if (this.state === "closed") return;
     this.state = "closed";
-    this.rejectConfigured?.(createAbortError());
+    this.rejectConfigured?.(error);
     this.resolveConfigured = undefined;
     this.rejectConfigured = undefined;
+    this.controller.abort();
+    this.seenToolCallIds.clear();
+    this.unlinkAbort();
     this.cleanupSocket();
     this.socket?.close();
-    this.unlinkAbort();
   }
 
   private async handleMessage(data: unknown): Promise<void> {
     const text = await socketDataToText(data);
+    if (this.state === "closed") return;
     const message = JSON.parse(text) as Record<string, unknown>;
     const providerError = message.error as { message?: unknown } | undefined;
     if (providerError) {
@@ -280,28 +289,7 @@ class GeminiLiveSpeechToSpeechSession {
         this.seenToolCallIds.add(parsed.callId);
         return [parsed];
       });
-      const results = await Promise.all(
-        calls.map((call) =>
-          executeSpeechToSpeechToolCall(
-            this.session,
-            call,
-            this.controller.signal,
-          )
-        ),
-      );
-      if (results.length) {
-        this.send({
-          toolResponse: {
-            functionResponses: results.map((result) => ({
-              id: result.callId,
-              name: result.name,
-              response: {
-                result: jsonSpeechToSpeechToolResult(result.result),
-              },
-            })),
-          },
-        });
-      }
+      void this.completeToolCalls(calls).catch((error) => this.fail(toError(error)));
       return;
     }
 
@@ -364,6 +352,23 @@ class GeminiLiveSpeechToSpeechSession {
     }
   }
 
+  private async completeToolCalls(calls: ToolRequest[]): Promise<void> {
+    const results = await Promise.all(calls.map((call) =>
+      executeSpeechToSpeechToolCall(this.session, call, this.controller.signal)
+    ));
+    if (!results.length) return;
+    throwIfAborted(this.controller.signal);
+    this.send({
+      toolResponse: {
+        functionResponses: results.map((result) => ({
+          id: result.callId,
+          name: result.name,
+          response: { result: jsonSpeechToSpeechToolResult(result.result) },
+        })),
+      },
+    });
+  }
+
   private ensureResponseStarted(): void {
     if (this.responseActive) return;
     this.responseActive = true;
@@ -379,15 +384,7 @@ class GeminiLiveSpeechToSpeechSession {
 
   private fail(error: Error): void {
     const shouldNotify = this.state === "open" && error.name !== "AbortError";
-    this.rejectConfigured?.(error);
-    this.resolveConfigured = undefined;
-    this.rejectConfigured = undefined;
-    if (this.state !== "closed") {
-      this.state = "closed";
-      this.cleanupSocket();
-      this.socket?.close();
-      this.unlinkAbort();
-    }
+    this.terminate(error);
     if (shouldNotify) {
       try {
         this.session.onEvent?.({ type: "error", error });

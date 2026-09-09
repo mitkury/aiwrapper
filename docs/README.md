@@ -20,6 +20,7 @@ The root [README](../README.md) contains installation and introductory examples.
 - [Linking a local aimodels package](dev/aimodels-linking.md)
 - [Agent actions](dev/actions-for-agents)
 - [Development rules](dev/rules)
+- [Architecture review and follow-ups](dev/architecture-review.md)
 - [Active proposal: interruption detection](dev/proposals/interruption-detection.md)
 - [Active proposal: speaker verification and extraction](dev/proposals/speaker-verification-and-extraction.md)
 

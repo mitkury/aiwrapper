@@ -85,6 +85,7 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
   private configurationSent = false;
   private responseActive = false;
   private responseInterrupted = false;
+  private responseGeneration = 0;
   private messageTask: Promise<void> = Promise.resolve();
   private readonly seenToolCallIds = new Set<string>();
   private readonly pendingToolCalls = new Map<
@@ -184,18 +185,26 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
   }
 
   async close(): Promise<void> {
+    this.terminate(createAbortError());
+  }
+
+  private terminate(error: Error): void {
     if (this.state === "closed") return;
     this.state = "closed";
-    this.rejectConfigured?.(createAbortError());
+    this.rejectConfigured?.(error);
     this.resolveConfigured = undefined;
     this.rejectConfigured = undefined;
+    this.controller.abort();
+    this.pendingToolCalls.clear();
+    this.seenToolCallIds.clear();
+    this.unlinkAbort();
     this.cleanupSocket();
     this.socket?.close();
-    this.unlinkAbort();
   }
 
   private async handleMessage(data: unknown): Promise<void> {
     const text = await socketDataToText(data);
+    if (this.state === "closed") return;
     const event = JSON.parse(text) as Record<string, unknown>;
     const type = typeof event.type === "string" ? event.type : "";
 
@@ -207,6 +216,7 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
       return;
     }
     if (type === "response.created") {
+      this.responseGeneration += 1;
       this.seenToolCallIds.clear();
       this.responseActive = true;
       this.responseInterrupted = false;
@@ -301,7 +311,11 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
             } | null;
           }
         | undefined;
-      this.queueResponseToolCalls(response?.output);
+      if (response?.status === "cancelled" || response?.status === "failed") {
+        this.pendingToolCalls.clear();
+      } else {
+        this.queueResponseToolCalls(response?.output);
+      }
       if (response?.status === "cancelled") this.emitInterrupted();
       else if (response?.status === "failed") {
         this.emitError(
@@ -312,8 +326,9 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
           ),
         );
       } else if (this.pendingToolCalls.size > 0) {
-        this.responseActive = false;
-        await this.completeToolCalls();
+        void this.completeToolCalls(this.responseGeneration).catch((error) =>
+          this.fail(toError(error))
+        );
         return;
       } else if (!this.responseInterrupted) {
         this.session.onEvent?.({ type: "response-end" });
@@ -386,20 +401,22 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
   ): void {
     if (!call || this.seenToolCallIds.has(call.callId)) return;
     this.seenToolCallIds.add(call.callId);
-    this.pendingToolCalls.set(
-      call.callId,
-      executeSpeechToSpeechToolCall(
-        this.session,
-        call,
-        this.controller.signal,
-      ),
+    const task = executeSpeechToSpeechToolCall(
+      this.session,
+      call,
+      this.controller.signal,
     );
+    // Arguments can arrive before response.done. Observe failure immediately,
+    // even if the provider never sends the response completion message.
+    void task.catch((error) => this.fail(toError(error)));
+    this.pendingToolCalls.set(call.callId, task);
   }
 
-  private async completeToolCalls(): Promise<void> {
+  private async completeToolCalls(generation: number): Promise<void> {
     const calls = [...this.pendingToolCalls.values()];
     this.pendingToolCalls.clear();
     const results = await Promise.all(calls);
+    throwIfAborted(this.controller.signal);
     for (const result of results) {
       this.send({
         type: "conversation.item.create",
@@ -410,7 +427,12 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
         },
       });
     }
-    this.send({ type: "response.create" });
+    // A newer turn or a barge-in supersedes this continuation. Tool outputs
+    // still belong in history, but must not restart an interrupted response.
+    if (generation === this.responseGeneration && !this.responseInterrupted) {
+      this.responseActive = false;
+      this.send({ type: "response.create" });
+    }
   }
 
   private send(event: Record<string, unknown>): void {
@@ -424,15 +446,7 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
 
   private fail(error: Error): void {
     const shouldNotify = this.state === "open" && error.name !== "AbortError";
-    this.rejectConfigured?.(error);
-    this.resolveConfigured = undefined;
-    this.rejectConfigured = undefined;
-    if (this.state !== "closed") {
-      this.state = "closed";
-      this.cleanupSocket();
-      this.socket?.close();
-      this.unlinkAbort();
-    }
+    this.terminate(error);
     if (shouldNotify) {
       try {
         this.emitError(error);

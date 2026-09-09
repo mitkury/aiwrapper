@@ -1,14 +1,12 @@
 import type {
   LangTool,
   LangToolWithHandler,
+  LangMessageItemToolResult,
   ToolRequest,
 } from "./messages.js";
+import { createAbortError, isAbortError, normalizeError, throwIfAborted } from "../errors.js";
 
-export type LangToolExecutionResult = {
-  callId: string;
-  name: string;
-  result: any;
-};
+export type LangToolExecutionResult = Omit<LangMessageItemToolResult, "type">;
 
 export function isLangToolWithHandler(
   tool: LangTool,
@@ -48,11 +46,9 @@ export async function executeLangToolCall(
     throwIfAborted(options.signal);
   } catch (error) {
     if (isAbortError(error) || options.signal?.aborted) {
-      throw isAbortError(error) ? error : createAbortError();
+      throw isAbortError(error) ? normalizeError(error) : createAbortError();
     }
-    const normalizedError = error instanceof Error
-      ? error
-      : new Error(String(error));
+    const normalizedError = normalizeError(error);
     result = {
       ...Object.fromEntries(Object.entries(normalizedError)),
       error: true,
@@ -62,18 +58,4 @@ export async function executeLangToolCall(
   }
 
   return { callId: call.callId, name: call.name, result };
-}
-
-function createAbortError(): Error {
-  const error = new Error("The operation was aborted");
-  error.name = "AbortError";
-  return error;
-}
-
-function isAbortError(error: unknown): error is Error {
-  return error instanceof Error && error.name === "AbortError";
-}
-
-function throwIfAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) throw createAbortError();
 }

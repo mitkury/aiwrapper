@@ -10,6 +10,7 @@ import {
   type LangTool,
 } from "../lang/messages.js";
 import { isAbortError, normalizeError } from "../errors.js";
+import { encodeBytesAsBase64 } from "../base64.js";
 import type {
   PcmAudioFrame,
   SpeechToTextProvider,
@@ -442,34 +443,14 @@ async function imageMessageItem(
     case "bytes":
       return {
         type: "image",
-        base64: bytesToBase64(image.bytes),
+        base64: encodeBytesAsBase64(image.bytes),
         mimeType: image.mimeType,
       };
     case "blob":
       return {
         type: "image",
-        base64: bytesToBase64(await image.blob.arrayBuffer()),
+        base64: encodeBytesAsBase64(await image.blob.arrayBuffer()),
         mimeType: image.mimeType || image.blob.type || undefined,
       };
   }
-}
-
-function bytesToBase64(input: ArrayBuffer | Uint8Array): string {
-  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
-  const alphabet =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  let result = "";
-  for (let index = 0; index < bytes.length; index += 3) {
-    const first = bytes[index];
-    const secondPresent = index + 1 < bytes.length;
-    const thirdPresent = index + 2 < bytes.length;
-    const second = secondPresent ? bytes[index + 1] : 0;
-    const third = thirdPresent ? bytes[index + 2] : 0;
-    const value = (first << 16) | (second << 8) | third;
-    result += alphabet[(value >> 18) & 63];
-    result += alphabet[(value >> 12) & 63];
-    result += secondPresent ? alphabet[(value >> 6) & 63] : "=";
-    result += thirdPresent ? alphabet[value & 63] : "=";
-  }
-  return result;
 }

@@ -1,6 +1,7 @@
 import { Agent } from "./agent.js";
 import { LangMessage, LangMessages, LanguageProvider } from "../lang/index.js";
 import type { LangMessageItem, LangMessageRole, LangTool } from "../lang/messages.js";
+import { partialResultFrom, throwIfAborted } from "../errors.js";
 
 export interface ChatStreamingEvent {
   type: "streaming";
@@ -54,6 +55,7 @@ export class ChatAgent
     if (!this.lang) {
       throw new Error("Language provider not set");
     }
+    throwIfAborted(options?.signal);
 
     if (input instanceof LangMessages) {
       this.messages = input;
@@ -78,6 +80,10 @@ export class ChatAgent
           this.emit({ type: "streaming", data: { msg, idx: streamIdx } });
         },
         signal: options?.signal,
+      }).catch((error) => {
+        const partial = partialResultFrom<LangMessages>(error);
+        if (partial) this.messages = partial;
+        throw error;
       });
 
       this.messages = response;

@@ -23,27 +23,36 @@ export async function createObservableSpeechToSpeechSession(
 ): Promise<SpeechToSpeechSession> {
   speechToSpeechFunctionDeclarations(options);
   const listeners = new Map<ListenerType, Set<Listener>>();
+  let closed = false;
+  let closing: Promise<void> | undefined;
   const dispatch = (event: SpeechToSpeechEvent): void => {
-    callListener(options.onEvent, event);
-    for (const listener of listeners.get("event") ?? []) {
-      callListener(listener, event);
-    }
-    for (const listener of listeners.get(event.type) ?? []) {
+    const recipients = [
+      options.onEvent,
+      ...(listeners.get("event") ?? []),
+      ...(listeners.get(event.type) ?? []),
+    ];
+    for (const listener of recipients) {
+      if (closed || options.signal?.aborted) return;
       callListener(listener, event);
     }
   };
   const transport = await createTransport({ ...options, onEvent: dispatch });
 
   return {
-    appendAudio: (frame) => transport.appendAudio(frame),
+    async appendAudio(frame) {
+      if (closed) throw new Error("Speech-to-speech session is closed");
+      await transport.appendAudio(frame);
+    },
     async close() {
-      try {
-        await transport.close();
-      } finally {
+      if (!closed) {
+        closed = true;
         listeners.clear();
+        closing = transport.close();
       }
+      await closing;
     },
     addEventListener(type: ListenerType, listener: Listener) {
+      if (closed) return;
       const group = listeners.get(type) ?? new Set<Listener>();
       group.add(listener);
       listeners.set(type, group);

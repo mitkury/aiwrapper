@@ -77,7 +77,7 @@ console.log(result.answer);
 
 ### Connect to a Live Model
 
-Persistent native-audio models use the experimental `LiveLang` API:
+Persistent native-audio models use `LiveLang`:
 
 ```javascript
 import { LiveLang } from "aiwrapper";

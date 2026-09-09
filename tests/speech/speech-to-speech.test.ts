@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   AmazonNovaSonicSpeechToSpeech,
   AzureVoiceLiveSpeechToSpeech,
   GeminiLiveSpeechToSpeech,
+  LiveLang,
   MockSpeechToSpeech,
   OpenAIRealtimeSpeechToSpeech,
   SpeechToSpeech,
@@ -87,6 +88,87 @@ const frame = (samples: number[], sampleRate: number): PcmAudioFrame => ({
   channels: 1,
   sampleRate,
   samples: new Int16Array(samples),
+});
+
+describe.each(["openai", "google"] as const)("%s live lifecycle", (provider) => {
+  const setupReply = provider === "openai" ? { type: "session.updated" } : { setupComplete: {} };
+  const call = provider === "openai"
+    ? { type: "response.function_call_arguments.done", call_id: "call-1", name: "wait", arguments: "{}" }
+    : { toolCall: { functionCalls: [{ id: "call-1", name: "wait", args: {} }] } };
+
+  it.each(["close", "disconnect", "provider-error"])("cancels tools on %s and suppresses late results", async (stop) => {
+    const socket = new FakeLiveSocket(setupReply);
+    const events: SpeechToSpeechEvent[] = [];
+    const completion = deferred<string>();
+    let signal: AbortSignal | undefined;
+    const session = await LiveLang[provider]({
+      apiKey: "test", createWebSocket: () => socket,
+    }).connect({
+      tools: [{
+        name: "wait", description: "Wait", parameters: { type: "object" },
+        handler: (_args, context) => {
+          signal = context.signal;
+          return completion.promise;
+        },
+      }],
+      onEvent: (event) => events.push(event),
+    });
+    socket.serverMessage(call);
+    if (provider === "openai") {
+      socket.serverMessage({ type: "response.done", response: { status: "completed" } });
+    }
+    await settleMessages();
+    expect(signal?.aborted).toBe(false);
+
+    if (stop === "close") await session.close();
+    else if (stop === "disconnect") socket.serverClose(1006, "Connection lost");
+    else {
+      socket.serverMessage({ type: "error", error: { message: "Provider failure" } });
+      await settleMessages();
+      expect(events.at(-1)).toMatchObject({ type: "error", error: { message: "Provider failure" } });
+    }
+    expect(signal?.aborted).toBe(true);
+
+    const eventCount = events.length;
+    const sentCount = socket.sent.length;
+    completion.resolve("too late");
+    await settleMessages();
+    expect(events).toHaveLength(eventCount);
+    expect(socket.sent).toHaveLength(sentCount);
+    await session.close();
+  });
+
+  it("does not execute queued tool calls after close", async () => {
+    const socket = new FakeLiveSocket(setupReply);
+    const handler = vi.fn(() => "done");
+    const events: SpeechToSpeechEvent[] = [];
+    const session = await LiveLang[provider]({
+      apiKey: "test", createWebSocket: () => socket,
+    }).connect({
+      tools: [{ name: "wait", description: "Wait", parameters: {}, handler }],
+      onEvent: (event) => events.push(event),
+    });
+    socket.serverMessage(call);
+    await session.close();
+    await settleMessages();
+    expect(handler).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
+  });
+
+  it("allows an observer to close the session before a tool starts", async () => {
+    const socket = new FakeLiveSocket(setupReply);
+    const handler = vi.fn(() => "done");
+    const session = await LiveLang[provider]({
+      apiKey: "test", createWebSocket: () => socket,
+    }).connect({
+      tools: [{ name: "wait", description: "Wait", parameters: {}, handler }],
+    });
+    session.addEventListener("tool-call", () => { void session.close(); });
+    socket.serverMessage(call);
+    await settleMessages();
+    expect(handler).not.toHaveBeenCalled();
+    expect(socket.closed).toBe(true);
+  });
 });
 
 describe("speech-to-speech mock", () => {
@@ -291,6 +373,36 @@ describe("speech-to-speech mock", () => {
 });
 
 describe("OpenAI realtime speech-to-speech", () => {
+  it.each(["interruption", "new-response"])("does not restart an old tool response after %s", async (event) => {
+    const socket = new FakeLiveSocket({ type: "session.updated" });
+    const completion = deferred<string>();
+    const events: SpeechToSpeechEvent[] = [];
+    const session = await LiveLang.openai({ apiKey: "test", createWebSocket: () => socket }).connect({
+      tools: [{ name: "wait", description: "Wait", parameters: {}, handler: () => completion.promise }],
+      onEvent: (event) => events.push(event),
+    });
+    socket.serverMessage({ type: "response.created" });
+    socket.serverMessage({
+      type: "response.function_call_arguments.done", call_id: "old-call", name: "wait", arguments: "{}",
+    });
+    socket.serverMessage({ type: "response.done", response: { status: "completed" } });
+    await settleMessages();
+    socket.serverMessage({
+      type: event === "interruption" ? "input_audio_buffer.speech_started" : "response.created",
+    });
+    await settleMessages();
+    if (event === "interruption") expect(events).toContainEqual({ type: "response-interrupted" });
+
+    completion.resolve("done");
+    await settleMessages();
+    expect(socket.sent).toContainEqual({
+      type: "conversation.item.create",
+      item: { type: "function_call_output", call_id: "old-call", output: "done" },
+    });
+    expect(socket.sent.some((message) => message.type === "response.create")).toBe(false);
+    await session.close();
+  });
+
   it("executes shared tools and returns function outputs before continuing", async () => {
     const socket = new FakeLiveSocket({ type: "session.updated" });
     const events: SpeechToSpeechEvent[] = [];
@@ -598,6 +710,22 @@ describe("Azure Voice Live speech-to-speech", () => {
 });
 
 describe("Amazon Nova Sonic speech-to-speech", () => {
+  it("closes a transport that arrives after connection cancellation", async () => {
+    const controller = new AbortController();
+    const ready = deferred<void>();
+    const close = vi.fn();
+    const connection = LiveLang.aws({
+      invoke: async () => {
+        await ready.promise;
+        return { body: new PushAsyncIterable(), close };
+      },
+    }).connect({ signal: controller.signal });
+    controller.abort();
+    ready.resolve();
+    await expect(connection).rejects.toMatchObject({ name: "AbortError" });
+    expect(close).toHaveBeenCalledOnce();
+  });
+
   it("maps shared tools to Nova tool configuration and tool results", async () => {
     const outputs = new PushAsyncIterable<unknown>();
     const inputs: Record<string, any>[] = [];

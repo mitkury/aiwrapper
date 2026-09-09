@@ -40,7 +40,7 @@ export async function executeSpeechToSpeechToolCall(
   options.onEvent?.({ type: "tool-call", call });
   let result = await executeLangToolCall(call, options.tools, { signal });
   try {
-    serializeSpeechToSpeechToolResult(result.result);
+    result = { ...result, result: jsonSpeechToSpeechToolResult(result.result) };
   } catch (error) {
     const normalized = error instanceof Error ? error : new Error(String(error));
     result = {
@@ -99,7 +99,9 @@ export function serializeSpeechToSpeechToolResult(result: unknown): string {
   }
   if (typeof result === "string") return result;
   try {
-    return JSON.stringify(result ?? {});
+    const serialized = JSON.stringify(result === undefined ? {} : result);
+    if (serialized === undefined) throw new Error("No JSON representation");
+    return serialized;
   } catch {
     throw new Error("Native speech tool results must be JSON-serializable");
   }

@@ -63,6 +63,10 @@ The same signal is passed to local tool handlers. An `AbortError` from a handler
 is propagated as request cancellation instead of being converted into a tool
 error for the model.
 
+If a later tool is cancelled, results from tools that already completed remain
+in the conversation. The cancellation error includes that partial conversation;
+`ChatAgent` returns it and retains it as its history.
+
 The same array can be passed to a native speech session without changing the
 tool or handler:
 
@@ -83,6 +87,13 @@ continue the model after local handlers finish. Native speech sessions currently
 support text and JSON-serializable results. Provider-managed built-in tools and
 image tool results remain provider-specific and are rejected by this portable
 surface.
+
+Live sessions normalize results once before emitting `tool-result`, so observers
+see the same value sent back to the model. An absent result becomes `{}`; `null`
+stays `null`. Values without a JSON representation produce a structured tool
+error. Closing a live session aborts the signal passed to its handlers. Handlers
+must honor that signal to stop their own work; cancelling a response or its audio
+playback does not undo tool side effects.
 
 ## Inspecting calls and results
 

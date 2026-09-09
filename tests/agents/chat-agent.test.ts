@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ChatAgent } from "../../src/agents/ChatAgent.ts";
 import { LanguageProvider } from "../../src/lang/language-provider.ts";
+import { attachPartialResult, createAbortError } from "../../src/errors.ts";
 import {
   LangMessage,
   LangMessages,
@@ -92,6 +93,30 @@ class ToolCapturingProvider extends LanguageProvider {
 }
 
 describe("ChatAgent", () => {
+  it("keeps returned partial history after a provider replaces the conversation", async () => {
+    const provider = new DeferredProvider();
+    provider.chat = async (input) => {
+      const partial = new LangMessages(input);
+      partial.addAssistantMessage("Partial answer");
+      partial.aborted = true;
+      throw attachPartialResult(createAbortError(), partial);
+    };
+    const agent = new ChatAgent(provider);
+
+    const result = await agent.run([new LangMessage("user", "Hello")]);
+
+    expect(result.answer).toBe("Partial answer");
+    expect(agent.getMessages()).toBe(result);
+  });
+
+  it("does not append input when the run was already cancelled", async () => {
+    const agent = new ChatAgent(new DeferredProvider());
+    await expect(agent.run([new LangMessage("user", "Do not run")], {
+      signal: AbortSignal.abort(),
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(agent.getMessages()).toHaveLength(0);
+  });
+
   it("stops tool loops at the configured iteration limit", async () => {
     const provider = new LoopingToolProvider();
     const agent = new ChatAgent(provider, {

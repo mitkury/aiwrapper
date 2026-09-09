@@ -2,6 +2,16 @@ export interface ErrorWithPartialResult<T> extends Error {
   partialResult?: T;
 }
 
+export function createAbortError(): Error {
+  const error = new Error("The operation was aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+export function throwIfAborted(signal?: AbortSignal | null): void {
+  if (signal?.aborted) throw createAbortError();
+}
+
 function errorProperty(error: unknown, property: string): unknown {
   if ((typeof error !== "object" && typeof error !== "function") || error === null) {
     return undefined;

@@ -238,6 +238,38 @@ describe("LangMessages tool execution", () => {
       });
     }
   });
+
+  it("retains completed tool results and partial history when a later call aborts", async () => {
+    const messages = new LangMessages("Run both tools", {
+      tools: [{
+        name: "work",
+        description: "Complete or cancel work",
+        parameters: { type: "object" },
+        handler: ({ cancel }) => {
+          if (cancel) throw { name: "AbortError", message: "Stopped" };
+          return { saved: true };
+        },
+      }],
+    });
+    messages.addAssistantItems([
+      { type: "tool", name: "work", callId: "saved", arguments: {} },
+      { type: "tool", name: "work", callId: "cancelled", arguments: { cancel: true } },
+    ]);
+
+    await expect(messages.executeRequestedTools()).rejects.toMatchObject({
+      name: "AbortError",
+      partialResult: messages,
+    });
+
+    expect(messages.aborted).toBe(true);
+    expect(messages.at(-1)?.toolResults).toEqual([{
+      type: "tool-result", name: "work", callId: "saved", result: { saved: true },
+    }]);
+    fixToolResultsIfNeeded(messages);
+    expect(messages.at(-1)?.toolResults.map((item) => item.result)).toEqual([
+      { saved: true }, "aborted",
+    ]);
+  });
 });
 
 describe("fixToolResultsIfNeeded", () => {

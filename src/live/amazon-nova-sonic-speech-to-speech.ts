@@ -112,6 +112,11 @@ class AmazonNovaSonicSession {
     private readonly session: SpeechToSpeechSessionOptions,
   ) {
     this.unlinkAbort = linkAbortSignal(session.signal, this.controller);
+    this.controller.signal.addEventListener(
+      "abort",
+      () => this.fail(createAbortError()),
+      { once: true },
+    );
   }
 
   async connect(): Promise<void> {
@@ -123,7 +128,10 @@ class AmazonNovaSonicSession {
       body: this.input,
       signal: this.controller.signal,
     });
-    if (this.controller.signal.aborted) throw createAbortError();
+    if (this.controller.signal.aborted) {
+      invocation.close?.();
+      throw createAbortError();
+    }
     this.closeTransport = invocation.close;
     this.state = "open";
     void this.consumeOutput(invocation.body).catch((error) =>
@@ -396,6 +404,7 @@ class AmazonNovaSonicSession {
       call,
       this.controller.signal,
     );
+    throwIfAborted(this.controller.signal);
     this.pushEvent({
       toolResult: {
         promptName,
@@ -506,21 +515,25 @@ async function invokeNovaSonic(options: {
     );
   }
   const client = new sdk.BedrockRuntimeClient({ region: options.region });
-  const response = await client.send(
-    new sdk.InvokeModelWithBidirectionalStreamCommand({
-      modelId: options.modelId,
-      body: options.body,
-    }),
-    { abortSignal: options.signal },
-  );
-  if (!response.body) {
+  try {
+    const response = await client.send(
+      new sdk.InvokeModelWithBidirectionalStreamCommand({
+        modelId: options.modelId,
+        body: options.body,
+      }),
+      { abortSignal: options.signal },
+    );
+    if (!response.body) {
+      throw new Error("Amazon Nova Sonic returned no response stream");
+    }
+    return {
+      body: response.body,
+      close: () => client.destroy(),
+    };
+  } catch (error) {
     client.destroy();
-    throw new Error("Amazon Nova Sonic returned no response stream");
+    throw error;
   }
-  return {
-    body: response.body,
-    close: () => client.destroy(),
-  };
 }
 
 function objectValue(value: unknown): Record<string, unknown> | undefined {

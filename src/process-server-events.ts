@@ -1,6 +1,7 @@
 import processLinesFromStream, {
   type StreamParserState,
 } from "./lang/process-lines-from-stream.js";
+import { createAbortError } from "./errors.js";
 
 export function processServerEvents(
   response: Response,
@@ -29,13 +30,9 @@ async function readServerEvents(
   const decoder = new TextDecoder("utf-8");
   const parserState: StreamParserState = {};
   let rawData = "";
-  const createAbortError = () => {
-    const error = new Error("The operation was aborted");
-    error.name = "AbortError";
-    return error;
-  };
+  let completed = false;
   const abortHandler = () => {
-    void reader.cancel();
+    void reader.cancel().catch(() => undefined);
   };
 
   try {
@@ -50,6 +47,7 @@ async function readServerEvents(
         throw createAbortError();
       }
       if (result.done) {
+        completed = true;
         break;
       }
 
@@ -71,6 +69,7 @@ async function readServerEvents(
     }
   } finally {
     signal?.removeEventListener("abort", abortHandler);
+    if (!completed) await reader.cancel().catch(() => undefined);
     reader.releaseLock();
   }
 }
