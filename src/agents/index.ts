@@ -1,2 +1,2 @@
-export * from "./agent.ts";
-export * from "./ChatAgent.ts";
+export * from "./agent.js";
+export * from "./ChatAgent.js";

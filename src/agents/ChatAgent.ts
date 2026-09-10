@@ -1,57 +1,72 @@
-import { Agent } from "./agent";
-import { LangMessage, LangMessages, LanguageProvider } from "../lang/index.ts";
-import { LangMessageItem, LangMessageRole, LangTool } from "../lang/messages";
-
-export type ChatOutput = {
-  answer: string;
-  messages: LangMessage[];
-};
+import { Agent } from "./agent.js";
+import { LangMessage, LangMessages, LanguageProvider } from "../lang/index.js";
+import type { LangMessageItem, LangMessageRole, LangTool } from "../lang/messages.js";
+import { partialResultFrom, throwIfAborted } from "../errors.js";
 
 export interface ChatStreamingEvent {
   type: "streaming";
   data: { msg: LangMessage; idx: number };
 }
 
+export type ChatAgentInput =
+  | { role: LangMessageRole; items: LangMessageItem[] }[]
+  | LangMessages
+  | LangMessage[];
+
+export interface ChatAgentOptions {
+  tools?: LangTool[];
+  /** Maximum number of model turns allowed in one run. */
+  maxIterations?: number;
+}
+
 export class ChatAgent
   extends Agent<
-    | { role: LangMessageRole; items: LangMessageItem[] }[]
-    | LangMessages
-    | LangMessage[],
+    ChatAgentInput,
     LangMessages,
     ChatStreamingEvent
   > {
+  static readonly defaultMaxIterations = 8;
+
   private lang?: LanguageProvider;
+  private readonly maxIterations: number;
+  private readonly configuredTools?: LangTool[];
   messages: LangMessages;
 
-  constructor(lang?: LanguageProvider, options?: { tools?: LangTool[] }) {
+  constructor(lang?: LanguageProvider, options: ChatAgentOptions = {}) {
     super();
     this.lang = lang;
+    this.configuredTools = options.tools;
+    this.maxIterations = options.maxIterations
+      ?? ChatAgent.defaultMaxIterations;
+
+    if (!Number.isInteger(this.maxIterations) || this.maxIterations < 1) {
+      throw new RangeError("ChatAgent maxIterations must be a positive integer");
+    }
 
     this.messages = new LangMessages([], {
-      tools: options?.tools,
+      tools: options.tools,
     });
   }
 
   protected async runInternal(
-    input:
-      | { role: LangMessageRole; items: LangMessageItem[] }[]
-      | LangMessages
-      | LangMessage[],
+    input?: ChatAgentInput,
     options?: { signal?: AbortSignal },
   ): Promise<LangMessages> {
-    if (input instanceof LangMessages) {
-      this.messages = input;
-    } else {
-      this.messages.push(...new LangMessages(input));
-    }
-
     if (!this.lang) {
       throw new Error("Language provider not set");
     }
+    throwIfAborted(options?.signal);
 
-    // Agentic loop. Will go in multiple cicles if it is using tools.
+    if (input instanceof LangMessages) {
+      this.messages = input;
+      this.messages.availableTools ??= this.configuredTools;
+    } else if (input) {
+      this.messages.push(...new LangMessages(input));
+    }
+
+    // Agentic loop. It continues while tool results need another model turn.
     let streamIdx = 0;
-    while (true) {
+    for (let iteration = 0; iteration < this.maxIterations; iteration++) {
       let lastRoleInRun: string | null = null;
       const response = await this.lang.chat(this.messages, {
         onResult: (msg) => {
@@ -65,6 +80,10 @@ export class ChatAgent
           this.emit({ type: "streaming", data: { msg, idx: streamIdx } });
         },
         signal: options?.signal,
+      }).catch((error) => {
+        const partial = partialResultFrom<LangMessages>(error);
+        if (partial) this.messages = partial;
+        throw error;
       });
 
       this.messages = response;
@@ -75,16 +94,17 @@ export class ChatAgent
       const lastMessageHasToolResults = lastMessage &&
         lastMessage.toolResults.length > 0;
       if (!lastMessageHasToolResults) {
-        break;
+        this.emit({ type: "finished", output: this.messages });
+        return this.messages;
       }
 
       // Increment index for the next iteration since we'll be starting with new messages
       streamIdx++;
     }
 
-    this.emit({ type: "finished", output: this.messages });
-
-    return this.messages;
+    throw new Error(
+      `ChatAgent reached its ${this.maxIterations}-iteration limit before producing a final response`,
+    );
   }
 
   getMessages(): LangMessages {

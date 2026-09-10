@@ -1,26 +1,19 @@
-import { LangOptions, LangResponseSchema, LanguageProvider } from "../../language-provider.ts";
-import { LangMessage, LangMessageItem, LangMessageRole, LangMessages, fixToolResultsIfNeeded } from "../../messages.ts";
-import { prepareBodyPartForOpenAIResponsesAPI } from "./openai-responses-messages.ts";
-import { processServerEvents } from "../../../process-server-events.ts";
-import { OpenAIResponseStreamHandler } from "./openai-responses-stream-handler.ts";
-import { isZodSchema, validateAgainstSchema, zodToJsonSchema } from "../../schema/schema-utils.ts";
+import { LanguageProvider } from "../../language-provider.js";
+import type { LangOptions, LangResponseSchema } from "../../language-provider.js";
+import { LangMessage, LangMessages, fixToolResultsIfNeeded } from "../../messages.js";
+import type { LangMessageItem, LangMessageRole } from "../../messages.js";
+import { prepareBodyPartForOpenAIResponsesAPI } from "./openai-responses-messages.js";
+import { processServerEvents } from "../../../process-server-events.js";
+import { OpenAIResponseStreamHandler } from "./openai-responses-stream-handler.js";
+import { isZodSchema, validateAgainstSchema, zodToJsonSchema } from "../../schema/schema-utils.js";
 import { models } from 'aimodels';
 import {
   httpRequestWithRetry as fetch,
-  HttpResponseWithRetries,
-} from "../../../http-request.ts";
+} from "../../../http-request.js";
+import type { HttpResponseWithRetries } from "../../../http-request.js";
+import { attachPartialResult, isAbortError } from "../../../errors.js";
+import { combineInstructions } from "../../prompt-for-json.js";
 
-
-/**
- * OpenAI-specific built-in tools
- */
-export type OpenAIBuiltInTool =
-  | { name: "web_search" }
-  | { name: "file_search"; vector_store_ids: string[] }
-  | { name: "mcp"; server_label: string; server_description: string; server_url: string; require_approval: "never" | "always" | "if_needed" }
-  | { name: "image_generation" }
-  | { name: "code_interpreter" }
-  | { name: "computer_use" };
 
 export type OpenAILangOptions = {
   apiKey: string;
@@ -35,6 +28,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
 
   private model: string;
   private apiKey: string;
+  private systemPrompt: string;
   private baseURL = "https://api.openai.com/v1";
   private reasoningEffort: "low" | "medium" | "high";
   private showReasoningSummary: boolean;
@@ -42,11 +36,11 @@ export class OpenAIResponsesLang extends LanguageProvider {
   constructor(options: OpenAILangOptions) {
     super("OpenAI Responses", options.defaultOptions);
 
-    this.model = options.model;
+    this.model = options.model || "gpt-5.4";
     this.apiKey = options.apiKey;
+    this.systemPrompt = options.systemPrompt || "";
     this.reasoningEffort = options.reasoningEffort ?? "medium";
-    // @TODO: OpenAI throws an error for unproved orgs when they're requesting reasoning summary.
-    // need to handle this differently. Perhaps, set to false by default or catch the error and re-run the request without summary.
+    // Accounts without reasoning-summary access can disable it explicitly.
     this.showReasoningSummary = options.showReasoningSummary !== undefined ? options.showReasoningSummary : true;
   }
 
@@ -59,9 +53,11 @@ export class OpenAIResponsesLang extends LanguageProvider {
 
   async chat(messages: { role: LangMessageRole; items: LangMessageItem[] }[] | LangMessage[] | LangMessages, options?: LangOptions): Promise<LangMessages> {
     const resolvedOptions = this.resolveOptions(options);
-    const msgCollection = messages instanceof LangMessages
-      ? messages
-      : new LangMessages(messages);
+    const msgCollection = this.beginRequest(
+      messages instanceof LangMessages
+        ? messages
+        : new LangMessages(messages),
+    );
 
     fixToolResultsIfNeeded(msgCollection);
 
@@ -75,33 +71,36 @@ export class OpenAIResponsesLang extends LanguageProvider {
       return undefined;
     }
 
-    if (isZodSchema(schema)) {
-      const jsonSchema = zodToJsonSchema(schema);
-      return {
-        text: {
-          format: {
-            type: "json_schema",
-            name: "response_schema",
-            schema: jsonSchema
-          }
-        }
-      };
-    } else {
-      return {
-        type: "json_schema",
-        json_schema: schema
-      };
-    }
+    const jsonSchema = isZodSchema(schema) ? zodToJsonSchema(schema) : schema;
+    return {
+      text: {
+        format: {
+          type: "json_schema",
+          name: "response_schema",
+          // OpenAI rejects schemas outside its supported subset in strict mode.
+          strict: true,
+          schema: jsonSchema,
+        },
+      },
+    };
   }
 
   private buildRequestBody(msgCollection: LangMessages, options?: LangOptions): Record<string, unknown> {
     const structuredOutput = this.buildStructuredOutput(options?.schema);
-    const bodyPart = prepareBodyPartForOpenAIResponsesAPI(msgCollection);
+    const bodyPart = prepareBodyPartForOpenAIResponsesAPI(
+      msgCollection,
+      this.resolveTools(msgCollection, options) ?? [],
+    );
+    const instructions = combineInstructions(
+      this.systemPrompt,
+      msgCollection.instructions,
+    );
 
     const body: Record<string, unknown> = {
       model: this.model,
       ...{ stream: true },
       ...bodyPart,
+      ...(instructions ? { instructions } : {}),
       ...{ truncation: "auto" },
       ...structuredOutput,
       ...options?.providerSpecificBody,
@@ -127,8 +126,9 @@ export class OpenAIResponsesLang extends LanguageProvider {
     // If apply_patch is used as a tool, require that the user provides a handler for it.
     // This keeps the provider behavior (built-in apply_patch tool) while still allowing
     // users to supply a local patch harness.
-    if (msgCollection.availableTools) {
-      const tools = msgCollection.availableTools;
+    const requestTools = this.resolveTools(msgCollection, options);
+    if (requestTools) {
+      const tools = requestTools;
       const usesApplyPatch = tools.some(t => t.name === 'apply_patch');
       if (usesApplyPatch) {
         const hasHandler = tools.some((t: any) => t.name === 'apply_patch' && 'handler' in t);
@@ -167,7 +167,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
           }
 
           if (lastMessageWithResponseId) {
-            delete lastMessageWithResponseId.meta.openaiResponseId;
+            delete lastMessageWithResponseId.meta?.openaiResponseId;
             // Build new body that contains all messages (with the response id removed)
             const newBody = this.buildRequestBody(msgCollection, options);
             reqOptions.body = JSON.stringify(newBody);
@@ -181,14 +181,14 @@ export class OpenAIResponsesLang extends LanguageProvider {
       },
     };
 
-    const streamHander = new OpenAIResponseStreamHandler(msgCollection, options?.onResult);
+    const streamHandler = new OpenAIResponseStreamHandler(msgCollection, options?.onResult);
     try {
       const response = await fetch(`${this.baseURL}/responses`, req);
-      await processServerEvents(response, (data) => streamHander.handleEvent(data), abortSignal);
+      await processServerEvents(response, (data) => streamHandler.handleEvent(data), abortSignal);
     } catch (error) {
-      if ((error as any)?.name === "AbortError") {
+      if (isAbortError(error)) {
         msgCollection.aborted = true;
-        (error as any).partialResult = msgCollection;
+        throw attachPartialResult(error, msgCollection);
       }
       throw error;
     }
@@ -204,7 +204,10 @@ export class OpenAIResponsesLang extends LanguageProvider {
     msgCollection.finished = true;
 
     // Automatically execute tools if the assistant requested them
-    const toolResults = await msgCollection.executeRequestedTools();
+    const toolResults = await msgCollection.executeRequestedTools({
+      tools: requestTools,
+      signal: abortSignal,
+    });
     if (options?.onResult && toolResults) {
       options.onResult(toolResults);
     }

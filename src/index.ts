@@ -1,22 +1,19 @@
-import { setHttpRequestImpl } from "./http-request.ts";
-
-// Set up the HTTP request implementation to use the standard fetch API
-// This works in modern Node.js, browsers, and Deno
-setHttpRequestImpl((url, options) => {
-  return fetch(url, options);
-});
-
 // Export all the modules
-export * from "./lang/index.ts";
-export * from "./speech2text/index.ts";
-export * from "./text2speech/index.ts";
+export * from "./lang/index.js";
 // Re-export everything from aimodels
 export * from 'aimodels';
 // Img
-export * from "./img/img.ts";
+export * from "./img/img.js";
+
+// Speech
+export * from "./speech/index.js";
 
 // Agents
-export * from "./agents/index.ts";
+export * from "./agents/index.js";
+
+// Persistent live models and realtime orchestration
+export * from "./live/index.js";
+export * from "./realtime/index.js";
 
 // HTTP Request utilities
 export {
@@ -25,4 +22,4 @@ export {
   setHttpRequestImpl,
   type HttpResponseWithRetries,
   type HttpResponseOnErrorAction,
-} from "./http-request.ts";
+} from "./http-request.js";

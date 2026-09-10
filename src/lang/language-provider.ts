@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { LangMessages } from "./messages.ts";
-import type { LangMessage, LangMessageContent, LangMessageItem, LangMessageRole } from "./messages.ts";
+import { LangMessages } from "./messages.js";
+import type { LangMessage, LangMessageItem, LangMessageRole, LangTool } from "./messages.js";
 
 // Export zod for convenience
 export { z };
@@ -11,21 +11,12 @@ export { z };
 export type LangResponseSchema = z.ZodType | Record<string, unknown>;
 
 // Re-export message types from messages.ts to keep public API stable
-export type { LangMessage, LangContentPart, LangContentImage as LangImageInput } from "./messages.ts";
-
-/**
- * Image output type for providers that can generate images
- */
-export type LangImageOutput = {
-  url?: string;
-  base64?: string;
-  mimeType?: string;
-  width?: number;
-  height?: number;
-  provider?: string;
-  model?: string;
-  metadata?: Record<string, unknown>;
-};
+export type {
+  LangMessage,
+  LangContentPart,
+  LangContentImage as LangImageInput,
+  LangImageOutput,
+} from "./messages.js";
 
 /**
  * Options that can be passed to language model methods
@@ -39,6 +30,10 @@ export interface LangOptions {
   // Optional AbortSignal to cancel requests/streams
   signal?: AbortSignal;
 
+  // Tools for this request. Overrides LangMessages.availableTools, including
+  // when an empty array is provided to disable tools for one turn.
+  tools?: LangTool[];
+
   providerSpecificBody?: Record<string, any>;
   providerSpecificHeaders?: Record<string, string>;
 }
@@ -49,7 +44,7 @@ export interface LangOptions {
  */
 export class LangResult extends LangMessages {
   constructor(messages: LangMessages | LangMessage[]) {
-    super(Array.isArray(messages) ? messages as LangMessage[] : [...(messages as LangMessages)]);
+    super(messages);
   }
 
   get messages(): this {
@@ -79,6 +74,24 @@ export abstract class LanguageProvider {
       ...(this.defaultOptions ?? {}),
       ...(options ?? {}),
     };
+  }
+
+  /**
+   * Reset per-request state when an existing conversation is sent again.
+   */
+  protected beginRequest<T extends LangMessages>(messages: T): T {
+    messages.finished = false;
+    messages.aborted = false;
+    return messages;
+  }
+
+  protected resolveTools(
+    messages: LangMessages,
+    options?: LangOptions,
+  ): LangTool[] | undefined {
+    return options?.tools !== undefined
+      ? options.tools
+      : messages.availableTools;
   }
 
   /**

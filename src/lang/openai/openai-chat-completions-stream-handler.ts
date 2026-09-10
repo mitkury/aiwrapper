@@ -1,18 +1,20 @@
 import {
   LangMessage,
+  LangMessages,
+} from "../messages.js";
+import type {
   LangMessageItemImage,
   LangMessageItemReasoning,
   LangMessageItemText,
   LangMessageItemTool,
-  LangMessages,
-} from "../messages.ts";
+} from "../messages.js";
 
 /**
  * Handles streaming deltas from OpenAI-compatible chat completions APIs
  * and keeps the LangMessages collection in sync with streamed content.
  */
 export class OpenAIChatCompletionsStreamHandler {
-  newMessage: LangMessage;
+  newMessage!: LangMessage;
   messages: LangMessages;
   onResult?: (result: LangMessage) => void;
   toolCallItems = new Map<string, LangMessageItemTool>();
@@ -244,7 +246,7 @@ export class OpenAIChatCompletionsStreamHandler {
         id = tc.id;
         // Map index to id for future chunks that only have index
         if (index !== undefined) {
-          this.toolCallIndexToId.set(index, id);
+          this.toolCallIndexToId.set(index, tc.id);
         }
       } else if (index !== undefined) {
         // Look up the id from our mapping
@@ -259,7 +261,8 @@ export class OpenAIChatCompletionsStreamHandler {
         id = `tool_call_${this.toolCallItems.size}`;
       }
 
-      const toolItem = this.getOrCreateToolItem(id);
+      const toolCallId = id ?? `tool_call_${this.toolCallItems.size}`;
+      const toolItem = this.getOrCreateToolItem(toolCallId);
       const func = tc.function ?? {};
 
       if (typeof func.name === "string" && func.name.length > 0) {
@@ -267,7 +270,7 @@ export class OpenAIChatCompletionsStreamHandler {
       }
 
       if (typeof func.arguments === "string") {
-        this.applyToolArgsDelta(id, func.arguments);
+        this.applyToolArgsDelta(toolCallId, func.arguments);
       }
     }
   }

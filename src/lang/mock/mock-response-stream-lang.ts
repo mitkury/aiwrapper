@@ -1,15 +1,13 @@
-import { 
-  LangOptions, 
-  LanguageProvider 
-} from "../language-provider.ts";
-import { 
-  LangMessage, 
-  LangMessageItem,
-  LangMessageRole, 
+import { LanguageProvider } from "../language-provider.js";
+import type { LangOptions } from "../language-provider.js";
+import {
+  LangMessage,
   LangMessages,
   fixToolResultsIfNeeded,
-} from "../messages.ts";
-import { OpenAIResponseStreamHandler } from "../openai/responses/openai-responses-stream-handler.ts";
+} from "../messages.js";
+import type { LangMessageItem, LangMessageRole } from "../messages.js";
+import { OpenAIResponseStreamHandler } from "../openai/responses/openai-responses-stream-handler.js";
+import { attachPartialResult } from "../../errors.js";
 
 type MessageFactory = string | (() => string);
 
@@ -81,9 +79,11 @@ export class MockResponseStreamLang extends LanguageProvider {
     options?: LangOptions,
   ): Promise<LangMessages> {
     const resolvedOptions = this.resolveOptions(options);
-    const messageCollection = messages instanceof LangMessages
-      ? messages
-      : new LangMessages(messages);
+    const messageCollection = this.beginRequest(
+      messages instanceof LangMessages
+        ? messages
+        : new LangMessages(messages),
+    );
 
     fixToolResultsIfNeeded(messageCollection);
 
@@ -209,10 +209,9 @@ export class MockResponseStreamLang extends LanguageProvider {
 
       if (aborted) {
         messages.aborted = true;
-        const err = abortError ?? new Error("AbortError");
-        err.name = err.name || "AbortError";
-        (err as any).partialResult = messages;
-        throw err;
+        const error = abortError ?? new Error("The operation was aborted");
+        error.name = "AbortError";
+        throw attachPartialResult(error, messages);
       }
 
       handler.handleEvent({

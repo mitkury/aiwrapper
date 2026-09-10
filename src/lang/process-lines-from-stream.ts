@@ -1,54 +1,63 @@
-const processLinesFromStream = (rawData: string, onData: (data: any) => void) => {
-  // Check if it's a JSON response
-  if (rawData.startsWith("{")) {
-    processDataAsJson(rawData, onData);
-    return;
-  }
+export interface StreamParserState {
+  currentEvent?: string;
+}
 
-  processDataAsStr(rawData, onData);
-};
+const processLinesFromStream = (
+  rawData: string,
+  onData: (data: any) => void,
+  state: StreamParserState = {},
+) => {
+  for (const rawLine of rawData.split("\n")) {
+    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+    if (!line || line.startsWith(":")) continue;
 
-const processDataAsStr = (rawData: string, onData: (data: any) => void) => {
-  const lines = rawData.split("\n");
-  let currentEvent: string | null = null;
-  for (const line of lines) {
-    if (line.startsWith("event: ")) {
-      currentEvent = line.substring(7).trim();
+    if (line.startsWith("event:")) {
+      state.currentEvent = line.slice("event:".length).trim();
       continue;
     }
-    if (line.startsWith("data: ")) {
-      const dataStr = line.substring(6);
-      if (dataStr === "[DONE]") {
+
+    if (line.startsWith("id:") || line.startsWith("retry:")) continue;
+
+    if (line.startsWith("data:")) {
+      const dataText = line.slice("data:".length).trimStart();
+      if (!dataText) continue;
+      if (dataText === "[DONE]") {
         onData({ finished: true });
-        currentEvent = null;
+        state.currentEvent = undefined;
         continue;
       }
 
-      try {
-        const data = JSON.parse(dataStr);
-        if (currentEvent && typeof data === 'object' && data !== null && !('type' in data)) {
-          (data as any).type = currentEvent;
-        }
-        onData(data);
-      } catch (err) {
-        throw new Error(err as any);
-      } finally {
-        currentEvent = null;
-      }
+      dispatchJSON(dataText, onData, state);
+      state.currentEvent = undefined;
+      continue;
     }
-  }
-}
 
-const processDataAsJson = (rawData: string, onData: (data: any) => void) => {
-  const lines = rawData.split("\n");
-  for (const line of lines) {
-    try {
-      const data = JSON.parse(line);
-      onData(data);
-    } catch (err) {
-      throw new Error(err);
-    }
+    dispatchJSON(line, onData, state);
+    state.currentEvent = undefined;
   }
+};
+
+function dispatchJSON(
+  text: string,
+  onData: (data: any) => void,
+  state: StreamParserState,
+): void {
+  let data: any;
+  try {
+    data = JSON.parse(text);
+  } catch (error) {
+    throw new Error("Invalid streamed JSON data.", { cause: error });
+  }
+
+  if (
+    state.currentEvent
+    && typeof data === "object"
+    && data !== null
+    && !("type" in data)
+  ) {
+    data.type = state.currentEvent;
+  }
+  onData(data);
 }
 
 export default processLinesFromStream;

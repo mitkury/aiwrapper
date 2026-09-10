@@ -1,78 +1,75 @@
-import processLinesFromStream from "./lang/process-lines-from-stream.ts";
+import processLinesFromStream, {
+  type StreamParserState,
+} from "./lang/process-lines-from-stream.js";
+import { createAbortError } from "./errors.js";
 
-// This would work only in Deno and browsers, not in Node.
-let _processServerEvents = (response: Response, onData: (data: any) => void, signal?: AbortSignal): Promise<void> => {
+export function processServerEvents(
+  response: Response,
+  onData: (data: any) => void,
+  signal?: AbortSignal,
+): Promise<void> {
   if (response.ok === false) {
     throw new Error(
       `Response from server was not ok. Status code: ${response.status}.`,
     );
   }
 
-  const reader = response.body!.getReader();
-  let decoder = new TextDecoder("utf-8");
-  let rawData = "";
-  let aborted = false;
-  let abortError: Error | null = null;
-  let abortHandler: (() => void) | undefined;
+  return readServerEvents(response, onData, signal);
+}
 
-  if (signal) {
-    abortHandler = () => {
-      aborted = true;
-      abortError = new Error("The operation was aborted");
-      abortError.name = "AbortError";
-      reader.cancel().catch(() => {});
-    };
-    if (signal.aborted) {
-      abortHandler();
-    } else {
-      signal.addEventListener("abort", abortHandler, { once: true });
-    }
+async function readServerEvents(
+  response: Response,
+  onData: (data: any) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (!response.body) {
+    throw new Error("Response body is missing.");
   }
 
-  return reader.read().then(function processStream(result): Promise<void> {
-    if (aborted) {
-      return Promise.reject(abortError ?? new Error("AbortError"));
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  const parserState: StreamParserState = {};
+  let rawData = "";
+  let completed = false;
+  const abortHandler = () => {
+    void reader.cancel().catch(() => undefined);
+  };
+
+  try {
+    if (signal?.aborted) {
+      throw createAbortError();
     }
-    if (result.done || result.value === undefined) {
-      if (aborted) {
-        return Promise.reject(abortError ?? new Error("AbortError"));
+    signal?.addEventListener("abort", abortHandler, { once: true });
+
+    while (true) {
+      const result = await reader.read();
+      if (signal?.aborted) {
+        throw createAbortError();
       }
-      return Promise.resolve();
+      if (result.done) {
+        completed = true;
+        break;
+      }
+
+      rawData += decoder.decode(result.value, { stream: true });
+      const lastIndex = rawData.lastIndexOf("\n");
+      if (lastIndex >= 0) {
+        processLinesFromStream(
+          rawData.slice(0, lastIndex),
+          onData,
+          parserState,
+        );
+        rawData = rawData.slice(lastIndex + 1);
+      }
     }
 
-    rawData += decoder.decode(result.value, {
-      stream: true,
-    });
-
-    // Process each complete message (messages are devived by newlines)
-    let lastIndex = rawData.lastIndexOf("\n");
-    if (lastIndex > -1) {
-      processLinesFromStream(rawData.slice(0, lastIndex), onData);
-      rawData = rawData.slice(lastIndex + 1);
+    rawData += decoder.decode();
+    if (rawData.trim()) {
+      processLinesFromStream(rawData, onData, parserState);
     }
-
-    return reader.read().then(processStream);
-  }).finally(() => {
-    if (signal && abortHandler) {
-      signal.removeEventListener("abort", abortHandler);
-    }
-  });
-};
-
-/*
- * Set the implementation of the processServerEvents function.
- * This is useful for testing and for customizing the behavior of the processServerEvents function.
- */
-export const setProcessServerEventsImpl = (
-  impl: (response: Response, onProgress: (data: any) => void, signal?: AbortSignal) => Promise<void>,
-) => {
-  _processServerEvents = impl;
-};
-
-export const processServerEvents = (
-  response: Response,
-  onProgress: (data: any) => void,
-  signal?: AbortSignal,
-): Promise<void> => {
-  return _processServerEvents(response, onProgress, signal);
-};
+  } finally {
+    signal?.removeEventListener("abort", abortHandler);
+    if (!completed) await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+}

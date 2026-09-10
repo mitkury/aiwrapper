@@ -9,10 +9,8 @@ AIWRAPPER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 echo "Unlinking local aimodels..."
 
 cd "$AIWRAPPER_DIR"
-npm unlink aimodels 2>/dev/null || true
-# Remove symlink if it still exists (workspace handling)
-[ -L node_modules/aimodels ] && rm -f node_modules/aimodels
-npm install
+# Reinstall exactly what package-lock.json records. Unlike `npm unlink`, this
+# does not remove aimodels from package.json or rewrite the lockfile.
+npm ci
 
 echo "✓ Now using published aimodels package"
-

@@ -1,63 +1,41 @@
-## OpenAI Responses API – Streaming Image Output
+# OpenAI Responses image streaming
 
-Reference drill-down for how OpenAI models stream image generations when you call the Responses API with `stream: true`.
+The Responses API can stream image generation as typed Server-Sent Events when `stream: true` and the `image_generation` built-in tool are enabled.
 
-### What to Enable
+## Event flow
 
-- Call `responses.create` (or the SDK equivalent) with the `stream` flag set.
-- Consume the Server-Sent Events feed (`Accept: text/event-stream`) just like we do for text streaming.
-- Every event comes typed; the image-specific updates are prefixed with `response.image_generation_call.*`.
+The relevant events are:
 
-### Event Timeline (Happy Path)
+1. `response.output_item.added` creates an `image_generation_call` output item.
+2. `response.image_generation_call.partial_image` may deliver one or more preview images.
+3. `response.output_item.done` contains the completed image generation item.
+4. `response.completed`, `response.incomplete`, or `response.failed` ends the response.
 
-1. `response.output_item.added` – an entry for the pending image appears in the response output array.
-2. `response.image_generation_call.in_progress` (and optionally `.generating`) – the tool call has started.
-3. `response.image_generation_call.partial_image` – repeated event carrying the progressive render.
-4. `response.image_generation_call.completed` – the model finished rendering the final image.
-5. `response.output_item.done` and `response.content_part.done` – the normal per-item/per-part completion signals fire.
-6. `response.completed` (or `response.incomplete`) – the session is done.
-
-### Partial Image Payloads
-
-`response.image_generation_call.partial_image` delivers a JSON object:
+A partial-image event includes an item ID, output index, partial-image index, and base64 image:
 
 ```json
 {
   "type": "response.image_generation_call.partial_image",
   "item_id": "item-123",
   "output_index": 0,
-  "sequence_number": 0,
   "partial_image_index": 0,
   "partial_image_b64": "..."
 }
 ```
 
-- `partial_image_b64` is a base64-encoded PNG or JPEG chunk (OpenAI doc labels it “Base64-encoded partial image data”).
-- `partial_image_index` increments per chunk so you can overwrite/merge in order. Treat it like a frame number.
-- The event fires until the render completes. Use each chunk to update previews if you want progressive UI feedback.
+Each partial payload is a complete preview image, not a byte range that must be concatenated. Later indexes represent newer previews.
 
-### Final Image
+## Current AIWrapper behavior
 
-- Once `response.image_generation_call.completed` arrives, the final image is stabilized.
-- The corresponding `response.content_part.done` contains the finished asset in the normal response body (base64 image). If you buffered the partials yourself, you can ignore this and rely on the final chunk; otherwise read the content-part payload for the whole image.
+`OpenAIResponseStreamHandler` ignores partial previews and stores the final image from `response.output_item.done`. The completed image is exposed through `LangMessages.assistantImages`.
 
-### Failure & Edge Cases
+If progressive previews are added later, keep them separate from conversation history:
 
-- If generation fails you’ll get `response.image_generation_call.failed` followed by `response.failed`.
-- You might still receive some partial chunks before the failure — discard or surface as degraded previews.
-- Remember that other tools can run in parallel; always key lookups by `item_id`.
+- key temporary previews by `item_id` and `partial_image_index`;
+- emit preview updates without appending a new assistant message for every image;
+- release replaced object URLs in browser clients;
+- persist only the completed output item.
 
-### Minimal Handling Strategy
+Provider failures may arrive after partial previews. Treat those previews as temporary and leave the conversation unfinished or failed.
 
-- Reuse the text-streaming buffer map but store `{ images: Map<number, string> }` for each `item_id`.
-- Append/replace the base64 entry on every `partial_image` event keyed by `partial_image_index`.
-- Emit/refresh the UI preview with `URL.createObjectURL` + `Blob` constructed from `atob(partial)`. Clear the URL when done.
-- On `image_generation_call.completed`, choose the highest `partial_image_index` (latest chunk) to render as the final image.
-- On `output_item.done`, persist the final asset (e.g., store to conversation history, upload, etc.).
-
-### Doc Links
-
-- Streaming overview: https://platform.openai.com/docs/guides/streaming-responses
-- Streaming events reference: https://platform.openai.com/docs/api-reference/responses-streaming
-- Image streaming reference: https://platform.openai.com/docs/api-reference/images-streaming
-
+See the [official image generation guide](https://developers.openai.com/api/docs/guides/image-generation) and [Responses API reference](https://developers.openai.com/api/reference/resources/responses/methods/create).

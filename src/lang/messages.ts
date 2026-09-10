@@ -1,9 +1,11 @@
-import extractJSON from "./json/extract-json";
+import extractJSON from "./json/extract-json.js";
+import { executeLangToolCall } from "./tool-execution.js";
+import { attachPartialResult, isAbortError } from "../errors.js";
+import { encodeBytesAsBase64 } from "../base64.js";
 
-export type LangMessageRole = "user" | "assistant" | "tool-results"  /*| "tool" | "tool-results" | "system"*/;
+export type LangMessageRole = "user" | "assistant" | "tool-results";
 export type LangMessageContent = string | LangContentPart[] | ToolRequest[] | ToolResult[];
 export type LangMessageMeta = Record<string, any>;
-//export type LangMessageMetaValue = string | number | boolean | null | LangMessageMetaValue[];
 
 export type LangContentPart =
   | { type: "text"; text: string }
@@ -34,13 +36,101 @@ export type LangContentImage =
   | { kind: "bytes"; bytes: ArrayBuffer | Uint8Array; mimeType?: string }
   | { kind: "blob"; blob: Blob; mimeType?: string };
 
+export type LangToolResultTextPart = {
+  type: "text";
+  text: string;
+};
+
+type LangToolResultImagePartBase = {
+  type: "image";
+  mimeType?: string;
+  detail?: "auto" | "low" | "high" | "original";
+};
+
+export type LangToolResultImagePart = LangToolResultImagePartBase & (
+  | { url: string; base64?: never; bytes?: never }
+  | { base64: string; url?: never; bytes?: never }
+  | { bytes: ArrayBuffer | Uint8Array; url?: never; base64?: never }
+);
+
+export type LangToolResultPart =
+  | LangToolResultTextPart
+  | LangToolResultImagePart;
+
+/**
+ * Explicit multimodal content returned by a local tool handler.
+ *
+ * Plain handler return values retain their existing JSON/text behavior. Use
+ * `toolResult` only when the provider should receive content parts directly.
+ */
+export type LangToolResultContent = {
+  type: "tool-content";
+  content: LangToolResultPart[];
+};
+
+type NormalizedLangToolResultImage =
+  | { kind: "url"; url: string }
+  | { kind: "base64"; base64: string; mimeType: string };
+
+export function toolResult(
+  content: LangToolResultPart | LangToolResultPart[],
+): LangToolResultContent {
+  const parts = Array.isArray(content) ? [...content] : [content];
+  if (parts.length === 0) {
+    throw new Error("A multimodal tool result must contain at least one content part.");
+  }
+  return { type: "tool-content", content: parts };
+}
+
+export function isLangToolResultContent(value: unknown): value is LangToolResultContent {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<LangToolResultContent>;
+  return candidate.type === "tool-content" && Array.isArray(candidate.content);
+}
+
+export function normalizeLangToolResultImage(
+  image: LangToolResultImagePart,
+): NormalizedLangToolResultImage {
+  if (typeof image.url === "string" && image.url.length > 0) {
+    if (!image.url.startsWith("data:")) {
+      return { kind: "url", url: image.url };
+    }
+
+    const match = image.url.match(/^data:([^;,]+);base64,(.*)$/s);
+    if (!match || match[2].length === 0) {
+      throw new Error("Tool result image contains an invalid base64 data URL.");
+    }
+    return { kind: "base64", mimeType: match[1], base64: match[2] };
+  }
+
+  if (typeof image.base64 === "string" && image.base64.length > 0) {
+    return {
+      kind: "base64",
+      base64: image.base64,
+      mimeType: image.mimeType || "image/png",
+    };
+  }
+
+  if (image.bytes instanceof ArrayBuffer || image.bytes instanceof Uint8Array) {
+    return {
+      kind: "base64",
+      base64: encodeBytesAsBase64(image.bytes),
+      mimeType: image.mimeType || "image/png",
+    };
+  }
+
+  throw new Error("Tool result image must include a non-empty URL, base64 value, or byte array.");
+}
+
 export type LangImageOutput = {
   url?: string;
   base64?: string;
   mimeType?: string;
   width?: number;
   height?: number;
-  metadata?: Record<string, any>;
+  provider?: string;
+  model?: string;
+  metadata?: Record<string, unknown>;
 };
 
 /**
@@ -57,12 +147,21 @@ export type BuiltInLangTool = {
  */
 export type LangTool = LangToolWithHandler | BuiltInLangTool;
 
+export type LangToolHandlerContext = {
+  callId: string;
+  name: string;
+  signal?: AbortSignal;
+};
+
 export type LangToolWithHandler = {
   name: string;
   description: string;
   parameters: Record<string, any>;
-  handler: (args: Record<string, any>) => any | Promise<any>;
-}
+  handler: (
+    args: Record<string, any>,
+    context: LangToolHandlerContext,
+  ) => any | Promise<any>;
+};
 
 export type LangMessageItem =
   | LangMessageItemText
@@ -74,48 +173,42 @@ export type LangMessageItem =
 export type LangMessageItemText = {
   type: "text";
   text: string;
-}
+};
 
 export type LangMessageItemReasoning = {
   type: "reasoning";
   text: string;
-}
+};
 
-export type LangMessageItemImage = {
+export type LangMessageItemImage = LangImageOutput & {
   type: "image";
-  url?: string;
-  base64?: string;
-  mimeType?: string;
-  width?: number;
-  height?: number;
-  metadata?: Record<string, any>;
-}
+};
 
 export type LangMessageItemTool = {
   type: "tool";
   name: string;
   callId: string;
   arguments: Record<string, any>;
-}
+};
 
 export type LangMessageItemToolResult = {
-  type: "tool-result"; // @TODO: consider to remove it
+  type: "tool-result";
   name: string;
   callId: string;
   result: any;
-}
+};
 
 export class LangMessage {
   role: LangMessageRole;
   items: LangMessageItem[];
-  meta?: Record<string, any>;
+  meta?: LangMessageMeta;
 
-  constructor(role: LangMessageRole, text: string, meta?: Record<string, any>);
-  constructor(role: LangMessageRole, items: LangMessageItem[], meta?: Record<string, any>);
+  constructor(role: LangMessageRole, text: string, meta?: LangMessageMeta);
+  constructor(role: LangMessageRole, items: LangMessageItem[], meta?: LangMessageMeta);
   constructor(
-    role: "user" | "assistant",
+    role: LangMessageRole,
     init: string | LangMessageItem[],
-    meta?: Record<string, any>
+    meta?: LangMessageMeta
   ) {
     this.role = role;
     this.items = Array.isArray(init) ? init : [{ type: "text", text: init }];
@@ -137,15 +230,21 @@ export class LangMessage {
   }
 
   get toolRequests(): LangMessageItemTool[] {
-    return this.items.filter(item => item.type === "tool").map(item => item as LangMessageItemTool);
+    return this.items.filter(
+      (item): item is LangMessageItemTool => item.type === "tool",
+    );
   }
 
   get toolResults(): LangMessageItemToolResult[] {
-    return this.items.filter(item => item.type === "tool-result").map(item => item as LangMessageItemToolResult);
+    return this.items.filter(
+      (item): item is LangMessageItemToolResult => item.type === "tool-result",
+    );
   }
 
   get images(): LangMessageItemImage[] {
-    return this.items.filter(item => item.type === "image").map(item => item as LangMessageItemImage);
+    return this.items.filter(
+      (item): item is LangMessageItemImage => item.type === "image",
+    );
   }
 }
 
@@ -164,20 +263,19 @@ export class LangMessages extends Array<LangMessage> {
     initial?: string | { role: LangMessageRole; items: LangMessageItem[]; meta?: Record<string, any>; }[] | LangMessage[] | LangMessages,
     opts?: { tools?: LangTool[] }
   ) {
-    // When extending Array, call super with the initial elements if provided
-    super(...(Array.isArray(initial) ? [] : []));
+    super();
     if (typeof initial === "string") {
       this.addUserMessage(initial);
     } else if (initial instanceof LangMessages) {
       for (const m of initial) {
         this.push(m);
       }
-      if (opts?.tools) {
-        this.availableTools = opts.tools;
-      } else if (initial.availableTools) {
-        // Share the same tools array reference intentionally
-        this.availableTools = initial.availableTools;
-      }
+      this.instructions = initial.instructions;
+      this.finished = initial.finished;
+      this.aborted = initial.aborted;
+      // Messages and tools are shared intentionally. This is a shallow copy of
+      // the conversation container, not a clone of user-owned values.
+      this.availableTools = initial.availableTools;
     } else if (Array.isArray(initial)) {
       for (const m of initial) {
         if (m instanceof LangMessage) {
@@ -263,7 +361,7 @@ export class LangMessages extends Array<LangMessage> {
       case "bytes":
         return {
           type: "image",
-          base64: LangMessages.encodeBytesAsBase64(image.bytes),
+          base64: encodeBytesAsBase64(image.bytes),
           mimeType: image.mimeType
         };
       case "blob":
@@ -271,30 +369,6 @@ export class LangMessages extends Array<LangMessage> {
       default:
         throw new Error("Unsupported image input type.");
     }
-  }
-
-  private static encodeBytesAsBase64(bytes: ArrayBuffer | Uint8Array): string {
-    const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-
-    const globalObject: any = typeof globalThis !== "undefined" ? globalThis : {};
-
-    if (globalObject.Buffer) {
-      return globalObject.Buffer.from(view).toString("base64");
-    }
-
-    const btoaFn: ((data: string) => string) | undefined = typeof globalObject.btoa === "function" ? globalObject.btoa.bind(globalObject) : undefined;
-
-    if (btoaFn) {
-      let binary = "";
-      const chunkSize = 0x8000;
-      for (let i = 0; i < view.length; i += chunkSize) {
-        const chunk = view.subarray(i, i + chunkSize);
-        binary += String.fromCharCode(...chunk);
-      }
-      return btoaFn(binary);
-    }
-
-    throw new Error("Unable to convert byte images to base64 in this environment. Provide base64 or URL images instead.");
   }
 
   addAssistantMessage(content: string, meta?: Record<string, any>): this {
@@ -307,63 +381,45 @@ export class LangMessages extends Array<LangMessage> {
     return this;
   }
 
-  async executeRequestedTools(meta?: Record<string, any>): Promise<LangMessage | null> {
-    // Only execute if the very last message is an assistant message that has tool in its items
+  async executeRequestedTools(options: {
+    tools?: LangTool[];
+    signal?: AbortSignal;
+  } = {}): Promise<LangMessage | null> {
+    // Only execute tool requests from the last assistant message.
     const last = this.length > 0 ? this[this.length - 1] : undefined;
     if (!last || last.role !== "assistant" || last.items.length === 0) {
       return null;
     }
 
     const toolRequests = last.toolRequests;
-
-    const toolsWithHandlers = (this.availableTools || []).filter(
-      (t): t is LangToolWithHandler => 'handler' in t
-    );
-
-    // Execute requested tools from the last message only
-    const toolResults: ToolResult[] = [];
-    for (const requestedTool of toolRequests) {
-      const toolName = requestedTool.name as string | undefined;
-      if (!toolName) continue;
-
-      const tool = toolsWithHandlers.find(t => t.name === toolName);
-      if (!tool) {
-        // Tool was requested but not found - add error result so LLM can respond
-        const id = requestedTool.callId;
-        toolResults.push({
-          toolId: id,
-          name: toolName,
-          result: {
-            error: true,
-            name: "ToolNotFound",
-            message: `Tool "${toolName}" is not available. Available tools: ${toolsWithHandlers.map(t => t.name).join(", ") || "none"}`,
-          }
-        });
-        continue;
-      }
-
-      let result: any;
-      try {
-        result = await Promise.resolve(tool.handler(requestedTool.arguments || {}));
-      } catch (error) {
-        result = {
-          error: true,
-          name: error.name,
-          message: error.message,
-          ...Object.fromEntries(Object.entries(error)),
-        }
-      }
-
-      const id = requestedTool.callId;
-      toolResults.push({ toolId: id, name: toolName, result });
+    if (toolRequests.length === 0) {
+      return null;
     }
 
-    if (toolResults.length > 0) {
-      // Create a new message with the tool results
-      this.addToolResultsMessage(toolResults.map(result => ({ type: "tool-result", name: result.name, callId: result.toolId, result: result.result })));
+    const toolResults: LangMessageItemToolResult[] = [];
+    try {
+      for (const requestedTool of toolRequests) {
+        if (!requestedTool.name) continue;
+        const executed = await executeLangToolCall(
+          requestedTool,
+          options.tools ?? this.availableTools ?? [],
+          { signal: options.signal },
+        );
+        toolResults.push({ type: "tool-result", ...executed });
+      }
+    } catch (error) {
+      if (isAbortError(error)) {
+        this.aborted = true;
+        throw attachPartialResult(error, this);
+      }
+      throw error;
+    } finally {
+      // Completed tools may have side effects. Retain their results even when
+      // a later tool is cancelled, so resuming cannot mistake them for aborted calls.
+      if (toolResults.length) this.addToolResultsMessage(toolResults);
     }
 
-    // We return the tool results message we've just added
+    if (toolResults.length === 0) return null;
     return this[this.length - 1];
   }
 
@@ -388,19 +444,32 @@ export function fixToolResultsIfNeeded(messages: LangMessages | LangMessage[]): 
     if (toolRequests.length === 0) continue;
 
     const nextMessage = messages[i + 1];
-    if (nextMessage && nextMessage.role === "tool-results") continue;
+    const completedCallIds = new Set(
+      nextMessage?.role === "tool-results"
+        ? nextMessage.toolResults.map(result => result.callId)
+        : [],
+    );
+    const missingToolRequests = toolRequests.filter(
+      toolRequest => !completedCallIds.has(toolRequest.callId),
+    );
+    if (missingToolRequests.length === 0) continue;
 
-    const toolResultItems: LangMessageItemToolResult[] = toolRequests.map((toolRequest) => ({
+    const missingResults: LangMessageItemToolResult[] = missingToolRequests.map((toolRequest) => ({
       type: "tool-result",
       name: toolRequest.name,
       callId: toolRequest.callId,
       result: "aborted",
     }));
 
-    const toolResultsMessage = new LangMessage("tool-results", toolResultItems);
-    (messages as LangMessage[]).splice(i + 1, 0, toolResultsMessage);
-    i += 1;
+    if (nextMessage?.role === "tool-results") {
+      nextMessage.items.push(...missingResults);
+    } else {
+      const toolResultsMessage = new LangMessage("tool-results", missingResults);
+      (messages as LangMessage[]).splice(i + 1, 0, toolResultsMessage);
+      i += 1;
+    }
 
-    console.warn(`Inserted missing tool-results message after assistant tool call for tool "${toolRequests[0].name}".`);
+    const toolNames = missingToolRequests.map(tool => `"${tool.name}"`).join(", ");
+    console.warn(`Inserted missing tool results for ${toolNames}.`);
   }
 }

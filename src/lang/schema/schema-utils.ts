@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { zodToJsonSchema as zodToJsonSchemaPkg } from 'zod-to-json-schema';
-import Ajv, { ErrorObject } from 'ajv';
+import { Ajv, type ErrorObject } from 'ajv';
 
 // Lazy singleton Ajv instance to avoid repeated construction
 let ajvInstance: Ajv | null = null;

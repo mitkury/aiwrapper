@@ -1,25 +1,30 @@
-import {
-  LangOptions,
-  LanguageProvider,
-} from "../language-provider.ts";
+import { LanguageProvider } from "../language-provider.js";
+import type { LangOptions } from "../language-provider.js";
 import {
   LangMessages,
   LangMessage,
+  fixToolResultsIfNeeded,
+  isLangToolResultContent,
+} from "../messages.js";
+import type {
   LangTool,
   LangMessageItemImage,
   LangMessageItemText,
   LangMessageItemTool,
   LangMessageItemToolResult,
-  fixToolResultsIfNeeded,
-} from "../messages.ts";
+} from "../messages.js";
 import {
   httpRequestWithRetry as fetch,
-} from "../../http-request.ts";
-import { processServerEvents } from "../../process-server-events.ts";
-import { models, Model } from 'aimodels';
-import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
-import { addInstructionAboutSchema } from "../prompt-for-json.ts";
-import { OpenAIChatCompletionsStreamHandler } from "./openai-chat-completions-stream-handler.ts";
+} from "../../http-request.js";
+import { processServerEvents } from "../../process-server-events.js";
+import { models, type Model } from 'aimodels';
+import { calculateModelResponseTokens } from "../utils/token-calculator.js";
+import {
+  addInstructionAboutSchema,
+  combineInstructions,
+} from "../prompt-for-json.js";
+import { OpenAIChatCompletionsStreamHandler } from "./openai-chat-completions-stream-handler.js";
+import { attachPartialResult, isAbortError } from "../../errors.js";
 
 export type ReasoningEffort = "low" | "medium" | "high";
 
@@ -95,7 +100,13 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     requestMaxTokens: number,
     options?: LangOptions,
   ): Record<string, unknown> {
-    const providerMessages = this.transformMessagesForProvider(messageCollection);
+    const schemaInstructions = options?.schema
+      ? addInstructionAboutSchema(options.schema)
+      : undefined;
+    const providerMessages = this.transformMessagesForProvider(
+      messageCollection,
+      schemaInstructions,
+    );
     const base: Record<string, unknown> = {
       model: this._config.model,
       messages: providerMessages,
@@ -104,8 +115,11 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
       ...this._config.bodyProperties,
       ...(options?.providerSpecificBody ?? {}),
     };
-    if (messageCollection.availableTools) {
-      base.tools = this.formatTools(messageCollection.availableTools);
+    const requestTools = this.resolveTools(messageCollection, options);
+    if (requestTools?.length) {
+      base.tools = this.formatTools(requestTools);
+    } else if (options?.tools !== undefined) {
+      delete base.tools;
     }
     return this.transformBody(base);
   }
@@ -158,10 +172,6 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     options?: LangOptions,
   ): Promise<LangMessages> {
     const messages = new LangMessages();
-    if (this._config.systemPrompt) {
-      messages.push(new LangMessage("user", this._config.systemPrompt));
-    }
-
     messages.push(new LangMessage("user", prompt));
 
     return await this.chat(messages, options);
@@ -169,11 +179,22 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
 
   protected transformBody(body: Record<string, unknown>): Record<string, unknown> {
     const transformedBody = { ...body };
-    if (this._config.reasoningEffort && this.supportsReasoning()) {
+    const supportsReasoning = this.supportsReasoning();
+    if (this._config.reasoningEffort && supportsReasoning) {
       transformedBody.reasoning_effort = this._config.reasoningEffort;
     }
-    if (this._config.maxCompletionTokens !== undefined && this.supportsReasoning()) {
-      transformedBody.max_completion_tokens = this._config.maxCompletionTokens;
+    if (supportsReasoning) {
+      if (this._config.maxCompletionTokens !== undefined) {
+        transformedBody.max_completion_tokens = this._config.maxCompletionTokens;
+      } else if (
+        transformedBody.max_completion_tokens === undefined
+        && typeof transformedBody.max_tokens === "number"
+      ) {
+        transformedBody.max_completion_tokens = Math.max(
+          transformedBody.max_tokens,
+          25000,
+        );
+      }
     }
     return transformedBody;
   }
@@ -191,22 +212,15 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
   ): Promise<LangMessages> {
     const resolvedOptions = this.resolveOptions(options);
     const abortSignal = resolvedOptions?.signal;
-    const result = messages instanceof LangMessages
-      ? messages
-      : new LangMessages(messages);
-
-    if (resolvedOptions?.schema) {
-      const baseInstruction = result.instructions + '\n\n' || '';
-      result.instructions = baseInstruction + addInstructionAboutSchema(resolvedOptions.schema);
-    }
+    const result = this.beginRequest(
+      messages instanceof LangMessages
+        ? messages
+        : new LangMessages(messages),
+    );
 
     fixToolResultsIfNeeded(result);
 
     const requestMaxTokens = this.computeRequestMaxTokens(result);
-    if (this.supportsReasoning() && this._config.maxCompletionTokens === undefined) {
-      this._config.maxCompletionTokens = Math.max(requestMaxTokens, 25000);
-    }
-
     const body = this.buildRequestBody(result, requestMaxTokens, resolvedOptions);
     const commonRequest = this.buildCommonRequest(body, resolvedOptions);
     const onData = (data: any) => {
@@ -214,15 +228,16 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     };
 
     try {
-      const response = await fetch(`${this._config.baseURL}/chat/completions`, commonRequest as any).catch((err) => {
-        throw new Error(err);
-      });
+      const response = await fetch(
+        `${this._config.baseURL}/chat/completions`,
+        commonRequest,
+      );
 
       await processServerEvents(response, onData, abortSignal);
     } catch (error) {
-      if ((error as any)?.name === "AbortError") {
+      if (isAbortError(error)) {
         result.aborted = true;
-        (error as any).partialResult = result;
+        throw attachPartialResult(error, result);
       }
       throw error;
     }
@@ -230,7 +245,10 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     result.finished = true;
 
     // Automatically execute tools if the assistant requested them
-    const toolResults = await result.executeRequestedTools();
+    const toolResults = await result.executeRequestedTools({
+      tools: this.resolveTools(result, resolvedOptions),
+      signal: abortSignal,
+    });
     if (resolvedOptions?.onResult && toolResults) resolvedOptions.onResult(toolResults);
 
     return result;
@@ -247,21 +265,24 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     }));
   }
 
-  protected transformMessagesForProvider(messages: LangMessages): any[] {
+  protected transformMessagesForProvider(
+    messages: LangMessages,
+    additionalInstructions?: string,
+  ): any[] {
     const out: any[] = [];
 
-    if (this._config.systemPrompt) {
-      out.push({ role: "system", content: this._config.systemPrompt });
-    }
-    if (messages.instructions) {
-      out.push({ role: "system", content: messages.instructions });
+    const instructions = combineInstructions(
+      this._config.systemPrompt,
+      messages.instructions,
+      additionalInstructions,
+    );
+    if (instructions) {
+      out.push({ role: "system", content: instructions });
     }
 
     const pendingAssistantImages: LangMessageItemImage[] = [];
 
-    for (let i = 0; i < messages.length; i++) {
-      const msg = messages[i];
-
+    for (const msg of messages) {
       if (msg.role === "tool-results") {
         const toolMessages = this.mapToolResultsMessage(msg);
         out.push(...toolMessages);
@@ -276,17 +297,12 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
       if (!mapped) continue;
 
       if (msg.role === "user") {
-        const prev = i > 0 ? messages[i - 1] : undefined;
         if (pendingAssistantImages.length > 0) {
           const contentArray = this.ensureContentArray(mapped);
           for (const image of pendingAssistantImages) {
             contentArray.push(...this.mapImageItemToContentParts(image));
           }
           pendingAssistantImages.length = 0;
-        }
-
-        if (this.shouldAppendVisionHint(msg, prev) || this.payloadHasImageParts(mapped)) {
-          this.appendVisionHint(mapped);
         }
       } else if (msg.role === "assistant") {
         this.collectAssistantImages(msg, pendingAssistantImages);
@@ -401,9 +417,21 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
       if (item.type !== "tool-result") continue;
       const toolResult = item as LangMessageItemToolResult;
       const rawResult = toolResult.result;
-      const content = typeof rawResult === "string"
-        ? rawResult
-        : JSON.stringify(rawResult ?? {});
+      let content: string | { type: "text"; text: string }[];
+      if (isLangToolResultContent(rawResult)) {
+        content = rawResult.content.map(part => {
+          if (part.type === "image") {
+            throw new Error(
+              "Chat Completions-compatible APIs do not have a portable image format for tool messages. For OpenAI, use Lang.openai(), which uses the Responses API.",
+            );
+          }
+          return { type: "text", text: part.text };
+        });
+      } else {
+        content = typeof rawResult === "string"
+          ? rawResult
+          : JSON.stringify(rawResult ?? {});
+      }
       toolMessages.push({
         role: "tool",
         tool_call_id: toolResult.callId,
@@ -415,17 +443,10 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
   }
 
   private mapImageItemToContentParts(image: LangMessageItemImage): any[] {
-    const parts: any[] = [];
-
     let dataUrl: string | undefined;
 
     if (typeof image.base64 === "string" && image.base64.length > 0) {
       const mimeType = image.mimeType || "image/png";
-      parts.push({
-        type: "input_image",
-        image_base64: image.base64,
-        mime_type: mimeType,
-      });
       dataUrl = `data:${mimeType};base64,${image.base64}`;
     }
 
@@ -434,48 +455,14 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
         ? image.url
         : dataUrl;
 
-    if (url) {
-      parts.push({
-        type: "image_url",
-        image_url: { url },
-      });
-    }
-
-    return parts;
-  }
-
-  private shouldAppendVisionHint(message: LangMessage, previous?: LangMessage): boolean {
-    return this.messageHasImageItems(message) || this.messageHasImageItems(previous);
-  }
-
-  private messageHasImageItems(message?: LangMessage): boolean {
-    if (!message) return false;
-    return message.items?.some(item => item.type === "image") ?? false;
-  }
-
-  private appendVisionHint(payload: any): void {
-    const hintText = "Describe the visual details of the image, including the subject's fur color and explicitly name the surface or object it is on (for example, a table).";
-    const hintPart = { type: "text", text: hintText };
-
-    if (payload.content === undefined) {
-      payload.content = [hintPart];
-      return;
-    }
-
-    if (typeof payload.content === "string") {
-      payload.content = [
-        { type: "text", text: payload.content },
-        hintPart,
-      ];
-      return;
-    }
-
-    if (Array.isArray(payload.content)) {
-      payload.content.push(hintPart);
-      return;
-    }
-
-    payload.content = [payload.content, hintPart];
+    return url
+      ? [
+          {
+            type: "image_url",
+            image_url: { url },
+          },
+        ]
+      : [];
   }
 
   private collectAssistantImages(message: LangMessage, accumulator: LangMessageItemImage[]): void {
@@ -501,16 +488,6 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
 
     return payload.content;
   }
-
-  private payloadHasImageParts(payload: any): boolean {
-    if (!Array.isArray(payload.content)) return false;
-    return payload.content.some(
-      (part: any) =>
-        part?.type === "image_url" ||
-        part?.type === "input_image"
-    );
-  }
-
   setReasoningEffort(effort: ReasoningEffort): OpenAIChatCompletionsLang {
     this._config.reasoningEffort = effort;
     return this;

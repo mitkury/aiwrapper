@@ -1,17 +1,18 @@
 # AIWrapper
 
-A universal AI wrapper for JavaScript & TypeScript.
+A small, npm-first AI wrapper for JavaScript and TypeScript.
 
-Use LLMs from anywhere—servers, browsers and web-apps. AIWrapper works in
-anything that runs JavaScript.
+AIWrapper is an ESM package for modern JavaScript runtimes. It keeps provider
+integrations behind one message and tool-calling API without introducing a
+framework.
 
-> :warning: **It's in early WIP stage and the API may change.**
+> The API is evolving and may change between releases.
 
 ## Features
 
 - Generate plain text or JSON objects with a simple API
-- Use different LLM providers: OpenAI, Anthropic, Groq, DeepSeek, Ollama and any
-  OpenAI-compatible services
+- Use different LLM providers: OpenAI, Anthropic, AWS Bedrock, Groq, DeepSeek,
+  Ollama and any OpenAI-compatible services
 - Output objects based on Zod schemas or JSON Schema
 - Swap models quickly or chain different models together
 - Use it with JavaScript or TypeScript from anywhere
@@ -21,6 +22,22 @@ anything that runs JavaScript.
 ```bash
 npm install aiwrapper
 ```
+
+Node.js 20 or newer is required.
+
+## Runtime support
+
+AIWrapper runs in Node.js 20+ and modern browsers. It uses standard web APIs
+such as `fetch`, streams, `Blob`, and `FormData`, so browser builds do not need
+Node.js polyfills.
+
+When calling a provider directly from a browser, that provider must allow the
+request through CORS. Do not ship long-lived or privileged provider API keys to
+the browser; proxy those requests through your server instead.
+
+## Documentation
+
+See the [documentation index](docs/README.md) for language providers, agents, tools, testing, and development workflows.
 
 ## Quick Start
 
@@ -56,6 +73,27 @@ import { Lang } from "aiwrapper";
 const lang = Lang.openai({ apiKey: "YOUR KEY" });
 const result = await lang.ask("Say hi!");
 console.log(result.answer);
+```
+
+### Connect to a Live Model
+
+Persistent native-audio models use `LiveLang`:
+
+```javascript
+import { LiveLang } from "aiwrapper";
+
+const live = LiveLang.openai({
+  apiKey: "YOUR KEY",
+  model: "gpt-realtime-2.1",
+  voice: "marin",
+});
+const session = await live.connect({
+  instructions: "Be concise and helpful.",
+  onEvent: (event) => console.log(event),
+});
+
+await session.appendAudio(microphoneFrame);
+await session.close();
 ```
 
 ## Lang (LLM) Examples
@@ -99,6 +137,33 @@ const result = await lang.ask("Hello!");
 console.log(result.answer);
 ```
 
+### Use AWS Bedrock
+
+Install the optional AWS runtime client, then pass a configured client to the
+Bedrock provider:
+
+```bash
+npm install aiwrapper @aws-sdk/client-bedrock-runtime
+```
+
+```javascript
+import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
+import { BedrockLang } from "aiwrapper/bedrock";
+
+const client = new BedrockRuntimeClient({ region: "us-east-1" });
+const lang = new BedrockLang({
+  client,
+  model: "your-model-id-or-inference-profile-arn",
+});
+
+const result = await lang.ask("Say hi!");
+console.log(result.answer);
+```
+
+The AWS client handles credentials, region selection, retries, and request
+signing. See the [Bedrock provider guide](docs/bedrock.md) for supported
+features and compatibility notes.
+
 ### Use OpenRouter (Access 100+ Models)
 
 ```javascript
@@ -139,7 +204,7 @@ await lang.ask("Hello, AI!", {
 ```javascript
 // In most cases - a prompt template should be just a function that returns a string
 function getPrompt(product) {
-  return `You are a naming consultant for new companies. What is a good name for a company that makes ${product}?     
+  return `You are a naming consultant for new companies. What is a good name for a company that makes ${product}?
 Write just the name. Nothing else aside from the name - no extra comments or characters that are not part of the name.`;
 }
 

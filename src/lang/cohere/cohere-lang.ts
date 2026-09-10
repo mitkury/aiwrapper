@@ -1,16 +1,20 @@
 import {
   httpRequestWithRetry as fetch,
-} from "../../http-request.ts";
-import { processServerEvents } from "../../process-server-events.ts";
+} from "../../http-request.js";
+import { processServerEvents } from "../../process-server-events.js";
 import {
-  LangMessage,
-  LangOptions,
   LangResult,
   LanguageProvider,
-} from "../language-provider.ts";
-import { LangMessages, LangMessage as ConversationMessage, fixToolResultsIfNeeded } from "../messages.ts";
-import { models, Model } from 'aimodels';
-import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
+} from "../language-provider.js";
+import type { LangMessage, LangOptions } from "../language-provider.js";
+import { LangMessages, LangMessage as ConversationMessage, fixToolResultsIfNeeded } from "../messages.js";
+import { models, type Model } from 'aimodels';
+import { calculateModelResponseTokens } from "../utils/token-calculator.js";
+import { attachPartialResult, isAbortError } from "../../errors.js";
+import {
+  addInstructionAboutSchema,
+  combineInstructions,
+} from "../prompt-for-json.js";
 
 export type CohereLangOptions = {
   apiKey: string;
@@ -49,14 +53,9 @@ export class CohereLang extends LanguageProvider {
     options?: LangOptions,
   ): Promise<LangResult> {
     const messages = new LangMessages();
-
-    if (this._systemPrompt) {
-      messages.push(new ConversationMessage("user", this._systemPrompt));
-    }
-
     messages.push(new ConversationMessage("user", prompt));
 
-    return await this.chat(messages, options);
+    return this.chat(messages, options);
   }
 
   async chat(
@@ -65,7 +64,7 @@ export class CohereLang extends LanguageProvider {
   ): Promise<LangResult> {
     const resolvedOptions = this.resolveOptions(options);
     const abortSignal = resolvedOptions?.signal;
-    const result = new LangResult(messages);
+    const result = this.beginRequest(new LangResult(messages));
     const messageCollection = result;
 
     fixToolResultsIfNeeded(messageCollection);
@@ -92,24 +91,40 @@ export class CohereLang extends LanguageProvider {
       stream: true,
       max_tokens: maxTokens,
       temperature: 0.7,
-      preamble_override: this._systemPrompt || undefined,
+      preamble_override: combineInstructions(
+        this._systemPrompt,
+        messageCollection.instructions,
+        resolvedOptions?.schema
+          ? addInstructionAboutSchema(resolvedOptions.schema)
+          : undefined,
+      ) || undefined,
       ...(resolvedOptions?.providerSpecificBody ?? {}),
     };
 
     const onResult = resolvedOptions?.onResult;
+    let assistantMessage: ConversationMessage | undefined;
     const onData = (data: any) => {
       if (data.type === "message-end") {
         result.finished = true;
-        const last = result.length > 0 ? result[result.length - 1] : undefined;
-        if (last) onResult?.(last as any);
+        if (assistantMessage) onResult?.(assistantMessage);
         return;
       }
 
       // Handle Cohere's streaming format
       if (data.type === "content-delta" && data.delta?.message?.content?.text) {
         const text = data.delta.message.content.text;
-        //const msg = result.appendToAssistantText(text);
-        //onResult?.(msg);
+        if (!assistantMessage) {
+          assistantMessage = new ConversationMessage("assistant", []);
+          result.push(assistantMessage);
+        }
+
+        const lastItem = assistantMessage.items[assistantMessage.items.length - 1];
+        if (lastItem?.type === "text") {
+          lastItem.text += text;
+        } else {
+          assistantMessage.items.push({ type: "text", text });
+        }
+        onResult?.(assistantMessage);
       }
     };
 
@@ -124,15 +139,13 @@ export class CohereLang extends LanguageProvider {
         },
         body: JSON.stringify(requestBody),
         signal: abortSignal,
-      }).catch((err) => {
-        throw new Error(err);
       });
 
       await processServerEvents(response, onData, abortSignal);
     } catch (error) {
-      if ((error as any)?.name === "AbortError") {
+      if (isAbortError(error)) {
         result.aborted = true;
-        (error as any).partialResult = result;
+        throw attachPartialResult(error, result);
       }
       throw error;
     }

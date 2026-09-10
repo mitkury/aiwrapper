@@ -1,8 +1,8 @@
-### OpenAI Chat Completions vs. Responses (Quick Reference)
+# OpenAI Chat Completions and Responses
 
 - **Endpoints**
   - **Chat Completions**: `POST /v1/chat/completions`
-  - **Responses**: `POST /v1/responses` (optionally `?stream=true`)
+  - **Responses**: `POST /v1/responses`
 
 - **Request shape**
   - **Chat Completions**: pass `messages: [{ role, content }]`. Supports content arrays with `{ type: 'text' | 'image_url' }` for multimodal inputs in compatible providers.
@@ -17,7 +17,7 @@
   - **Responses**: designed to unify modalities (text, image, etc.). When supported by the model, image outputs can appear in the response stream/body as output parts.
 
 - **Tools / structured output**
-  - Both support tools/function calling and structured output, but formats differ slightly. Responses leans toward a unified schema for multimodal outputs.
+  - Both support tools/function calling and structured output, but formats differ. Responses function outputs can contain text, image, and file parts. Chat Completions tool messages are text-only.
 
 - **Model support**
   - **Chat Completions**: works with legacy and many current chat models.
@@ -29,5 +29,6 @@
   - For image generation, prefer Responses (or the Images API) with models that support it.
 
 - **How this repo uses them**
-  - We prefer the Responses API by default for modern OpenAI models and auto-fallback to Chat Completions when the API reports unsupported parameters.
-  - Image outputs are surfaced as `LangResult.images` when the provider/model returns them.
+  - `Lang.openai` uses the Responses API.
+  - `Lang.openaiLike` uses Chat Completions for OpenAI-compatible services.
+  - Generated images are available through `LangMessages.assistantImages`.

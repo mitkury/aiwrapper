@@ -1,25 +1,33 @@
 import {
   httpRequestWithRetry as fetch,
-} from "../../http-request.ts";
-import { processServerEvents } from "../../process-server-events.ts";
+} from "../../http-request.js";
+import { processServerEvents } from "../../process-server-events.js";
 import {
-  LangMessage,
-  LangOptions,
   LanguageProvider,
-} from "../language-provider.ts";
+} from "../language-provider.js";
+import type { LangMessage, LangOptions } from "../language-provider.js";
 import { models } from 'aimodels';
-import { calculateModelResponseTokens } from "../utils/token-calculator.ts";
+import { calculateModelResponseTokens } from "../utils/token-calculator.js";
+import { attachPartialResult, isAbortError } from "../../errors.js";
 import {
+  LangMessages,
+  fixToolResultsIfNeeded,
+  isLangToolResultContent,
+  normalizeLangToolResultImage,
+} from "../messages.js";
+import type {
   LangMessageItemImage,
   LangMessageItemText,
   LangMessageItemTool,
   LangMessageItemToolResult,
-  LangMessages,
   LangTool,
-  fixToolResultsIfNeeded,
-} from "../messages.ts";
-import { addInstructionAboutSchema } from "../prompt-for-json.ts";
-import { AnthropicStreamHandler } from "./anthropic-stream-handler.ts";
+  LangToolResultPart,
+} from "../messages.js";
+import {
+  addInstructionAboutSchema,
+  combineInstructions,
+} from "../prompt-for-json.js";
+import { AnthropicStreamHandler } from "./anthropic-stream-handler.js";
 
 type AnthropicTool = {
   name: string;
@@ -70,9 +78,6 @@ export class AnthropicLang extends LanguageProvider {
     options?: LangOptions,
   ): Promise<LangMessages> {
     const messages = new LangMessages();
-    if (this._config.systemPrompt) {
-      messages.instructions = this._config.systemPrompt;
-    }
     messages.addUserMessage(prompt);
     return await this.chat(messages, options);
   }
@@ -83,26 +88,25 @@ export class AnthropicLang extends LanguageProvider {
   ): Promise<LangMessages> {
     const resolvedOptions = this.resolveOptions(options);
     const abortSignal = resolvedOptions?.signal;
-    const messageCollection = messages instanceof LangMessages
-      ? messages
-      : new LangMessages(messages);
+    const messageCollection = this.beginRequest(
+      messages instanceof LangMessages
+        ? messages
+        : new LangMessages(messages),
+    );
 
-    let instructions = messageCollection.instructions || '';
-    if (!instructions && this._config.systemPrompt) {
-      instructions = this._config.systemPrompt;
-    }
-
-    if (resolvedOptions?.schema) {
-      const baseInstruction = instructions !== '' ? instructions + '\n\n' : '';
-      instructions = baseInstruction + addInstructionAboutSchema(
-        resolvedOptions.schema
-      );
-    }
+    const instructions = combineInstructions(
+      this._config.systemPrompt,
+      messageCollection.instructions,
+      resolvedOptions?.schema
+        ? addInstructionAboutSchema(resolvedOptions.schema)
+        : undefined,
+    );
 
     fixToolResultsIfNeeded(messageCollection);
 
+    const requestTools = this.resolveTools(messageCollection, resolvedOptions);
     const { providerMessages, requestMaxTokens, tools } =
-      this.prepareRequest(messageCollection);
+      this.prepareRequest(messageCollection, requestTools);
 
     const result = messageCollection;
 
@@ -129,7 +133,7 @@ export class AnthropicLang extends LanguageProvider {
         },
         body: JSON.stringify(requestBody),
         signal: abortSignal,
-      } as any).catch((err) => { throw new Error(err); });
+      });
 
       const streamHandler = new AnthropicStreamHandler(result, resolvedOptions?.onResult);
 
@@ -137,9 +141,9 @@ export class AnthropicLang extends LanguageProvider {
         streamHandler.handleEvent(data);
       }, abortSignal);
     } catch (error) {
-      if ((error as any)?.name === "AbortError") {
+      if (isAbortError(error)) {
         result.aborted = true;
-        (error as any).partialResult = result;
+        throw attachPartialResult(error, result);
       }
       throw error;
     }
@@ -147,13 +151,19 @@ export class AnthropicLang extends LanguageProvider {
     result.finished = true;
 
     // Automatically execute tools if the assistant requested them
-    const toolResults = await result.executeRequestedTools();
+    const toolResults = await result.executeRequestedTools({
+      tools: requestTools,
+      signal: abortSignal,
+    });
     if (resolvedOptions?.onResult && toolResults) resolvedOptions.onResult(toolResults);
 
     return result;
   }
 
-  private prepareRequest(messageCollection: LangMessages) {
+  private prepareRequest(
+    messageCollection: LangMessages,
+    requestTools?: LangTool[],
+  ) {
     const providerMessages = this.transformMessagesForProvider(messageCollection);
 
     const modelInfo = models.id(this._config.model);
@@ -168,8 +178,8 @@ export class AnthropicLang extends LanguageProvider {
     ) : this._config.maxTokens || 16000;
 
     let tools: AnthropicTool[] | undefined;
-    if (messageCollection.availableTools?.length) {
-      const structuredTools = messageCollection.availableTools.filter(
+    if (requestTools?.length) {
+      const structuredTools = requestTools.filter(
         (tool): tool is LangTool & { description?: string; parameters: Record<string, any> } =>
           typeof (tool as any).parameters === "object" && (tool as any).parameters !== null
       );
@@ -192,18 +202,12 @@ export class AnthropicLang extends LanguageProvider {
     for (const message of messages) {
       if (message.role === "user") {
         const content: any[] = [];
-        const forwardedImages = pendingAssistantImages.length > 0;
         for (const image of pendingAssistantImages) {
           this.appendImageBlocks(content, image);
         }
         pendingAssistantImages.length = 0;
 
-        const { blocks: userBlocks, hasImages: userHasImages } = this.mapUserMessageItems(message);
-        content.push(...userBlocks);
-
-        if (forwardedImages || userHasImages) {
-          content.push({ type: "text", text: this.getVisionHintText() });
-        }
+        content.push(...this.mapUserMessageItems(message));
 
         if (content.length > 0) {
           out.push({ role: "user", content });
@@ -226,9 +230,8 @@ export class AnthropicLang extends LanguageProvider {
     return out;
   }
 
-  private mapUserMessageItems(message: LangMessage): { blocks: any[]; hasImages: boolean } {
+  private mapUserMessageItems(message: LangMessage): any[] {
     const blocks: any[] = [];
-    let hasImages = false;
     for (const item of message.items) {
       if (item.type === "text") {
         const textItem = item as LangMessageItemText;
@@ -236,11 +239,10 @@ export class AnthropicLang extends LanguageProvider {
           blocks.push({ type: "text", text: textItem.text });
         }
       } else if (item.type === "image") {
-        hasImages = true;
         this.appendImageBlocks(blocks, item as LangMessageItemImage);
       }
     }
-    return { blocks, hasImages };
+    return blocks;
   }
 
   private mapAssistantMessageItems(message: LangMessage): { content: any[]; imagesForNextUser: LangMessageItemImage[] } {
@@ -283,7 +285,12 @@ export class AnthropicLang extends LanguageProvider {
       if (item.type !== "tool-result") continue;
       const resultItem = item as LangMessageItemToolResult;
       let content: any = resultItem.result;
-      if (typeof content !== "string") {
+      if (isLangToolResultContent(content)) {
+        if (content.content.length === 0) {
+          throw new Error("Anthropic tool content must contain at least one part.");
+        }
+        content = content.content.map(part => this.mapToolResultPart(part));
+      } else if (typeof content !== "string") {
         content = JSON.stringify(content ?? {});
       }
       blocks.push({
@@ -293,6 +300,29 @@ export class AnthropicLang extends LanguageProvider {
       });
     }
     return blocks;
+  }
+
+  private mapToolResultPart(part: LangToolResultPart): any {
+    if (part.type === "text") {
+      return { type: "text", text: part.text };
+    }
+
+    const image = normalizeLangToolResultImage(part);
+    if (image.kind === "url") {
+      return {
+        type: "image",
+        source: { type: "url", url: image.url },
+      };
+    }
+
+    return {
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: image.mimeType,
+        data: image.base64,
+      },
+    };
   }
 
   private appendImageBlocks(target: any[], image: LangMessageItemImage): void {
@@ -332,9 +362,5 @@ export class AnthropicLang extends LanguageProvider {
     }
 
     return null;
-  }
-
-  private getVisionHintText(): string {
-    return "Describe the visual details of the image, including the subject's fur color and explicitly name the surface or object it is on (for example, a table).";
   }
 }

@@ -1,46 +1,9 @@
-export interface HttpRequestInit {
-  body?: object | string | null;
-  cache?: string;
-  credentials?: string;
-  headers?: Record<string, string>;
-  signal?: AbortSignal;
-  /**
-   * A cryptographic hash of the resource to be fetched by request. Sets
-   * request's integrity.
-   */
-  integrity?: string;
-  /**
-   * A boolean to set request's keepalive.
-   */
-  keepalive?: boolean;
-  /**
-   * A string to set request's method.
-   */
-  method?: string;
-  /**
-   * A string to indicate whether the request will use CORS, or will be
-   * restricted to same-origin URLs. Sets request's mode.
-   */
-  mode?: string;
-  /**
-   * A string indicating whether request follows redirects, results in an error
-   * upon encountering a redirect, or returns the redirect (in an opaque
-   * fashion). Sets request's redirect.
-   */
-  redirect?: string;
-  /**
-   * A string whose value is a same-origin URL, "about:client", or the empty
-   * string, to set request's referrer.
-   */
-  referrer?: string;
-  /**
-   * A referrer policy to set request's referrerPolicy.
-   */
-  referrerPolicy?: string;
-}
+import { createAbortError, isAbortError } from "./errors.js";
+
+export type HttpRequestInit = RequestInit;
 
 export type HttpResponseOnErrorAction =
-  | { retry: true; consumeRetry?: boolean }
+  | { retry: true }
   | { retry: false };
 
 /**
@@ -55,14 +18,12 @@ export type HttpResponseOnErrorAction =
  * 
  * Custom 400 error handling:
  * - Use `on400Error` to inspect the error response and potentially fix the request:
- *   - `{ retry: true }` - fix the request and retry (consumes one retry attempt)
- *   - `{ retry: true, consumeRetry: false }` - fix the request and retry without consuming budget
+ *   - `{ retry: true }` - fix the request and retry
  *   - `{ retry: false }` - don't retry, throw immediately
  * 
  * Retry limits:
- * - `retries` - maximum number of retry attempts that can be consumed (default: 6)
- * - Total attempts are capped at `retries + 1` (initial + retries) to prevent infinite loops
- *   when using `consumeRetry: false`
+ * - `retries` - maximum number of retry attempts (default: 6)
+ * - Total attempts are capped at `retries + 1` (initial + retries)
  * 
  * Backoff:
  * - Exponential backoff starts at `backoffMs` (default: 100ms) and doubles each retry
@@ -70,7 +31,9 @@ export type HttpResponseOnErrorAction =
  * - If `Retry-After` header is present in the response (e.g., 429, 503), uses that value
  *   instead of exponential backoff. Supports both seconds format and HTTP date format.
  * 
- * Note: The options object is mutated during execution (retries countdown, backoff increases).
+ * Retry bookkeeping is local to each call, so the same options object can be
+ * reused. An `on400Error` callback may still modify request fields such as
+ * `body` or `headers` before the next attempt.
  */
 export interface HttpResponseWithRetries extends HttpRequestInit {
   retries?: number;
@@ -86,23 +49,20 @@ export interface HttpResponseWithRetries extends HttpRequestInit {
    * @param res - The HTTP response with status 400
    * @param error - Error object with status information
    * @param options - The request options object (can be mutated to fix the request)
-   * @returns Action indicating whether to retry and whether to consume retry budget
+   * @returns Action indicating whether to retry
    */
   on400Error?: (res: Response, error: Error, options: HttpResponseWithRetries) => Promise<HttpResponseOnErrorAction>;
-  // Internal: tracks total attempts to prevent infinite loops (not part of public API)
-  _attemptCount?: number;
-  _maxTotalAttempts?: number;
 }
 
 let _httpRequest = (
-  _url: string | URL,
-  _options: HttpRequestInit,
+  url: string | URL,
+  options: HttpRequestInit,
 ): Promise<Response> => {
-  throw new Error("Not implemented");
+  return globalThis.fetch(url, options);
 };
 
 export const setHttpRequestImpl = (
-  impl: (url: string | URL, options: object) => Promise<Response>,
+  impl: (url: string | URL, options: HttpRequestInit) => Promise<Response>,
 ) => {
   _httpRequest = impl;
 };
@@ -158,7 +118,12 @@ export class HttpRequestError extends Error {
     public action: HttpResponseOnErrorAction,
     bodyData?: { json?: any; text?: string }
   ) {
-    super(message);
+    const responseMessage = bodyData?.json?.error?.message
+      ?? bodyData?.json?.message;
+    const detail = typeof responseMessage === "string"
+      ? responseMessage.trim().slice(0, 500)
+      : "";
+    super(detail ? `${message}: ${detail}` : message);
     
     if (bodyData) {
       this.body = bodyData.json;
@@ -193,10 +158,87 @@ function parseRetryAfter(retryAfter: string): number {
   return 0;
 }
 
-function createAbortError(): Error {
-  const abortError = new Error("The operation was aborted");
-  abortError.name = "AbortError";
-  return abortError;
+function toRequestInit(options: HttpResponseWithRetries): RequestInit {
+  const {
+    retries: _retries,
+    backoffMs: _backoffMs,
+    maxBackoffMs: _maxBackoffMs,
+    on400Error: _on400Error,
+    ...requestInit
+  } = options;
+
+  return requestInit;
+}
+
+function retryDelay(error: HttpRequestError, fallbackMs: number): number {
+  const retryAfter = error.response?.headers.get("retry-after");
+  if (!retryAfter) return fallbackMs;
+
+  const retryAfterMs = parseRetryAfter(retryAfter);
+  return retryAfterMs > 0 ? retryAfterMs : fallbackMs;
+}
+
+async function delay(ms: number, signal?: AbortSignal | null): Promise<void> {
+  if (signal?.aborted) throw createAbortError();
+
+  await new Promise<void>((resolve) => {
+    let timeout: ReturnType<typeof setTimeout>;
+
+    const onAbort = () => {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    };
+
+    signal?.addEventListener("abort", onAbort, { once: true });
+    timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+  });
+
+  if (signal?.aborted) throw createAbortError();
+}
+
+async function requestErrorFromResponse(
+  response: Response,
+  options: HttpResponseWithRetries,
+): Promise<HttpRequestError> {
+  const status = response.status;
+  const message = `HTTP error! status: ${status}`;
+
+  let responseForCallback = response;
+  let responseForBody = response;
+  try {
+    responseForCallback = response.clone();
+    responseForBody = response.clone();
+  } catch {
+    // Some streaming responses cannot be cloned.
+  }
+
+  const bodyData = await parseResponseBody(responseForBody);
+
+  if (status === 400 && options.on400Error) {
+    try {
+      const action = await options.on400Error(
+        responseForCallback,
+        new Error(message),
+        options,
+      );
+      return new HttpRequestError(message, response, action, bodyData);
+    } catch (error) {
+      if (error instanceof HttpRequestError) return error;
+      return new HttpRequestError(
+        message,
+        response,
+        { retry: false },
+        bodyData,
+      );
+    }
+  }
+
+  const retry = status === 429 || status >= 500;
+  return new HttpRequestError(message, response, { retry }, bodyData);
 }
 
 /**
@@ -217,160 +259,49 @@ export const httpRequestWithRetry = async (
   url: string | URL,
   options: HttpResponseWithRetries,
 ): Promise<Response> => {
-  if (options.signal?.aborted) {
-    throw createAbortError();
+  const retries = options.retries ?? 6;
+  const maxBackoffMs = options.maxBackoffMs ?? 3000;
+
+  if (!Number.isInteger(retries) || retries < 0) {
+    throw new RangeError("retries must be a non-negative integer");
   }
-  // Initialize defaults (mutates options object)
-  if (options.retries === undefined) {
-    options.retries = 6;
-  }
-  if (options.backoffMs === undefined) {
-    options.backoffMs = 100;
-  }
-  if (options.maxBackoffMs === undefined) {
-    options.maxBackoffMs = 3000;
+  if (!Number.isFinite(maxBackoffMs) || maxBackoffMs < 0) {
+    throw new RangeError("maxBackoffMs must be non-negative");
   }
 
-  // Track total attempts to prevent infinite loops when consumeRetry: false
-  // Initialize on first call only
-  if (options._maxTotalAttempts === undefined) {
-    options._maxTotalAttempts = (options.retries || 6) + 1; // Initial attempt + retries
-    options._attemptCount = 0;
+  const initialBackoffMs = options.backoffMs ?? 100;
+  if (!Number.isFinite(initialBackoffMs) || initialBackoffMs < 0) {
+    throw new RangeError("backoffMs must be non-negative");
   }
+  let backoffMs = Math.min(initialBackoffMs, maxBackoffMs);
 
-  // Increment attempt count (tracks total attempts, not just retries)
-  options._attemptCount = (options._attemptCount || 0) + 1;
+  const maxAttempts = retries + 1;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (options.signal?.aborted) throw createAbortError();
 
-  try {
-    const response = await httpRequest(url, options);
-    if (!response.ok) {
-      const status = response.status;
-      const error = new Error(`HTTP error! status: ${status}`);
-
-      // Parse response body once (body can only be read once)
-      // Clone response so on400Error can also read it if needed
-      let responseForCallback = response;
-      try {
-        responseForCallback = response.clone();
-      } catch {
-        // Clone failed (e.g., streaming response), use original
-      }
-      const bodyData = await parseResponseBody(response).catch(() => ({}));
-
-      // Handle 400 errors with custom callback
-      if (status === 400 && options.on400Error) {
-        try {
-          const action = await options.on400Error(responseForCallback, error, options);
-          throw new HttpRequestError(`HTTP error! status: ${status}`, response, action, bodyData);
-        } catch (customError) {
-          // If on400Error throws, don't retry
-          if (customError instanceof HttpRequestError) {
-            throw customError;
-          }
-          throw new HttpRequestError(`HTTP error! status: ${status}`, response, { retry: false }, bodyData);
-        }
-      }
-
-      // Default behavior based on status code
-      let retry = true;
-      // 429 (Too Many Requests) should be retried - rate limiting is usually temporary
-      // Other 4xx errors (client errors) are not retried, except if on400Error handled it above
-      // 5xx errors (server errors) are retried - they're usually transient
-      if (status >= 400 && status < 500 && status !== 429) {
-        retry = false;
-      }
-
-      throw new HttpRequestError(`HTTP error! status: ${status}`, response, { retry }, bodyData);
-    }
-    return response;
-  } catch (error) {
-    if ((error as any)?.name === "AbortError") {
-      throw error;
-    }
-    // Handle network errors (no Response object) - treat as retryable
-    if (!(error instanceof HttpRequestError)) {
-      // Network errors (timeout, DNS, connection refused, etc.) should be retried
-      throw new HttpRequestError(
-        error instanceof Error ? error.message : String(error),
-        null,
-        { retry: true }
-      );
+    let requestError: HttpRequestError;
+    try {
+      const response = await httpRequest(url, toRequestInit(options));
+      if (response.ok) return response;
+      requestError = await requestErrorFromResponse(response, options);
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      requestError = error instanceof HttpRequestError
+        ? error
+        : new HttpRequestError(
+            error instanceof Error ? error.message : String(error),
+            null,
+            { retry: true },
+          );
     }
 
-    if (error instanceof HttpRequestError) {
-      if (error.action.retry) {
-        // Prevent infinite retry loops (attemptCount already incremented above)
-        if (options._attemptCount! >= options._maxTotalAttempts!) {
-          throw error;
-        }
-
-        // Check if we have retries left (for consumeRetry: true case)
-        if (options.retries <= 0 && error.action.consumeRetry !== false) {
-          throw error;
-        }
-
-        // Default consumeRetry to true when retry is true
-        // Only skip consuming if explicitly set to false
-        if (error.action.consumeRetry !== false) {
-          options.retries -= 1;
-        }
-
-        // Check for Retry-After header (429, 503 responses may include this)
-        let delayMs: number;
-        const targetBackoffMs = Math.min(options.backoffMs * 2, options.maxBackoffMs);
-        
-        if (error.response) {
-          const retryAfter = error.response.headers.get('retry-after');
-          if (retryAfter) {
-            const retryAfterMs = parseRetryAfter(retryAfter);
-            // Use Retry-After if valid (> 0), otherwise fall back to exponential backoff
-            delayMs = retryAfterMs > 0 ? retryAfterMs : targetBackoffMs;
-          } else {
-            // Use exponential backoff if no Retry-After header
-            delayMs = targetBackoffMs;
-          }
-        } else {
-          // No response (network error), use exponential backoff
-          delayMs = targetBackoffMs;
-        }
-
-        // Update backoff for next retry (only if not using Retry-After or Retry-After was invalid)
-        if (delayMs === targetBackoffMs) {
-          options.backoffMs = targetBackoffMs;
-        }
-
-        await new Promise((resolve) => {
-          let timeout: ReturnType<typeof setTimeout> | undefined;
-          let onAbort: (() => void) | undefined;
-          if (options.signal) {
-            onAbort = () => {
-              if (timeout !== undefined) {
-                clearTimeout(timeout);
-              }
-              options.signal?.removeEventListener("abort", onAbort!);
-              resolve(null);
-            };
-            if (options.signal.aborted) {
-              options.signal.removeEventListener("abort", onAbort);
-              resolve(null);
-              return;
-            }
-            options.signal.addEventListener("abort", onAbort, { once: true });
-          }
-          timeout = setTimeout(() => {
-            if (options.signal && onAbort) {
-              options.signal.removeEventListener("abort", onAbort);
-            }
-            resolve(null);
-          }, delayMs);
-        });
-        if (options.signal?.aborted) {
-          throw createAbortError();
-        }
-        return httpRequestWithRetry(url, options);
-      }
+    if (!requestError.action.retry || attempt === maxAttempts) {
+      throw requestError;
     }
 
-    throw error;
+    await delay(retryDelay(requestError, backoffMs), options.signal);
+    backoffMs = Math.min(backoffMs * 2, maxBackoffMs);
   }
+
+  throw new Error("Unreachable retry state");
 };

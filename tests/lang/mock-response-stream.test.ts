@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { LangMessages } from "../../src/lang/messages.ts";
 import { MockResponseStreamLang } from "../../src/lang/mock/mock-response-stream-lang.ts";
 import { MockOpenAILikeLang } from "../../src/lang/mock/mock-openai-like-lang.ts";
 
@@ -102,6 +103,36 @@ describe("MockResponseStreamLang", () => {
     expect(streamed[streamed.length - 1]).toBe("Hello from default callback");
   });
 
+  it("executes handlers for configured OpenAI-like mock tool calls", async () => {
+    const lang = new MockOpenAILikeLang({
+      mockToolCalls: [{
+        name: "double",
+        argumentsChunks: ['{"value":', "21}"],
+      }],
+    });
+    const messages = new LangMessages("Double 21", {
+      tools: [{
+        name: "double",
+        description: "Double a number",
+        parameters: {
+          type: "object",
+          properties: { value: { type: "number" } },
+          required: ["value"],
+        },
+        handler: ({ value }) => value * 2,
+      }],
+    });
+
+    const result = await lang.chat(messages);
+
+    expect(result[result.length - 1].toolResults).toEqual([{
+      type: "tool-result",
+      name: "double",
+      callId: "call_0",
+      result: 42,
+    }]);
+  });
+
   it("rotates through preset messages when no explicit message provided", async () => {
     const presets = ["tiny", "smaller", "little"];
     const lang = new MockResponseStreamLang({
@@ -116,6 +147,18 @@ describe("MockResponseStreamLang", () => {
     expect(first.answer).toBe("tiny");
     expect(second.answer).toBe("smaller");
     expect(third.answer).toBe("little");
+  });
+
+  it("resets stale request state when continuing a conversation", async () => {
+    const messages = new LangMessages("Continue");
+    messages.finished = true;
+    messages.aborted = true;
+    const lang = new MockResponseStreamLang({ message: "Continued" });
+
+    const result = await lang.chat(messages);
+
+    expect(result.finished).toBe(true);
+    expect(result.aborted).toBe(false);
   });
 
   it("supports aborting mid-stream via signal", async () => {
