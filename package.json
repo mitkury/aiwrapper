@@ -2,7 +2,7 @@
   "type": "module",
   "name": "aiwrapper",
   "description": "A Universal AI Wrapper for JavaScript & TypeScript",
-  "version": "3.0.5",
+  "version": "4.0.0",
   "author": "Dmitry Kury (https://dkury.com)",
   "license": "MIT",
   "repository": {
@@ -76,7 +76,7 @@
     "aimodels:status": "./scripts/aimodels-status.sh"
   },
   "dependencies": {
-    "aimodels": "^0.6.1",
+    "aimodels": "^0.7.0",
     "ajv": "^8.17.1",
     "jsonic": "^2.16.0",
     "ws": "^8.21.3",
