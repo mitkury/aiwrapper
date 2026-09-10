@@ -5,13 +5,15 @@
 		openai: boolean;
 		elevenlabs: boolean;
 		elevenLabsVoiceId: string;
+		openaiVoice: string;
 	};
 	type Phase = 'idle' | 'recording' | 'transcribing' | 'speaking';
 
 	let config = $state<ProviderConfig>({
 		openai: false,
 		elevenlabs: false,
-		elevenLabsVoiceId: ''
+		elevenLabsVoiceId: '',
+		openaiVoice: 'coral'
 	});
 	let phase = $state<Phase>('idle');
 	let transcript = $state('');
@@ -48,6 +50,7 @@
 			const response = await fetch('/api/speech/config');
 			if (!response.ok) throw new Error('Could not load speech configuration');
 			config = (await response.json()) as ProviderConfig;
+			voice = config.openaiVoice;
 			if (!config.openai && config.elevenlabs) {
 				ttsProvider = 'elevenlabs';
 				voice = config.elevenLabsVoiceId;
@@ -267,7 +270,7 @@
 
 	function selectProvider(provider: 'openai' | 'elevenlabs') {
 		ttsProvider = provider;
-		voice = provider === 'elevenlabs' ? config.elevenLabsVoiceId : 'coral';
+		voice = provider === 'elevenlabs' ? config.elevenLabsVoiceId : config.openaiVoice;
 	}
 </script>
 
@@ -371,7 +374,7 @@
 					onclick={speak}
 					disabled={!transcript.trim() ||
 						phase !== 'idle' ||
-						(ttsProvider === 'openai' ? !config.openai : !config.elevenlabs)}
+						(ttsProvider === 'openai' ? !config.openai : !config.elevenlabs || !voice.trim())}
 					class="rounded-full bg-neutral-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40"
 				>
 					{phase === 'speaking' ? 'Generating…' : 'Generate & play'}
@@ -392,7 +395,7 @@
 
 		<p class="mt-4 text-xs leading-relaxed text-neutral-500">
 			Keys stay on the SvelteKit server. Add <code>OPENAI_API_KEY</code>,
-			<code>ELEVENLABS_API_KEY</code>, and <code>ELEVENLABS_VOICE_ID</code> to the repository
+			<code>ELEVENLABS_API_KEY</code>, and an optional <code>ELEVENLABS_VOICE_ID</code> to the repository
 			<code>.env</code>. The development server reloads automatically when it changes.
 		</p>
 	</main>

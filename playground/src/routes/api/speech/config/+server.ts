@@ -1,18 +1,19 @@
 import { env } from '$env/dynamic/private';
 import { json } from '@sveltejs/kit';
-import { realtimeLanguageConfig } from '$lib/server/realtime-language';
+import { languageConfig } from '$lib/server/language';
 
 export function GET() {
-	const openaiConfigured = Boolean(env.OPENAI_API_KEY);
-	const deepgramConfigured = Boolean(env.DEEPGRAM_API_KEY);
-	const elevenLabsConfigured = Boolean(env.ELEVENLABS_API_KEY);
+	const openaiConfigured = Boolean(env.OPENAI_API_KEY?.trim());
+	const deepgramConfigured = Boolean(env.DEEPGRAM_API_KEY?.trim());
+	const elevenLabsConfigured = Boolean(env.ELEVENLABS_API_KEY?.trim());
 	const elevenLabsVoiceId = env.ELEVENLABS_VOICE_ID?.trim() ?? '';
 	return json({
-		// Keep the original fields for the standalone speech playground.
+		// Availability is shared by the Voice and Realtime pages.
 		openai: openaiConfigured,
-		elevenlabs: elevenLabsConfigured && Boolean(elevenLabsVoiceId),
+		elevenlabs: elevenLabsConfigured,
 		elevenLabsVoiceId,
-		llm: realtimeLanguageConfig(),
+		openaiVoice: env.OPENAI_TTS_VOICE?.trim() || 'coral',
+		llm: languageConfig(),
 		stt: {
 			openai: {
 				configured: openaiConfigured,

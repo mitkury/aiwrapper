@@ -13,8 +13,8 @@ import type {
 	RealtimeServerPacket,
 	RealtimeSessionConfig
 } from '$lib/realtime/realtime-session-protocol';
-import { createRealtimeLanguageProvider } from './realtime-language';
-import { createRealtimeSpeechToText, createRealtimeTextToSpeech } from './realtime-speech';
+import { createServerLanguageProvider } from './language';
+import { createRealtimeSpeechToText, createTextToSpeech } from './realtime-speech';
 
 type RealtimeAgentRecord = {
 	id: string;
@@ -43,10 +43,12 @@ export async function createRealtimeAgentSession(
 	const id = crypto.randomUUID();
 	const listeners = new Set<(packet: RealtimeServerPacket) => void>();
 	const agent = new RealtimeAgent(
-		createRealtimeLanguageProvider(config.llm.provider, config.llm.model),
+		createServerLanguageProvider(config.llm.provider, config.llm.model, {
+			optimizeForLatency: true
+		}),
 		{
 			speechToText: createRealtimeSpeechToText(config.stt),
-			textToSpeech: createRealtimeTextToSpeech(config.tts),
+			textToSpeech: createTextToSpeech(config.tts),
 			instructions:
 				'You are a concise realtime voice assistant. Reply in the language of the latest user utterance. Use the latest camera image when it helps answer the user. Prefer short spoken responses.',
 			tools,

@@ -39,7 +39,7 @@ export function createRealtimeSpeechToText(config: RealtimeSessionConfig['stt'])
 	});
 }
 
-export function createRealtimeTextToSpeech(config: RealtimeSessionConfig['tts']) {
+export function createTextToSpeech(config: RealtimeSessionConfig['tts']) {
 	if (config.provider === 'elevenlabs') {
 		if (!env.ELEVENLABS_API_KEY) throw new Error('ELEVENLABS_API_KEY is not configured');
 		const voiceId = config.voice || env.ELEVENLABS_VOICE_ID;

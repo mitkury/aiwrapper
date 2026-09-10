@@ -3,13 +3,13 @@ import type { RequestHandler } from './$types';
 import { isProviderId } from '$lib/provider-config';
 import type { RealtimeSessionConfig } from '$lib/realtime/realtime-session-protocol';
 import { createRealtimeAgentSession } from '$lib/server/realtime-agent-sessions';
-import { realtimeLanguageConfig } from '$lib/server/realtime-language';
+import { languageConfig } from '$lib/server/language';
 
 export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const body = await request.json();
 		const config = parseConfig(body);
-		if (!realtimeLanguageConfig()[config.llm.provider].configured) {
+		if (!languageConfig()[config.llm.provider].configured) {
 			return json(
 				{ error: `${config.llm.provider} is not configured in the server environment` },
 				{ status: 503 }

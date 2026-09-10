@@ -28,129 +28,108 @@ export type ProviderId =
 export type ProviderConfig = {
 	id: ProviderId;
 	label: string;
-	apiKeyStorageKey?: string;
-	apiKeyLabel?: string;
-	apiKeyPlaceholder?: string;
+	apiKeyEnvironmentKey?: string;
 	apiKeyRequired: boolean;
 	modelStorageKey: string;
 	defaultModel: string;
 	catalogProviderId?: string;
-	baseURLStorageKey?: string;
+	baseURLEnvironmentKey?: string;
 	defaultBaseURL?: string;
-	baseURLLabel?: string;
 	supportsOpenAIBuiltInTools?: boolean;
 };
 
+// Deliberate playground defaults, independent of catalog ordering and library defaults.
+// Reviewed September 2026; see playground/README.md for sources and override precedence.
 export const providerConfigs: ProviderConfig[] = [
 	{
 		id: 'openai',
 		label: 'OpenAI',
-		apiKeyStorageKey: 'OPENAI_API_SECRET',
-		apiKeyLabel: 'OpenAI API key',
-		apiKeyPlaceholder: 'sk-...',
+		apiKeyEnvironmentKey: 'OPENAI_API_KEY',
 		apiKeyRequired: true,
 		modelStorageKey: 'OPENAI_MODEL',
-		defaultModel: 'gpt-5.4',
+		defaultModel: 'gpt-5.6-sol',
 		catalogProviderId: 'openai',
 		supportsOpenAIBuiltInTools: true
 	},
 	{
 		id: 'anthropic',
 		label: 'Anthropic',
-		apiKeyStorageKey: 'ANTHROPIC_API_SECRET',
-		apiKeyLabel: 'Anthropic API key',
-		apiKeyPlaceholder: 'sk-ant-...',
+		apiKeyEnvironmentKey: 'ANTHROPIC_API_KEY',
 		apiKeyRequired: true,
 		modelStorageKey: 'ANTHROPIC_MODEL',
-		defaultModel: 'claude-sonnet-4-6',
+		defaultModel: 'claude-sonnet-5',
 		catalogProviderId: 'anthropic'
 	},
 	{
 		id: 'google',
 		label: 'Google Gemini',
-		apiKeyStorageKey: 'GOOGLE_API_SECRET',
-		apiKeyLabel: 'Google AI API key',
-		apiKeyPlaceholder: 'AIza...',
+		apiKeyEnvironmentKey: 'GOOGLE_API_KEY',
 		apiKeyRequired: true,
 		modelStorageKey: 'GOOGLE_MODEL',
-		defaultModel: 'gemini-2.5-pro',
+		defaultModel: 'gemini-3.8-flash',
 		catalogProviderId: 'google'
 	},
 	{
 		id: 'groq',
 		label: 'Groq',
-		apiKeyStorageKey: 'GROQ_API_SECRET',
-		apiKeyLabel: 'Groq API key',
-		apiKeyPlaceholder: 'gsk_...',
+		apiKeyEnvironmentKey: 'GROQ_API_KEY',
 		apiKeyRequired: true,
 		modelStorageKey: 'GROQ_MODEL',
-		defaultModel: 'llama3-70b-8192',
+		defaultModel: 'gpt-oss-120b',
 		catalogProviderId: 'groq'
 	},
 	{
 		id: 'deepseek',
 		label: 'DeepSeek',
-		apiKeyStorageKey: 'DEEPSEEK_API_SECRET',
-		apiKeyLabel: 'DeepSeek API key',
-		apiKeyPlaceholder: 'sk-...',
+		apiKeyEnvironmentKey: 'DEEPSEEK_API_KEY',
 		apiKeyRequired: true,
 		modelStorageKey: 'DEEPSEEK_MODEL',
-		defaultModel: 'deepseek-chat',
+		defaultModel: 'deepseek-flash',
 		catalogProviderId: 'deepseek'
 	},
 	{
 		id: 'kimi',
 		label: 'Kimi',
-		apiKeyStorageKey: 'KIMI_API_SECRET',
-		apiKeyLabel: 'Kimi API key',
-		apiKeyPlaceholder: 'sk-...',
+		apiKeyEnvironmentKey: 'KIMI_API_KEY',
 		apiKeyRequired: true,
 		modelStorageKey: 'KIMI_MODEL',
-		defaultModel: 'kimi-k2.5',
+		defaultModel: 'kimi-k3',
 		catalogProviderId: 'kimi'
 	},
 	{
 		id: 'xai',
 		label: 'xAI',
-		apiKeyStorageKey: 'XAI_API_SECRET',
-		apiKeyLabel: 'xAI API key',
-		apiKeyPlaceholder: 'xai-...',
+		apiKeyEnvironmentKey: 'XAI_API_KEY',
 		apiKeyRequired: true,
 		modelStorageKey: 'XAI_MODEL',
-		defaultModel: 'grok-2',
+		defaultModel: 'grok-4.6',
 		catalogProviderId: 'xai'
 	},
 	{
 		id: 'cohere',
 		label: 'Cohere',
-		apiKeyStorageKey: 'COHERE_API_SECRET',
-		apiKeyLabel: 'Cohere API key',
-		apiKeyPlaceholder: '...',
+		apiKeyEnvironmentKey: 'COHERE_API_KEY',
 		apiKeyRequired: true,
 		modelStorageKey: 'COHERE_MODEL',
-		defaultModel: 'command-r-plus-08-2024',
+		defaultModel: 'command-a-plus-05-2026',
 		catalogProviderId: 'cohere'
 	},
 	{
 		id: 'mistral',
 		label: 'Mistral',
-		apiKeyStorageKey: 'MISTRAL_API_SECRET',
-		apiKeyLabel: 'Mistral API key',
-		apiKeyPlaceholder: '...',
+		apiKeyEnvironmentKey: 'MISTRAL_API_KEY',
 		apiKeyRequired: true,
 		modelStorageKey: 'MISTRAL_MODEL',
-		defaultModel: 'mistral-large-latest',
+		defaultModel: 'mistral-medium-3-5',
 		catalogProviderId: 'mistral'
 	},
 	{
 		id: 'openrouter',
 		label: 'OpenRouter',
-		apiKeyStorageKey: 'OPENROUTER_API_SECRET',
-		apiKeyLabel: 'OpenRouter API key',
-		apiKeyPlaceholder: 'sk-or-v1-...',
+		apiKeyEnvironmentKey: 'OPENROUTER_API_KEY',
 		apiKeyRequired: true,
 		modelStorageKey: 'OPENROUTER_MODEL',
-		defaultModel: 'gpt-5-mini',
+		defaultModel: 'gpt-5.6-sol',
 		catalogProviderId: 'openrouter'
 	},
 	{
@@ -158,24 +137,20 @@ export const providerConfigs: ProviderConfig[] = [
 		label: 'Ollama',
 		apiKeyRequired: false,
 		modelStorageKey: 'OLLAMA_MODEL',
-		defaultModel: 'llama2:latest',
+		defaultModel: 'qwen3.5:4b',
 		catalogProviderId: 'ollama',
-		baseURLStorageKey: 'OLLAMA_BASE_URL',
-		defaultBaseURL: 'http://localhost:11434',
-		baseURLLabel: 'Ollama URL'
+		baseURLEnvironmentKey: 'OLLAMA_BASE_URL',
+		defaultBaseURL: 'http://localhost:11434'
 	},
 	{
 		id: 'openai-compatible',
 		label: 'OpenAI-compatible',
-		apiKeyStorageKey: 'OPENAI_COMPATIBLE_API_SECRET',
-		apiKeyLabel: 'API key (optional)',
-		apiKeyPlaceholder: 'API key',
+		apiKeyEnvironmentKey: 'OPENAI_COMPATIBLE_API_KEY',
 		apiKeyRequired: false,
 		modelStorageKey: 'OPENAI_COMPATIBLE_MODEL',
 		defaultModel: '',
-		baseURLStorageKey: 'OPENAI_COMPATIBLE_BASE_URL',
-		defaultBaseURL: '',
-		baseURLLabel: 'Base URL'
+		baseURLEnvironmentKey: 'OPENAI_COMPATIBLE_BASE_URL',
+		defaultBaseURL: ''
 	}
 ];
 
@@ -196,8 +171,12 @@ export function getSelectedProviderId(values: Record<string, string>): ProviderI
 	return isProviderId(providerId) ? providerId : 'openai';
 }
 
-export function getProviderModel(provider: ProviderConfig, values: Record<string, string>): string {
-	const storedModel = values[provider.modelStorageKey]?.trim() || provider.defaultModel;
+export function getProviderModel(
+	provider: ProviderConfig,
+	values: Record<string, string>,
+	defaultModel = provider.defaultModel
+): string {
+	const storedModel = values[provider.modelStorageKey]?.trim() || defaultModel;
 	if (!storedModel || !provider.catalogProviderId) return storedModel;
 
 	const modelFromProviderId = providerAwareModels.fromProviderId?.(
@@ -263,25 +242,8 @@ export function getProviderBaseURL(
 	provider: ProviderConfig,
 	values: Record<string, string>
 ): string {
-	if (!provider.baseURLStorageKey) return '';
-	return values[provider.baseURLStorageKey]?.trim() || provider.defaultBaseURL || '';
-}
-
-export function isProviderConfigured(
-	provider: ProviderConfig,
-	values: Record<string, string>
-): boolean {
-	if (
-		provider.apiKeyRequired &&
-		(!provider.apiKeyStorageKey || !values[provider.apiKeyStorageKey]?.trim())
-	) {
-		return false;
-	}
-
-	if (!getProviderModel(provider, values)) return false;
-	if (provider.baseURLStorageKey && !getProviderBaseURL(provider, values)) return false;
-
-	return true;
+	if (!provider.baseURLEnvironmentKey) return '';
+	return values[provider.baseURLEnvironmentKey]?.trim() || provider.defaultBaseURL || '';
 }
 
 export function createLanguageProvider(
@@ -290,7 +252,9 @@ export function createLanguageProvider(
 	options: { optimizeForLatency?: boolean } = {}
 ): LanguageProvider {
 	const provider = getProviderConfig(providerId);
-	const apiKey = provider.apiKeyStorageKey ? values[provider.apiKeyStorageKey]?.trim() || '' : '';
+	const apiKey = provider.apiKeyEnvironmentKey
+		? values[provider.apiKeyEnvironmentKey]?.trim() || ''
+		: '';
 	const model = getModelIdForProvider(provider, getProviderModel(provider, values));
 	const maxTokens = options.optimizeForLatency ? 256 : undefined;
 
@@ -310,7 +274,9 @@ export function createLanguageProvider(
 				apiKey,
 				model,
 				maxTokens,
-				extendedThinking: options.optimizeForLatency ? false : undefined
+				defaultOptions: options.optimizeForLatency
+					? { providerSpecificBody: { thinking: { type: 'disabled' } } }
+					: undefined
 			});
 		case 'google':
 			return Lang.google({ apiKey, model, maxTokens });
@@ -323,7 +289,14 @@ export function createLanguageProvider(
 				includeReasoning: options.optimizeForLatency ? false : undefined
 			});
 		case 'deepseek':
-			return Lang.deepseek({ apiKey, model, maxTokens });
+			return Lang.deepseek({
+				apiKey,
+				model,
+				maxTokens,
+				defaultOptions: options.optimizeForLatency
+					? { providerSpecificBody: { thinking: { type: 'disabled' } } }
+					: undefined
+			});
 		case 'kimi':
 			return Lang.kimi({
 				apiKey,

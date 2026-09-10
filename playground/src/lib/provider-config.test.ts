@@ -15,6 +15,52 @@ afterEach(() => {
 describe('chat provider configuration', () => {
 	const openRouter = getProviderConfig('openrouter');
 
+	it('keeps explicit model selections and restores the server default when cleared', () => {
+		const provider = getProviderConfig('openai');
+		expect(getProviderModel(provider, { OPENAI_MODEL: 'gpt-5.4' }, 'gpt-5.6-sol')).toBe('gpt-5.4');
+		expect(getProviderModel(provider, { OPENAI_MODEL: '' }, 'gpt-5.4-mini')).toBe('gpt-5.4-mini');
+		expect(getProviderModel(provider, {}, 'gpt-5.4-mini')).toBe('gpt-5.4-mini');
+	});
+
+	it('sends the Groq default with its required API prefix', async () => {
+		let requestBody: Record<string, unknown> | undefined;
+		setHttpRequestImpl(async (_url, options) => {
+			requestBody = JSON.parse(String(options.body));
+			return streamingTextResponse('Ready.');
+		});
+		await createLanguageProvider(
+			'groq',
+			{ GROQ_API_KEY: 'test-key' },
+			{ optimizeForLatency: true }
+		).ask('Hi');
+		expect(requestBody).toMatchObject({
+			model: 'openai/gpt-oss-120b',
+			reasoning_effort: 'low',
+			include_reasoning: false
+		});
+	});
+
+	it.each(['anthropic', 'deepseek'] as const)(
+		'explicitly disables default thinking for realtime %s',
+		async (id) => {
+			const provider = getProviderConfig(id);
+			let requestBody: Record<string, unknown> | undefined;
+			setHttpRequestImpl(async (_url, options) => {
+				requestBody = JSON.parse(String(options.body));
+				return id === 'anthropic'
+					? new Response('event: message_stop\ndata: {"type":"message_stop"}\n\n')
+					: streamingTextResponse('Ready.');
+			});
+			await createLanguageProvider(
+				id,
+				{ [provider.apiKeyEnvironmentKey!]: 'test-key' },
+				{ optimizeForLatency: true }
+			).ask('Hi');
+			expect(requestBody).toMatchObject({ thinking: { type: 'disabled' }, max_tokens: 256 });
+			expect(requestBody).not.toHaveProperty('temperature');
+		}
+	);
+
 	it('only offers catalog models exposed by OpenRouter', () => {
 		const providerModels = getProviderModels(openRouter);
 
@@ -59,7 +105,7 @@ describe('chat provider configuration', () => {
 
 		const language = createLanguageProvider(
 			'kimi',
-			{ KIMI_API_SECRET: 'test-key', KIMI_MODEL: 'kimi-k2.5' },
+			{ KIMI_API_KEY: 'test-key', KIMI_MODEL: 'kimi-k2.5' },
 			{ optimizeForLatency: true }
 		);
 		await language.ask('Hello');
@@ -80,7 +126,7 @@ describe('chat provider configuration', () => {
 
 		const language = createLanguageProvider(
 			'openrouter',
-			{ OPENROUTER_API_SECRET: 'test-key', OPENROUTER_MODEL: 'gpt-5-mini' },
+			{ OPENROUTER_API_KEY: 'test-key', OPENROUTER_MODEL: 'gpt-5-mini' },
 			{ optimizeForLatency: true }
 		);
 		await language.ask('Hello');
@@ -98,10 +144,13 @@ function streamingTextResponse(text: string): Response {
 		{ choices: [{ delta: { role: 'assistant' } }] },
 		{ choices: [{ delta: { content: text } }] }
 	];
-	return new Response(`${events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('')}data: [DONE]\n\n`, {
-		status: 200,
-		headers: { 'Content-Type': 'text/event-stream' }
-	});
+	return new Response(
+		`${events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('')}data: [DONE]\n\n`,
+		{
+			status: 200,
+			headers: { 'Content-Type': 'text/event-stream' }
+		}
+	);
 }
 
 function expectedOpenRouterId(model: Model | undefined): string | undefined {

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getSecrets } from '$lib/secretsContext.svelte';
+	import { getProviderPreferences } from '$lib/provider-settings.svelte';
 	import {
 		getProviderConfig,
 		getProviderModel,
@@ -17,7 +17,7 @@
 	} from '$lib/realtime/remote-realtime-session';
 
 	type SpeechConfig = {
-		llm: Record<ProviderId, { configured: boolean; environmentKey?: string }>;
+		llm: Record<ProviderId, { configured: boolean; environmentKey?: string; model?: string }>;
 		stt: {
 			openai: { configured: boolean; model: string };
 			deepgram: { configured: boolean; model: string };
@@ -46,7 +46,7 @@
 		tone: 'stt' | 'input' | 'llm' | 'tts' | 'finish';
 	};
 
-	const secrets = getSecrets();
+	const settings = getProviderPreferences();
 	let speechConfig = $state<SpeechConfig>({
 		llm: Object.fromEntries(
 			providerConfigs.map((provider) => [provider.id, { configured: false }])
@@ -188,11 +188,15 @@
 	);
 
 	$effect(() => {
-		const providerId = getSelectedProviderId(secrets.values);
+		const providerId = getSelectedProviderId(settings.values);
 		const provider = getProviderConfig(providerId);
 		llmProviderId = providerId;
 		providerName = provider.label;
-		modelName = getProviderModel(provider, secrets.values);
+		modelName = getProviderModel(
+			provider,
+			settings.values,
+			speechConfig.llm[providerId].model || provider.defaultModel
+		);
 	});
 
 	onMount(() => {
@@ -207,14 +211,14 @@
 			const response = await fetch('/api/speech/config');
 			if (!response.ok) throw new Error('Could not load speech configuration');
 			speechConfig = (await response.json()) as SpeechConfig;
-			const selectedProvider = getSelectedProviderId(secrets.values);
+			const selectedProvider = getSelectedProviderId(settings.values);
 			if (!speechConfig.llm[selectedProvider]?.configured) {
 				const availableProvider = providerConfigs.find(
 					(provider) => speechConfig.llm[provider.id]?.configured
 				);
 				if (availableProvider) selectLlmProvider(availableProvider.id);
 			}
-			const savedSttProvider = secrets.values.REALTIME_STT_PROVIDER;
+			const savedSttProvider = settings.values.REALTIME_STT_PROVIDER;
 			const preferredSttProvider: SttProvider = isSttProvider(savedSttProvider)
 				? savedSttProvider
 				: speechConfig.stt.openai.configured
@@ -224,7 +228,7 @@
 						: 'elevenlabs';
 			applySttProvider(preferredSttProvider, false);
 
-			const savedTtsProvider = secrets.values.REALTIME_TTS_PROVIDER;
+			const savedTtsProvider = settings.values.REALTIME_TTS_PROVIDER;
 			const preferredTtsProvider: TtsProvider =
 				savedTtsProvider === 'elevenlabs' || savedTtsProvider === 'openai'
 					? savedTtsProvider
@@ -426,12 +430,12 @@
 	}
 
 	function selectLlmProvider(provider: ProviderId) {
-		secrets.setSecrets({ ...secrets.values, LLM_PROVIDER: provider });
+		settings.setProviderPreferences({ ...settings.values, LLM_PROVIDER: provider });
 	}
 
 	function selectLlmModel(model: string) {
-		secrets.setSecrets({
-			...secrets.values,
+		settings.setProviderPreferences({
+			...settings.values,
 			[llmProviderConfig.modelStorageKey]: model.trim()
 		});
 	}
@@ -448,7 +452,7 @@
 	function applySttProvider(provider: SttProvider, persist: boolean) {
 		sttProvider = provider;
 		sttModel =
-			secrets.values[`REALTIME_${provider.toUpperCase()}_STT_MODEL`]?.trim() ||
+			settings.values[`REALTIME_${provider.toUpperCase()}_STT_MODEL`]?.trim() ||
 			speechConfig.stt[provider].model;
 		if (persist) saveRealtimeSetting('REALTIME_STT_PROVIDER', provider);
 	}
@@ -462,8 +466,8 @@
 		ttsProvider = provider;
 		const prefix = provider === 'elevenlabs' ? 'ELEVENLABS' : 'OPENAI';
 		const providerConfig = speechConfig.tts[provider];
-		ttsModel = secrets.values[`REALTIME_${prefix}_TTS_MODEL`]?.trim() || providerConfig.model;
-		voice = secrets.values[`REALTIME_${prefix}_TTS_VOICE`]?.trim() || providerConfig.voice;
+		ttsModel = settings.values[`REALTIME_${prefix}_TTS_MODEL`]?.trim() || providerConfig.model;
+		voice = settings.values[`REALTIME_${prefix}_TTS_VOICE`]?.trim() || providerConfig.voice;
 		if (persist) saveRealtimeSetting('REALTIME_TTS_PROVIDER', provider);
 	}
 
@@ -480,7 +484,7 @@
 	}
 
 	function saveRealtimeSetting(key: string, value: string) {
-		secrets.setSecrets({ ...secrets.values, [key]: value.trim() });
+		settings.setProviderPreferences({ ...settings.values, [key]: value.trim() });
 	}
 
 	async function loadElevenLabsVoices() {
@@ -717,6 +721,12 @@
 					<label
 						for="realtime-llm-model"
 						class="mt-3 block text-[11px] font-medium text-neutral-500">Model</label
+					>
+					<button
+						type="button"
+						class="mt-1 text-xs text-neutral-500 underline"
+						onclick={() => selectLlmModel('')}
+						disabled={phase !== 'disconnected'}>Use default model</button
 					>
 					{#if llmModels.length}
 						<select

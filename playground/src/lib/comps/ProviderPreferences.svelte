@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { onMount, type Snippet } from 'svelte';
-	import { getSecrets } from '$lib/secretsContext.svelte';
+	import { getProviderPreferences } from '$lib/provider-settings.svelte';
 
-	const secrets = getSecrets();
+	const settings = getProviderPreferences();
 
 	const { children }: { children: Snippet } = $props();
 
 	onMount(() => {
-		secrets.loadSecrets();
+		settings.loadProviderPreferences();
 	});
 </script>
 

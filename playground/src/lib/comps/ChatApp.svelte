@@ -1,13 +1,13 @@
 <script lang="ts">
-	import { LangMessage, ChatAgent, type LangTool, LangMessages } from 'aiwrapper';
+	import { LangMessage, LangMessages } from 'aiwrapper';
 	import ChatInput from './ChatInput.svelte';
 	import ChatMessages from './ChatMessages.svelte';
 	import ChatMessagesJson from './ChatMessagesJson.svelte';
-	import SecretsSetup from './SecretsSetup.svelte';
+	import ProviderSettings from './ProviderSettings.svelte';
 	import Button from './Button.svelte';
 	import ErrorDisplay from './ErrorDisplay.svelte';
 	import { onMount } from 'svelte';
-	import { getSecrets } from '$lib/secretsContext.svelte';
+	import { getProviderPreferences } from '$lib/provider-settings.svelte';
 	import {
 		clearStoredMessages,
 		ensurePersistentStorage,
@@ -16,16 +16,20 @@
 		type StoredMessage
 	} from '$lib/storage/messages-store';
 	import {
-		createLanguageProvider,
+		getProviderModel,
 		getProviderConfig,
 		getSelectedProviderId,
-		isProviderConfigured
+		type ProviderId
 	} from '$lib/provider-config';
 
-	const tools: LangTool[] = $state([{ name: 'web_search' }, { name: 'image_generation' }]);
+	import { runChat } from '$lib/chat';
 
-	const agent = new ChatAgent();
-	agent.messages.availableTools = tools;
+	let {
+		providers
+	}: {
+		providers: Record<ProviderId, { configured: boolean; environmentKey?: string; model: string }>;
+	} = $props();
+
 	let agentIsRunning = $state(false);
 	let messages: LangMessage[] = $state([]);
 	type Mode = 'chat' | 'inspect' | 'json';
@@ -52,70 +56,57 @@
 	let tryAgain = $state(false);
 
 	onMount(() => {
-		const sub = agent.subscribe((event) => {
-			if (event.type === 'state') {
-				agentIsRunning = event.state === 'running';
-			}
-
-			if (event.type === 'error') {
-				error = event.error;
-			}
-
-			syncMessagesFromAgent();
-
-			if (event.type === 'state' && event.state === 'idle') {
-				void persistMessages();
-			}
-		});
-
 		void initializeStorage();
-
-		return () => sub();
+		return () => abortController?.abort();
 	});
 
-	const secrets = getSecrets();
+	const settings = getProviderPreferences();
 
 	$effect(() => {
-		const providerId = getSelectedProviderId(secrets.values);
+		const providerId = getSelectedProviderId(settings.values);
 		const provider = getProviderConfig(providerId);
 		providerName = provider.label;
-		providerReady = isProviderConfigured(provider, secrets.values);
-		agent.messages.availableTools = provider.supportsOpenAIBuiltInTools ? tools : [];
-
-		if (!providerReady) {
-			return;
-		}
-
-		try {
-			agent.setLanguageProvider(createLanguageProvider(providerId, secrets.values));
-		} catch (providerError) {
-			console.error('Could not configure language provider', providerError);
-			providerReady = false;
-		}
+		providerReady = providers[providerId].configured && Boolean(selectedModel());
 	});
 
-	async function handleSubmit(message: string) {
-		error = undefined; // Clear any previous error
-		if (!providerReady) {
-			error = new Error(`Finish the ${providerName} settings before sending a message.`);
-			return;
-		}
+	function selectedModel() {
+		const id = getSelectedProviderId(settings.values);
+		const provider = getProviderConfig(id);
+		return getProviderModel(provider, settings.values, providers[id].model);
+	}
 
-		agent.messages.addUserMessage(message);
-		abortController?.abort();
+	async function handleSubmit(message: string) {
+		if (agentIsRunning || !providerReady) return;
+		messages = [...messages, new LangMessage('user', message)];
+		await generateResponse();
+	}
+
+	async function generateResponse() {
+		if (agentIsRunning || !providerReady) return;
+		error = undefined;
+		tryAgain = false;
 		const controller = new AbortController();
 		abortController = controller;
-
+		agentIsRunning = true;
 		try {
-			await agent.run(undefined, { signal: controller.signal });
+			await runChat(
+				getSelectedProviderId(settings.values),
+				selectedModel(),
+				messages,
+				(event) => {
+					if (abortController === controller)
+						messages = Array.from(new LangMessages(event.messages));
+				},
+				controller.signal
+			);
 		} catch (err) {
-			if (!isAbortError(err)) {
-				console.error('Error running agent', err);
-				error = err;
-			}
+			if (abortController === controller && !isAbortError(err)) error = err;
 		} finally {
 			if (abortController === controller) {
 				abortController = null;
+				agentIsRunning = false;
+				tryAgain = messages.at(-1)?.role === 'user' || Boolean(error);
+				await persistMessages();
 			}
 		}
 	}
@@ -123,39 +114,16 @@
 	async function handleClear() {
 		abortController?.abort();
 		abortController = null;
-		agent.messages.splice(0, agent.messages.length);
-		agent.messages.availableTools = getActiveTools();
 		messages = [];
 		agentIsRunning = false;
+		tryAgain = false;
 		mode = 'chat';
 		error = undefined;
-
 		await clearStoredMessages();
 	}
 
 	async function handleTryAgain() {
-		tryAgain = false;
-		error = undefined; // Clear error when retrying
-		if (!providerReady) {
-			error = new Error(`Finish the ${providerName} settings before retrying.`);
-			return;
-		}
-
-		abortController?.abort();
-		const controller = new AbortController();
-		abortController = controller;
-		try {
-			await agent.run(undefined, { signal: controller.signal });
-		} catch (err) {
-			if (!isAbortError(err)) {
-				console.error('Error running agent', err);
-				error = err;
-			}
-		} finally {
-			if (abortController === controller) {
-				abortController = null;
-			}
-		}
+		await generateResponse();
 	}
 
 	function handleDismissError() {
@@ -178,15 +146,6 @@
 		mode = nextMode;
 	}
 
-	function syncMessagesFromAgent() {
-		messages = [];
-
-		for (let i = 0; i < agent.messages.length; i++) {
-			const current = agent.messages[i];
-			messages.push(new LangMessage(current.role, current.items, current.meta));
-		}
-	}
-
 	function cloneValue<T>(value: T): T {
 		if (value === undefined || value === null) {
 			return value;
@@ -206,13 +165,11 @@
 	}
 
 	async function persistMessages() {
-		const storedMessages = agent.messages.map(
-			(message): StoredMessage => ({
-				role: message.role,
-				items: cloneValue(message.items),
-				meta: message.meta ? cloneValue(message.meta) : undefined
-			})
-		);
+		const storedMessages = messages.map((message): StoredMessage => ({
+			role: message.role,
+			items: cloneValue(message.items),
+			meta: message.meta ? cloneValue(message.meta) : undefined
+		}));
 
 		const success = await saveStoredMessages(storedMessages);
 		if (!success) {
@@ -226,21 +183,14 @@
 			return;
 		}
 
-		agent.messages = new LangMessages(storedMessages);
-		agent.messages.availableTools = getActiveTools();
-		syncMessagesFromAgent();
-	}
-
-	function getActiveTools(): LangTool[] {
-		const provider = getProviderConfig(getSelectedProviderId(secrets.values));
-		return provider.supportsOpenAIBuiltInTools ? tools : [];
+		messages = Array.from(new LangMessages(storedMessages));
 	}
 
 	async function initializeStorage() {
 		await ensurePersistentStorage();
 		await hydrateMessagesFromStorage();
 
-		if (agent.state === 'idle' && waitForResponse) {
+		if (!agentIsRunning && waitForResponse) {
 			tryAgain = true;
 		}
 	}
@@ -266,7 +216,7 @@
 					</button>
 				{/each}
 			</div>
-			<SecretsSetup disabled={agentIsRunning} />
+			<ProviderSettings {providers} disabled={agentIsRunning} />
 			<Button onclick={handleClear} disabled={messages.length === 0 && !agentIsRunning}>
 				Clear Chat
 			</Button>

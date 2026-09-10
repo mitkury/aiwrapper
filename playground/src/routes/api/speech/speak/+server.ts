@@ -1,6 +1,5 @@
-import { env } from '$env/dynamic/private';
 import { json } from '@sveltejs/kit';
-import { TextToSpeech } from 'aiwrapper';
+import { createTextToSpeech } from '$lib/server/realtime-speech';
 import type { RequestHandler } from './$types';
 import { pcmStreamResponse, speechError } from '$lib/server/speech-response';
 
@@ -28,10 +27,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		if (model.length > 200) return json({ error: 'Speech model ID is too long' }, { status: 400 });
 
-		const provider =
-			providerName === 'elevenlabs'
-				? createElevenLabsProvider(voice, model)
-				: createOpenAIProvider(model);
+		const provider = createTextToSpeech({ provider: providerName, voice, model });
 		const frames = provider.speak(text, {
 			signal: request.signal,
 			...(voice ? { voice } : {})
@@ -42,24 +38,3 @@ export const POST: RequestHandler = async ({ request }) => {
 		return speechError(error);
 	}
 };
-
-function createOpenAIProvider(model: string) {
-	if (!env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not configured');
-	return TextToSpeech.openai({
-		apiKey: env.OPENAI_API_KEY,
-		model: model || env.OPENAI_TTS_MODEL || undefined,
-		voice: env.OPENAI_TTS_VOICE || undefined
-	});
-}
-
-function createElevenLabsProvider(voice: string, model: string) {
-	if (!env.ELEVENLABS_API_KEY) throw new Error('ELEVENLABS_API_KEY is not configured');
-	const voiceId = voice || env.ELEVENLABS_VOICE_ID;
-	if (!voiceId) throw new Error('An ElevenLabs voice ID is required');
-	return TextToSpeech.elevenlabs({
-		apiKey: env.ELEVENLABS_API_KEY,
-		voiceId,
-		model: model || env.ELEVENLABS_TTS_MODEL || undefined,
-		sampleRate: 24000
-	});
-}
