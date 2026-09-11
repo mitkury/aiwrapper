@@ -1,6 +1,6 @@
 import { OpenAIChatCompletionsLang } from "../openai/openai-chat-completions-lang.js";
 import type { LangOptions } from "../language-provider.js";
-import { models } from 'aimodels';
+import { models } from '../../aimodels/index.js';
 
 export type DeepSeekLangOptions = {
   apiKey: string;

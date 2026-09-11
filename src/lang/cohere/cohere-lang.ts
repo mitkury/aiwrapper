@@ -8,7 +8,7 @@ import {
 } from "../language-provider.js";
 import type { LangMessage, LangOptions } from "../language-provider.js";
 import { LangMessages, LangMessage as ConversationMessage, fixToolResultsIfNeeded } from "../messages.js";
-import { models, type Model } from 'aimodels';
+import { models, type Model } from '../../aimodels/index.js';
 import { calculateModelResponseTokens } from "../utils/token-calculator.js";
 import { attachPartialResult, isAbortError } from "../../errors.js";
 import {

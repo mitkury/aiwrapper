@@ -6,11 +6,6 @@ import { fileURLToPath, URL } from 'node:url';
 export default defineConfig({
 	envDir: '..',
 	plugins: [tailwindcss(), sveltekit()],
-	optimizeDeps: {
-		// Keep a locally linked aimodels package out of Vite's persistent
-		// prebundle so catalog and provider-ID changes are visible immediately.
-		exclude: ['aimodels']
-	},
 	resolve: {
 		alias: {
 			// Resolve "aiwrapper" to the local source directory one level up
