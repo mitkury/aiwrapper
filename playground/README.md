@@ -28,11 +28,15 @@ Provider and model selections are stored in this browser's local storage under
 old `secrets` entry, and its browser-stored credentials are removed. Base URLs
 come from `.env`, including `OLLAMA_URL` and `OPENAI_COMPATIBLE_BASE_URL`.
 
-The model selector is populated from the locally linked `aimodels` package and
+The model selector is populated from the compiled `aimodels/` submodule and
 contains every catalog model that supports chat through the selected provider.
 The app stores canonical catalog IDs and translates them to provider-specific
 IDs when needed. For example, selecting canonical model `gpt-5.6-sol` for
 OpenRouter sends `openai/gpt-5.6-sol` to its API.
+
+The dev command builds the catalog before starting Vite. After editing catalog
+data, run `npm run aimodels:build` from the repository root to refresh it. See
+[working with AIModels](../docs/dev/aimodels.md) for the submodule workflow.
 
 Chat runs `ChatAgent` on the playground server and streams messages to the
 browser. Streaming, built-in tools, Stop, retry, message inspection, and local

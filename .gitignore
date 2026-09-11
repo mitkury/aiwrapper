@@ -16,3 +16,6 @@ dist/
 dev_tests/
 test-results/
 playwright-report/
+
+# Generated from the AIModels submodule by scripts/build.mjs
+src/aimodels/

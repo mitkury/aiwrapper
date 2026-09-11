@@ -6,7 +6,7 @@ import { prepareBodyPartForOpenAIResponsesAPI } from "./openai-responses-message
 import { processServerEvents } from "../../../process-server-events.js";
 import { OpenAIResponseStreamHandler } from "./openai-responses-stream-handler.js";
 import { isZodSchema, validateAgainstSchema, zodToJsonSchema } from "../../schema/schema-utils.js";
-import { models } from 'aimodels';
+import { models } from '../../../aimodels/index.js';
 import {
   httpRequestWithRetry as fetch,
 } from "../../../http-request.js";

@@ -54,7 +54,9 @@ MODEL=<model-id> npm run test:model
 MODEL="<model-id>@<provider>" npm run test:model
 ```
 
-The model test selects checks from the capabilities stored in `aimodels`. See [docs/dev/aimodels-linking.md](../docs/dev/aimodels-linking.md) to test unpublished catalog changes.
+The model test selects checks from the bundled AIModels catalog. See
+[working with AIModels](../docs/dev/aimodels.md) to test catalog edits directly
+from the submodule without publishing them to npm.
 
 ## Generated files
 

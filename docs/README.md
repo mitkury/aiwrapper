@@ -17,7 +17,7 @@ The root [README](../README.md) contains installation and introductory examples.
 - [Build](dev/build.md)
 - [Testing](../tests/README.md)
 - [Dependency updates](dev/dependency-updates.md)
-- [Linking a local aimodels package](dev/aimodels-linking.md)
+- [Editing the AIModels submodule](dev/aimodels.md)
 - [Agent actions](dev/actions-for-agents)
 - [Development rules](dev/rules)
 - [Architecture review and follow-ups](dev/architecture-review.md)
