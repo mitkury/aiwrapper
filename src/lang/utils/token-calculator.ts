@@ -1,4 +1,4 @@
-import { Model, type TokenContext } from "aimodels";
+import { Model, type TokenContext } from "../../aimodels/index.js";
 import { LangMessage } from "../messages.js";
 
 // Rough estimate: 1 token ≈ 4 chars for English text

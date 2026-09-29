@@ -54,10 +54,10 @@
   },
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "npm run clean && tsc --project tsconfig.json",
+    "build": "node scripts/build.mjs",
     "check": "npm run build && npm run test:unit && npm run check:package",
-    "check:package": "npm pack --dry-run --ignore-scripts",
-    "check:playground": "npm --prefix playground run check && npm --prefix playground run build",
+    "check:package": "node scripts/check-package.mjs",
+    "check:playground": "npm run aimodels:build && npm --prefix playground run check && npm --prefix playground run build",
     "check:demo": "npm run check:playground",
     "prepack": "npm run build",
     "test": "npm run build && npm run test:unit",
@@ -71,12 +71,11 @@
     "test:img-in": "npm run build && vitest run tests/img-in",
     "test:img-out": "npm run build && vitest run tests/img-out",
     "test:model": "npm run build && vitest run tests/model.integration.test.ts",
-    "aimodels:link": "./scripts/link-aimodels-local.sh",
-    "aimodels:unlink": "./scripts/unlink-aimodels-local.sh",
-    "aimodels:status": "./scripts/aimodels-status.sh"
+    "aimodels:status": "git submodule status aimodels && git -C aimodels status --short",
+    "aimodels:build": "node scripts/build.mjs --catalog-only",
+    "aimodels:update": "node scripts/update-aimodels.mjs"
   },
   "dependencies": {
-    "aimodels": "^0.7.0",
     "ajv": "^8.17.1",
     "jsonic": "^2.16.0",
     "ws": "^8.21.3",

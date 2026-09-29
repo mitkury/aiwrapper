@@ -1,4 +1,4 @@
-import { models, type ModelCollection } from 'aimodels';
+import { models, type ModelCollection } from '../aimodels/index.js';
 import { OpenAILang } from "./openai/openai-lang.js";
 import type { OpenAILangOptions } from "./openai/responses/openai-responses-lang.js";
 import { AnthropicLang, type AnthropicLangOptions } from "./anthropic/anthropic-lang.js";

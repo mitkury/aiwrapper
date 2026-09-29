@@ -34,4 +34,6 @@ Example:
 
 Run `npm run check` before committing build, package, or CI changes.
 
-To test new models before they are published to npm, use `npm run aimodels:link`, then switch back with `npm run aimodels:unlink`. The local `aimodels` repo must be available at `../aimodels/js`. See [docs/dev/aimodels-linking.md] for details.
+Edit model data in the `aimodels/` submodule and run `npm run aimodels:build`
+to refresh the local catalog. No npm publication is needed. See
+[working with AIModels](../aimodels.md) for checkout and update instructions.

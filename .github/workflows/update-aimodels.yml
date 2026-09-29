@@ -1,0 +1,90 @@
+name: Update AIModels catalog
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  repository_dispatch:
+    types: [aimodels-package-updated, aimodels-updated]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Upstream main, stable version tag, or full commit SHA'
+        default: main
+        required: true
+
+concurrency:
+  group: aimodels-catalog-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    # Scheduled runs and dispatches update only the default branch.
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          submodules: recursive
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            playground/package-lock.json
+            aimodels/js/package-lock.json
+      - name: Advance the catalog
+        id: catalog
+        env:
+          # Legacy release notifications wake the updater without depending on npm or tags.
+          CATALOG_REF: ${{ inputs.ref || github.event.client_payload.sha || 'main' }}
+        run: node scripts/update-aimodels.mjs "$CATALOG_REF"
+      - name: Install dependencies
+        if: steps.catalog.outputs.changed == 'true'
+        run: |
+          npm ci
+          npm ci --prefix playground
+      - name: Prepare patch version and verify
+        if: steps.catalog.outputs.changed == 'true'
+        run: |
+          npm version patch --no-git-tag-version
+          npm run check
+          npm run check:playground
+      - name: Commit and tag the verified patch
+        if: steps.catalog.outputs.changed == 'true'
+        env:
+          CATALOG_REVISION: ${{ steps.catalog.outputs.revision }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add aimodels package.json package-lock.json
+          git commit -m "deps: update catalog to $CATALOG_REVISION"
+          VERSION=$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")
+          git tag -a "v$VERSION" -m "Release v$VERSION"
+          # Fail without publishing either ref if main advanced while checks ran.
+          git push --atomic origin "HEAD:refs/heads/$DEFAULT_BRANCH" "refs/tags/v$VERSION"
+      - name: Request publication of the current release
+        # Also recover a previous successful push whose publish dispatch failed.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")
+          TAG="v$VERSION"
+          if [ "$(git rev-parse "$TAG^{commit}" 2>/dev/null || true)" != "$(git rev-parse HEAD)" ]; then
+            exit 0
+          fi
+          if npm view "aiwrapper@$VERSION" version --registry=https://registry.npmjs.org > published-version.txt 2> registry-error.txt; then
+            exit 0
+          fi
+          if ! grep -q 'E404' registry-error.txt; then
+            cat registry-error.txt >&2
+            exit 1
+          fi
+          # GITHUB_TOKEN tag pushes do not trigger push workflows. Dispatch explicitly.
+          gh workflow run publish.yml --ref "$TAG"

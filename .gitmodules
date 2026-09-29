@@ -1,0 +1,4 @@
+[submodule "aimodels"]
+	path = aimodels
+	url = https://github.com/mitkury/aimodels.git
+	branch = main

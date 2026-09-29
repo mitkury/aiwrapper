@@ -1,7 +1,7 @@
 // Export all the modules
 export * from "./lang/index.js";
-// Re-export everything from aimodels
-export * from 'aimodels';
+// Re-export the catalog built from the pinned AIModels submodule
+export * from './aimodels/index.js';
 // Img
 export * from "./img/img.js";
 

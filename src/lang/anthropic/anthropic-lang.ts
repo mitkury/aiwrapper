@@ -6,7 +6,7 @@ import {
   LanguageProvider,
 } from "../language-provider.js";
 import type { LangMessage, LangOptions } from "../language-provider.js";
-import { models } from 'aimodels';
+import { models } from '../../aimodels/index.js';
 import { calculateModelResponseTokens } from "../utils/token-calculator.js";
 import { attachPartialResult, isAbortError } from "../../errors.js";
 import {

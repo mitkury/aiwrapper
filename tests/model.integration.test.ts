@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { models, Model } from "aimodels";
+import { models, Model } from "../dist/index.js";
 import { Lang } from "aiwrapper";
 
 function parseModelArg(): { modelId: string; provider?: string } | null {

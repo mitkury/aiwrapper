@@ -9,7 +9,7 @@ import {
 import type { LangMessageItemTool, LangToolWithHandler } from "../messages.js";
 import { httpRequestWithRetry as fetch } from "../../http-request.js";
 import { processServerEvents } from "../../process-server-events.js";
-import { models, type Model } from 'aimodels';
+import { models, type Model } from '../../aimodels/index.js';
 import { calculateModelResponseTokens } from "../utils/token-calculator.js";
 import { attachPartialResult, isAbortError } from "../../errors.js";
 import { combineInstructions } from "../prompt-for-json.js";
