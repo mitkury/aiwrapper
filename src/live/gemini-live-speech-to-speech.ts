@@ -15,12 +15,15 @@ import {
   type RealtimeSpeechWebSocketFactory,
 } from "../speech/realtime-websocket.js";
 import type {
+  LiveImageInput,
+  LiveTextOptions,
   SpeechToSpeechProvider,
   SpeechToSpeechSession,
   SpeechToSpeechSessionOptions,
 } from "./types.js";
 import { createObservableSpeechToSpeechSession } from "./session-events.js";
 import type { ToolRequest } from "../lang/messages.js";
+import type { LangToolExecutionResult } from "../lang/tool-execution.js";
 import {
   executeSpeechToSpeechToolCall,
   jsonSpeechToSpeechToolResult,
@@ -33,6 +36,26 @@ type SocketEvent = {
   error?: unknown;
   code?: unknown;
   reason?: unknown;
+  wasClean?: unknown;
+};
+
+/** Gemini setup controls, kept at the provider edge. Reconnection belongs to the caller. */
+export type GeminiLiveSessionConfig = {
+  sessionResumption?: { handle?: string };
+  contextWindowCompression?: { triggerTokens?: string; slidingWindow?: { targetTokens?: string } };
+  realtimeInputConfig?: {
+    automaticActivityDetection?: {
+      disabled?: false;
+      startOfSpeechSensitivity?: "START_SENSITIVITY_HIGH" | "START_SENSITIVITY_LOW";
+      endOfSpeechSensitivity?: "END_SENSITIVITY_HIGH" | "END_SENSITIVITY_LOW";
+      prefixPaddingMs?: number;
+      silenceDurationMs?: number;
+    };
+    activityHandling?: "START_OF_ACTIVITY_INTERRUPTS" | "NO_INTERRUPTION";
+    turnCoverage?: "TURN_INCLUDES_ONLY_ACTIVITY" | "TURN_INCLUDES_ALL_INPUT" | "TURN_INCLUDES_AUDIO_ACTIVITY_AND_ALL_VIDEO";
+  };
+  mediaResolution?: "MEDIA_RESOLUTION_LOW" | "MEDIA_RESOLUTION_MEDIUM" | "MEDIA_RESOLUTION_HIGH";
+  toolBehavior?: "BLOCKING" | "NON_BLOCKING";
 };
 
 export type GeminiLiveSpeechToSpeechOptions = {
@@ -42,6 +65,9 @@ export type GeminiLiveSpeechToSpeechOptions = {
   baseURL?: string;
   headers?: Record<string, string>;
   createWebSocket?: RealtimeSpeechWebSocketFactory;
+  config?: GeminiLiveSessionConfig;
+  /** Bounds both socket creation and the setup acknowledgement. Defaults to 10 seconds. */
+  connectTimeoutMs?: number;
 };
 
 type GeminiLiveSpeechToSpeechConfig = Required<
@@ -76,6 +102,13 @@ export class GeminiLiveSpeechToSpeech implements SpeechToSpeechProvider {
     if (!options.apiKey) {
       throw new Error("Gemini Live speech-to-speech requires an API key");
     }
+    if (options.connectTimeoutMs !== undefined &&
+      (!Number.isFinite(options.connectTimeoutMs) || options.connectTimeoutMs <= 0)) {
+      throw new Error("Gemini Live connectTimeoutMs must be positive and finite");
+    }
+    if (options.config?.realtimeInputConfig?.automaticActivityDetection?.disabled) {
+      throw new Error("Gemini Live currently requires automatic activity detection");
+    }
     this.options = {
       ...options,
       model: options.model ?? "gemini-3.1-flash-live-preview",
@@ -97,7 +130,7 @@ export class GeminiLiveSpeechToSpeech implements SpeechToSpeechProvider {
         await session.close();
         throw error;
       }
-    });
+    }, true);
   }
 }
 
@@ -110,13 +143,16 @@ class GeminiLiveSpeechToSpeechSession {
   private responseActive = false;
   private messageTask: Promise<void> = Promise.resolve();
   private readonly seenToolCallIds = new Set<string>();
+  private readonly canceledToolCallIds = new Set<string>();
+  private readonly toolControllers = new Map<string, AbortController>();
   private resolveConfigured?: () => void;
   private rejectConfigured?: (error: Error) => void;
 
   private readonly onOpen = (): void => {
     if (this.setupSent) return;
     try {
-      const tools = speechToSpeechFunctionDeclarations(this.session);
+      const tools = speechToSpeechFunctionDeclarations(this.session, true);
+      const config = this.provider.config;
       this.send({
         setup: {
           model: modelResourceName(this.provider.model),
@@ -127,6 +163,7 @@ class GeminiLiveSpeechToSpeechSession {
                 prebuiltVoiceConfig: { voiceName: this.provider.voice },
               },
             },
+            ...(config?.mediaResolution ? { mediaResolution: config.mediaResolution } : {}),
           },
           ...(this.session.instructions
             ? {
@@ -137,8 +174,15 @@ class GeminiLiveSpeechToSpeechSession {
             : {}),
           inputAudioTranscription: {},
           outputAudioTranscription: {},
+          ...(config?.sessionResumption ? { sessionResumption: config.sessionResumption } : {}),
+          ...(config?.contextWindowCompression ? { contextWindowCompression: config.contextWindowCompression } : {}),
+          ...(config?.realtimeInputConfig ? { realtimeInputConfig: config.realtimeInputConfig } : {}),
           ...(tools.length
-            ? { tools: [{ functionDeclarations: tools }] }
+            ? { tools: [{ functionDeclarations: tools.map(({ parameters, ...tool }) => ({
+                ...tool,
+                parametersJsonSchema: parameters,
+                ...(config?.toolBehavior ? { behavior: config.toolBehavior } : {}),
+              })) }] }
             : {}),
         },
       });
@@ -160,7 +204,16 @@ class GeminiLiveSpeechToSpeechSession {
 
   private readonly onClose = (event: SocketEvent): void => {
     if (this.state === "closed") return;
-    this.fail(geminiCloseError(event));
+    const wasOpen = this.state === "open";
+    const error = geminiCloseError(event);
+    this.terminate(error);
+    if (wasOpen) this.session.onEvent?.({
+      type: "connection-closed",
+      ...(typeof event.code === "number" ? { code: event.code } : {}),
+      ...(typeof event.reason === "string" ? { reason: event.reason } : {}),
+      ...(typeof event.wasClean === "boolean" ? { wasClean: event.wasClean } : {}),
+    });
+    if (wasOpen) this.session.onEvent?.({ type: "error", error });
   };
 
   constructor(
@@ -177,33 +230,41 @@ class GeminiLiveSpeechToSpeechSession {
 
   async connect(): Promise<void> {
     throwIfAborted(this.controller.signal);
+    const configured = new Promise<void>((resolve, reject) => {
+      this.resolveConfigured = resolve;
+      this.rejectConfigured = reject;
+    });
+    const timer = setTimeout(() => this.fail(new Error(
+      "Gemini Live connection timed out before setup was acknowledged",
+    )), this.provider.connectTimeoutMs ?? 10_000);
+    void this.openSocket().catch((error) => this.fail(toError(error)));
+    try {
+      await configured;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private async openSocket(): Promise<void> {
     const socket = await this.provider.createWebSocket(
       geminiLiveURL(this.provider.baseURL, this.provider.apiKey),
       { ...this.provider.headers },
     );
-    this.socket = socket;
-    if (this.controller.signal.aborted) {
+    if (this.state === "closed" || this.controller.signal.aborted) {
       socket.close();
-      throw createAbortError();
+      return;
     }
+    this.socket = socket;
     socket.addEventListener("open", this.onOpen);
     socket.addEventListener("message", this.onMessage);
     socket.addEventListener("error", this.onError);
     socket.addEventListener("close", this.onClose);
 
-    await new Promise<void>((resolve, reject) => {
-      this.resolveConfigured = resolve;
-      this.rejectConfigured = reject;
-      if (socket.readyState === 1) {
-        this.onOpen();
-      } else if (socket.readyState !== 0) {
-        reject(
-          new Error(
-            "Gemini Live speech-to-speech connection closed during setup",
-          ),
-        );
-      }
-    });
+    if (socket.readyState === 1) {
+      this.onOpen();
+    } else if (socket.readyState !== 0) {
+      this.fail(new Error("Gemini Live speech-to-speech connection closed during setup"));
+    }
   }
 
   async appendAudio(frame: PcmAudioFrame): Promise<void> {
@@ -228,7 +289,8 @@ class GeminiLiveSpeechToSpeechSession {
 
   async close(): Promise<void> {
     if (this.state === "closed") return;
-    if (this.state === "open" && this.socket?.readyState === 1) {
+    if (this.state === "open" && this.socket?.readyState === 1 &&
+      !this.provider.config?.realtimeInputConfig?.automaticActivityDetection?.disabled) {
       try {
         this.send({ realtimeInput: { audioStreamEnd: true } });
       } catch {
@@ -236,6 +298,12 @@ class GeminiLiveSpeechToSpeechSession {
       }
     }
     this.terminate(createAbortError());
+  }
+
+  async endAudio(): Promise<void> {
+    this.assertOpen();
+    throwIfAborted(this.controller.signal);
+    this.send({ realtimeInput: { audioStreamEnd: true } });
   }
 
   private terminate(error: Error): void {
@@ -246,6 +314,7 @@ class GeminiLiveSpeechToSpeechSession {
     this.rejectConfigured = undefined;
     this.controller.abort();
     this.seenToolCallIds.clear();
+    this.canceledToolCallIds.clear();
     this.unlinkAbort();
     this.cleanupSocket();
     this.socket?.close();
@@ -271,7 +340,29 @@ class GeminiLiveSpeechToSpeechSession {
       this.resolveConfigured?.();
       this.resolveConfigured = undefined;
       this.rejectConfigured = undefined;
-      return;
+    }
+
+    const resumption = message.sessionResumptionUpdate as
+      { resumable?: unknown; newHandle?: unknown } | undefined;
+    if (resumption) this.session.onEvent?.({
+      type: "session-resumption",
+      resumable: resumption.resumable === true,
+      ...(resumption.resumable === true && typeof resumption.newHandle === "string" && resumption.newHandle
+        ? { handle: resumption.newHandle } : {}),
+    });
+    const goAway = message.goAway as { timeLeft?: unknown } | undefined;
+    if (goAway) {
+      const timeLeftMs = durationMilliseconds(goAway.timeLeft);
+      this.session.onEvent?.({ type: "connection-expiring", ...(timeLeftMs !== undefined ? { timeLeftMs } : {}) });
+    }
+    const cancellation = message.toolCallCancellation as { ids?: unknown } | undefined;
+    if (Array.isArray(cancellation?.ids)) {
+      const callIds = cancellation.ids.filter((id): id is string => typeof id === "string" && Boolean(id));
+      for (const id of callIds) {
+        this.canceledToolCallIds.add(id);
+        this.toolControllers.get(id)?.abort();
+      }
+      if (callIds.length) this.session.onEvent?.({ type: "tool-calls-canceled", callIds });
     }
 
     const toolCall = message.toolCall as
@@ -285,12 +376,19 @@ class GeminiLiveSpeechToSpeechSession {
         const parsed = call
           ? parseSpeechToSpeechToolCall(call.id, call.name, call.args)
           : undefined;
-        if (!parsed || this.seenToolCallIds.has(parsed.callId)) return [];
-        this.seenToolCallIds.add(parsed.callId);
+        if (!parsed || this.canceledToolCallIds.has(parsed.callId)) return [];
+        // Manual callers own replay/deduplication across connection rotations.
+        if (this.session.toolHandling !== "manual") {
+          if (this.seenToolCallIds.has(parsed.callId)) return [];
+          this.seenToolCallIds.add(parsed.callId);
+        }
         return [parsed];
       });
-      void this.completeToolCalls(calls).catch((error) => this.fail(toError(error)));
-      return;
+      if (this.session.toolHandling === "manual") {
+        for (const call of calls) this.session.onEvent?.({ type: "tool-call", call });
+      } else {
+        void this.completeToolCalls(calls).catch((error) => this.fail(toError(error)));
+      }
     }
 
     const content = message.serverContent as
@@ -303,6 +401,12 @@ class GeminiLiveSpeechToSpeechSession {
         }
       | undefined;
     if (!content) return;
+
+    if (content.interrupted === true) {
+      // Notify even for a tool-only turn so applications clear pending playback.
+      this.session.onEvent?.({ type: "response-interrupted" });
+      this.responseActive = false;
+    }
 
     const inputText = content.inputTranscription?.text;
     if (typeof inputText === "string" && inputText) {
@@ -322,6 +426,11 @@ class GeminiLiveSpeechToSpeechSession {
 
     for (const part of content.modelTurn?.parts ?? []) {
       if (!part || typeof part !== "object") continue;
+      const partText = Reflect.get(part, "text");
+      if (typeof partText === "string" && partText && Reflect.get(part, "thought") !== true) {
+        this.ensureResponseStarted();
+        this.session.onEvent?.({ type: "output-transcript", transcript: { type: "delta", text: partText } });
+      }
       const inlineData = Reflect.get(part, "inlineData") as
         { data?: unknown } | undefined;
       if (typeof inlineData?.data !== "string" || !inlineData.data) continue;
@@ -335,35 +444,88 @@ class GeminiLiveSpeechToSpeechSession {
       });
     }
 
-    if (content.interrupted === true) {
-      if (this.responseActive) {
-        this.session.onEvent?.({ type: "response-interrupted" });
-      }
-      this.responseActive = false;
-      this.seenToolCallIds.clear();
-      return;
-    }
     if (content.turnComplete === true) {
-      if (this.responseActive) {
-        this.session.onEvent?.({ type: "response-end" });
-      }
+      this.session.onEvent?.({ type: "response-end" });
       this.responseActive = false;
-      this.seenToolCallIds.clear();
+      // Keep in-flight IDs across turn markers; a replay must not execute twice.
+      for (const id of this.seenToolCallIds) {
+        if (!this.toolControllers.has(id)) this.seenToolCallIds.delete(id);
+      }
     }
   }
 
   private async completeToolCalls(calls: ToolRequest[]): Promise<void> {
-    const results = await Promise.all(calls.map((call) =>
-      executeSpeechToSpeechToolCall(this.session, call, this.controller.signal)
-    ));
-    if (!results.length) return;
+    const results = await Promise.all(calls.map(async (call) => {
+      const controller = new AbortController();
+      const unlink = linkAbortSignal(this.controller.signal, controller);
+      this.toolControllers.set(call.callId, controller);
+      let onAbort: () => void = () => {};
+      try {
+        const canceled = new Promise<undefined>((resolve) => {
+          onAbort = () => resolve(undefined);
+          controller.signal.addEventListener("abort", onAbort, { once: true });
+          if (controller.signal.aborted) onAbort();
+        });
+        return await Promise.race([
+          executeSpeechToSpeechToolCall(this.session, call, controller.signal),
+          canceled,
+        ]);
+      } catch (error) {
+        if (!controller.signal.aborted) throw error;
+        return undefined;
+      } finally {
+        controller.signal.removeEventListener("abort", onAbort);
+        unlink();
+        this.toolControllers.delete(call.callId);
+      }
+    }));
+    if (this.state === "closed") return;
+    this.writeToolResults(results.filter((result): result is LangToolExecutionResult => Boolean(result)), true);
+  }
+
+  async sendText(text: string, options: LiveTextOptions = {}): Promise<void> {
+    this.assertOpen();
     throwIfAborted(this.controller.signal);
+    if (options.realtime) {
+      if (options.role === "assistant" || options.turnComplete !== undefined) {
+        throw new Error("Realtime text uses user activity detection, not a role or turnComplete setting");
+      }
+      this.send({ realtimeInput: { text } });
+      return;
+    }
+    this.send({ clientContent: {
+      turns: [{ role: options.role === "assistant" ? "model" : "user", parts: [{ text }] }],
+      turnComplete: options.turnComplete ?? true,
+    } });
+  }
+
+  async appendImage(image: LiveImageInput): Promise<void> {
+    this.assertOpen();
+    throwIfAborted(this.controller.signal);
+    if (!image.data || image.data.startsWith("data:") || !["image/jpeg", "image/png"].includes(image.mimeType)) {
+      throw new Error("Gemini Live images require base64 bytes and an image/jpeg or image/png MIME type");
+    }
+    this.send({ realtimeInput: { video: { data: image.data, mimeType: image.mimeType } } });
+  }
+
+  async sendToolResults(results: LangToolExecutionResult[]): Promise<void> {
+    this.assertOpen();
+    throwIfAborted(this.controller.signal);
+    if (this.session.toolHandling !== "manual") {
+      throw new Error("sendToolResults requires manual tool handling");
+    }
+    this.writeToolResults(results);
+  }
+
+  private writeToolResults(results: LangToolExecutionResult[], automatic = false): void {
+    const active = results.filter((result) => !this.canceledToolCallIds.has(result.callId));
+    if (!active.length) return;
     this.send({
       toolResponse: {
-        functionResponses: results.map((result) => ({
+        functionResponses: active.map((result) => ({
           id: result.callId,
           name: result.name,
-          response: { result: jsonSpeechToSpeechToolResult(result.result) },
+          response: automatic ? { result: jsonSpeechToSpeechToolResult(result.result) } : toolResponseObject(result.result),
         })),
       },
     });
@@ -410,6 +572,19 @@ class GeminiLiveSpeechToSpeechSession {
 
 function modelResourceName(model: string): string {
   return model.startsWith("models/") ? model : `models/${model}`;
+}
+
+function toolResponseObject(value: unknown): Record<string, unknown> {
+  const result = jsonSpeechToSpeechToolResult(value);
+  return result && typeof result === "object" && !Array.isArray(result)
+    ? result as Record<string, unknown>
+    : { result };
+}
+
+function durationMilliseconds(value: unknown): number | undefined {
+  if (typeof value !== "string" || !/^\d+(\.\d+)?s$/.test(value)) return undefined;
+  const milliseconds = Number(value.slice(0, -1)) * 1000;
+  return Number.isFinite(milliseconds) ? milliseconds : undefined;
 }
 
 function geminiLiveURL(baseURL: string, apiKey: string): string {

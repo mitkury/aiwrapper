@@ -3,7 +3,7 @@ import type {
   PcmAudioFrame,
   TranscriptEvent,
 } from "../speech/types.js";
-import type { LangTool, ToolRequest } from "../lang/messages.js";
+import type { LangTool, LangToolWithHandler, ToolRequest } from "../lang/messages.js";
 import type { LangToolExecutionResult } from "../lang/tool-execution.js";
 
 export type SpeechToSpeechEvent =
@@ -15,12 +15,34 @@ export type SpeechToSpeechEvent =
   | { type: "response-interrupted" }
   | { type: "tool-call"; call: ToolRequest }
   | { type: "tool-result"; result: LangToolExecutionResult }
+  | { type: "tool-calls-canceled"; callIds: string[] }
+  | { type: "session-resumption"; resumable: boolean; handle?: string }
+  | { type: "connection-expiring"; timeLeftMs?: number }
+  | { type: "connection-closed"; code?: number; reason?: string; wasClean?: boolean }
   | { type: "error"; error: Error };
+
+export type LiveToolDefinition = Pick<LangToolWithHandler, "name" | "description" | "parameters">;
+
+export type LiveTextOptions = {
+  role?: "user" | "assistant";
+  /** False appends context without requesting a response. Defaults to true. */
+  turnComplete?: boolean;
+  /** Send as live user activity instead of conversation context (Gemini only). */
+  realtime?: boolean;
+};
+
+export type LiveImageInput = {
+  /** Base64 image bytes, without a data URL prefix. */
+  data: string;
+  mimeType: "image/jpeg" | "image/png";
+};
 
 export type SpeechToSpeechSessionOptions = {
   signal?: AbortSignal;
   instructions?: string;
   tools?: LangTool[];
+  /** Manual mode emits calls without executing handlers. Currently supported by Gemini. */
+  toolHandling?: "automatic" | "manual";
   onEvent?: (event: SpeechToSpeechEvent) => void;
 };
 
@@ -36,6 +58,13 @@ export type SpeechToSpeechAnyEventListener = (
 
 export interface SpeechToSpeechSession {
   appendAudio(frame: PcmAudioFrame): Promise<void>;
+  /** End the microphone stream without closing the connection. Audio can resume later. */
+  endAudio?(): Promise<void>;
+  /** Optional capabilities: check before use when selecting a provider dynamically. */
+  sendText?(text: string, options?: LiveTextOptions): Promise<void>;
+  appendImage?(image: LiveImageInput): Promise<void>;
+  /** Manual mode only. The application owns execution, ordering and replay. */
+  sendToolResults?(results: LangToolExecutionResult[]): Promise<void>;
   close(): Promise<void>;
   addEventListener(
     type: "event",

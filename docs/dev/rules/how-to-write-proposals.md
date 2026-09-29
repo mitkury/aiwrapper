@@ -3,6 +3,11 @@
 Write proposals as markdown files under `docs/dev/proposals/`. Create the
 directory when the first active proposal needs it.
 
+This is a public repository. Keep private downstream application plans, names,
+internal paths and implementation details outside the repository. Public code,
+tests, docs, branch names and commit messages should describe reusable library
+behavior without identifying private consumers.
+
 Before writing one, explore how the current code and docs work so the proposal is grounded in the existing architecture.
 
 Do not add time estimates. Assume implementation can move quickly.

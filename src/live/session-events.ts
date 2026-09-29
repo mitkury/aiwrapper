@@ -12,7 +12,7 @@ type Listener = (event: SpeechToSpeechEvent) => void;
 type ListenerType = SpeechToSpeechEventType | "event";
 type SpeechToSpeechSessionTransport = Pick<
   SpeechToSpeechSession,
-  "appendAudio" | "close"
+  "appendAudio" | "endAudio" | "close" | "sendText" | "appendImage" | "sendToolResults"
 >;
 
 export async function createObservableSpeechToSpeechSession(
@@ -20,8 +20,9 @@ export async function createObservableSpeechToSpeechSession(
   createTransport: (
     options: SpeechToSpeechSessionOptions,
   ) => Promise<SpeechToSpeechSessionTransport>,
+  supportsManualTools = false,
 ): Promise<SpeechToSpeechSession> {
-  speechToSpeechFunctionDeclarations(options);
+  speechToSpeechFunctionDeclarations(options, supportsManualTools);
   const listeners = new Map<ListenerType, Set<Listener>>();
   let closed = false;
   let closing: Promise<void> | undefined;
@@ -37,12 +38,39 @@ export async function createObservableSpeechToSpeechSession(
     }
   };
   const transport = await createTransport({ ...options, onEvent: dispatch });
+  const assertOpen = () => {
+    if (closed) throw new Error("Speech-to-speech session is closed");
+  };
 
   return {
     async appendAudio(frame) {
-      if (closed) throw new Error("Speech-to-speech session is closed");
+      assertOpen();
       await transport.appendAudio(frame);
     },
+    ...(transport.endAudio ? {
+      async endAudio() {
+        assertOpen();
+        await transport.endAudio!();
+      },
+    } : {}),
+    ...(transport.sendText ? {
+      async sendText(text, options) {
+        assertOpen();
+        await transport.sendText!(text, options);
+      },
+    } : {}),
+    ...(transport.appendImage ? {
+      async appendImage(image) {
+        assertOpen();
+        await transport.appendImage!(image);
+      },
+    } : {}),
+    ...(transport.sendToolResults ? {
+      async sendToolResults(results) {
+        assertOpen();
+        await transport.sendToolResults!(results);
+      },
+    } : {}),
     async close() {
       if (!closed) {
         closed = true;

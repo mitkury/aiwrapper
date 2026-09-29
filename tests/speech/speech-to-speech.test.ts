@@ -1132,7 +1132,7 @@ describe("Gemini Live speech-to-speech", () => {
           functionDeclarations: [{
             name: "get_weather",
             description: "Get current weather",
-            parameters: { type: "object" },
+            parametersJsonSchema: { type: "object" },
           }],
         }],
       },

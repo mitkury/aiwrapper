@@ -45,6 +45,16 @@ Live, xAI Voice, and Azure Voice Live, plus an injected bidirectional stream for
 Amazon Nova Sonic. Protocol translation, PCM formats, events, abort, and close
 behavior therefore remain deterministic and credential-free.
 
+The Gemini Live smoke test uses `GOOGLE_API_KEY` and defaults to
+`gemini-3.8-live` (override with `GEMINI_LIVE_MODEL`). It sends a synthetic image,
+conversation context and an application-owned tool result, then checks for
+spoken output:
+
+```bash
+npm run build
+PROVIDERS=google npx vitest run tests/speech/gemini-live.integration.test.ts
+```
+
 ## Model check
 
 Use `test:model` for one catalog entry:

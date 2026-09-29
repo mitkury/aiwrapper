@@ -83,8 +83,9 @@ response completion, interruption, tool calls, tool results, and errors.
 `close()` stops event delivery and cancels session work, including local tool
 handlers through their `AbortSignal`. Repeated calls are safe. Tool handlers run
 independently of incoming message parsing so a slow tool does not delay provider
-errors or interruption events. A tool's signal currently follows the session
-lifetime, not individual spoken turns.
+errors or interruption events. Tool signals follow the session lifetime;
+Gemini additionally aborts individual tools when the provider cancels their
+call IDs.
 
 `LangTool` is the one tool contract across ordinary `Lang` calls, agents,
 cascade realtime, and native speech-to-speech. Native speech providers translate
@@ -93,6 +94,10 @@ handler, and return its result to the model automatically. Handler metadata,
 structured errors, and cancellation behavior are identical to non-realtime
 language models. Provider-managed built-in tools are not portable and are not
 accepted by native speech sessions; use local tools with handlers there.
+
+Gemini also supports application-owned tools, text and camera input, and
+connection-management events. See [integrating live sessions](live-sessions.md)
+for manual tool mode and the optional session operations.
 
 Applications can also subscribe to provider-neutral turn milestones without
 reimplementing the Playground timeline:

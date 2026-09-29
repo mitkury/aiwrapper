@@ -43,6 +43,9 @@ export function createSpeechToSpeechTimeline(): SpeechToSpeechTimeline {
     record(event, now = performance.now()) {
       const stages = stagesForEvent(event);
       if (!stages.length) return [];
+      // Gemini sends turnComplete even after an interruption or a silent turn.
+      // It finishes the old turn; it must not create a new one in the timeline.
+      if (!turn && event.type === "response-end") return [];
 
       turn ??= {
         id: nextTurnId++,

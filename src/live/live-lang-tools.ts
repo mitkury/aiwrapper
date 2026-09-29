@@ -17,9 +17,15 @@ export type SpeechToSpeechFunctionDeclaration = Pick<
 
 export function speechToSpeechFunctionDeclarations(
   options: SpeechToSpeechSessionOptions,
+  supportsManualTools = false,
 ): SpeechToSpeechFunctionDeclaration[] {
+  if (options.toolHandling === "manual" && !supportsManualTools) {
+    throw new Error("This live provider does not support manual tool handling");
+  }
   const tools = options.tools ?? [];
-  const unsupported = tools.filter((tool) => !isLangToolWithHandler(tool));
+  const unsupported = tools.filter((tool) => options.toolHandling === "manual"
+    ? !tool.parameters || ("type" in tool && tool.type !== "function")
+    : !isLangToolWithHandler(tool));
   if (unsupported.length) {
     throw new Error(
       `Native speech sessions only support local function tools with handlers. Unsupported tools: ${unsupported.map((tool) => tool.name).join(", ")}`,
