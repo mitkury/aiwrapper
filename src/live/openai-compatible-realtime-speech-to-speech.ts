@@ -13,6 +13,8 @@ import {
   type RealtimeSpeechWebSocketFactory,
 } from "../speech/realtime-websocket.js";
 import type {
+  LiveImageInput,
+  LiveTextOptions,
   SpeechToSpeechProvider,
   SpeechToSpeechSession,
   SpeechToSpeechSessionOptions,
@@ -42,6 +44,7 @@ export type OpenAICompatibleRealtimeSpeechToSpeechConfig = {
     options: SpeechToSpeechSessionOptions,
   ) => Record<string, unknown>;
   recoverableServerErrors?: boolean;
+  conversationControl?: boolean;
 };
 
 const pcm24k: PcmAudioFormat = {
@@ -68,12 +71,15 @@ export class OpenAICompatibleRealtimeSpeechToSpeech implements SpeechToSpeechPro
       );
       try {
         await session.connect();
+        if (!this.config.conversationControl) {
+          return { appendAudio: session.appendAudio.bind(session), close: session.close.bind(session) };
+        }
         return session;
       } catch (error) {
         await session.close();
         throw error;
       }
-    });
+    }, this.config.conversationControl);
   }
 }
 
@@ -86,6 +92,12 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
   private responseActive = false;
   private responseInterrupted = false;
   private responseGeneration = 0;
+  private responseDone = false;
+  private manualContinuationGeneration = -1;
+  private responseRequested = false;
+  private cancellationRequested = false;
+  private textResponsePending = false;
+  private readonly manualCalls = new Map<string, { name: string; generation: number }>();
   private messageTask: Promise<void> = Promise.resolve();
   private readonly seenToolCallIds = new Set<string>();
   private readonly pendingToolCalls = new Map<
@@ -184,6 +196,98 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
     });
   }
 
+  async sendText(text: string, options: LiveTextOptions = {}): Promise<void> {
+    this.assertOpen();
+    if (options.realtime && (options.role === "assistant" || options.turnComplete !== undefined)) {
+      throw new Error("Realtime text must be user activity without turnComplete");
+    }
+    if (!text.trim()) return;
+    this.send({ type: "conversation.item.create", item: {
+      type: "message", role: options.role ?? "user",
+      content: [{ type: options.role === "assistant" ? "output_text" : "input_text", text }],
+    } });
+    if (options.turnComplete === false) return;
+    this.textResponsePending = true;
+    if ((this.responseActive && !this.responseDone) || this.responseRequested) {
+      this.cancelResponse();
+    } else {
+      if (this.responseActive) this.emitInterrupted();
+      this.requestTextResponse();
+    }
+  }
+
+  async appendImage(image: LiveImageInput): Promise<void> {
+    this.assertOpen();
+    if (!image.data || !["image/jpeg", "image/png"].includes(image.mimeType)) {
+      throw new Error("Live images require base64 JPEG or PNG data");
+    }
+    this.send({ type: "conversation.item.create", item: {
+      type: "message", role: "user",
+      content: [{ type: "input_image", image_url: `data:${image.mimeType};base64,${image.data}` }],
+    } });
+  }
+
+  async interrupt(): Promise<void> {
+    this.assertOpen();
+    this.textResponsePending = false;
+    if (this.responseRequested || (this.responseActive && !this.responseInterrupted)) {
+      if (!this.responseDone || this.responseRequested) this.cancelResponse();
+      else this.emitInterrupted();
+    }
+  }
+
+  async sendToolResults(results: LangToolExecutionResult[]): Promise<void> {
+    this.assertOpen();
+    if (this.session.toolHandling !== "manual") throw new Error("Manual tool handling is not enabled");
+    const ids = new Set<string>();
+    const outputs = results.map(result => {
+      const call = this.manualCalls.get(result.callId);
+      if (!call || call.name !== result.name || ids.has(result.callId)) {
+        throw new Error(`Unknown or duplicate live tool result: ${result.callId}`);
+      }
+      ids.add(result.callId);
+      return { type: "conversation.item.create", item: {
+        type: "function_call_output", call_id: result.callId,
+        output: serializeSpeechToSpeechToolResult(result.result),
+      } };
+    });
+    for (const output of outputs) {
+      this.send(output);
+      this.manualCalls.delete(output.item.call_id);
+    }
+    this.continueManualResponse();
+  }
+
+  private cancelResponse(): void {
+    if (this.cancellationRequested) return;
+    this.cancellationRequested = true;
+    this.send({ type: "response.cancel" });
+    this.emitInterrupted();
+  }
+
+  private requestTextResponse(): void {
+    this.textResponsePending = false;
+    this.responseRequested = true;
+    this.send({ type: "response.create" });
+  }
+
+  private continueManualResponse(): void {
+    if (!this.responseDone || this.responseRequested || this.responseInterrupted || this.seenToolCallIds.size === 0
+      || this.manualContinuationGeneration === this.responseGeneration) return;
+    if ([...this.manualCalls.values()].some(call => call.generation === this.responseGeneration)) return;
+    this.manualContinuationGeneration = this.responseGeneration;
+    this.responseDone = false;
+    this.responseActive = false;
+    this.responseRequested = true;
+    this.send({ type: "response.create" });
+  }
+
+  private cancelManualCalls(): void {
+    const callIds = [...this.manualCalls].filter(([, call]) => call.generation === this.responseGeneration).map(([id]) => id);
+    for (const id of callIds) this.manualCalls.delete(id);
+    if (callIds.length) this.session.onEvent?.({ type: "tool-calls-canceled", callIds });
+  }
+
   async close(): Promise<void> {
     this.terminate(createAbortError());
   }
@@ -196,6 +300,7 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
     this.rejectConfigured = undefined;
     this.controller.abort();
     this.pendingToolCalls.clear();
+    this.manualCalls.clear();
     this.seenToolCallIds.clear();
     this.unlinkAbort();
     this.cleanupSocket();
@@ -217,17 +322,19 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
     }
     if (type === "response.created") {
       this.responseGeneration += 1;
+      this.responseRequested = false;
+      this.responseDone = false;
       this.seenToolCallIds.clear();
       this.responseActive = true;
-      this.responseInterrupted = false;
-      this.session.onEvent?.({ type: "response-start" });
+      this.responseInterrupted = this.cancellationRequested;
+      if (!this.responseInterrupted) this.session.onEvent?.({ type: "response-start" });
       return;
     }
     if (
       type === "response.output_audio.delta" ||
       type === "response.audio.delta"
     ) {
-      if (typeof event.delta === "string" && event.delta) {
+      if (!this.responseInterrupted && typeof event.delta === "string" && event.delta) {
         this.session.onEvent?.({
           type: "output-audio",
           frame: {
@@ -239,7 +346,7 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
       return;
     }
     if (type === "conversation.item.input_audio_transcription.delta") {
-      this.emitTranscript("input-transcript", "delta", event.delta);
+      this.emitTranscript("input-transcript", "delta", event.delta, event.item_id);
       return;
     }
     if (type === "conversation.item.input_audio_transcription.completed") {
@@ -249,6 +356,15 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
         event.transcript,
         event.item_id,
       );
+      return;
+    }
+    if (type === "conversation.item.input_audio_transcription.failed") {
+      const error = objectValue(event.error);
+      this.session.onEvent?.({
+        type: "input-transcript-failed",
+        ...(typeof event.item_id === "string" ? { id: event.item_id } : {}),
+        error: new Error(typeof error?.message === "string" ? error.message : "Input audio transcription failed"),
+      });
       return;
     }
     if (
@@ -271,6 +387,10 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
       return;
     }
     if (type === "input_audio_buffer.speech_started") {
+      if (this.provider.conversationControl) this.session.onEvent?.({
+        type: "input-speech-start",
+        ...(typeof event.item_id === "string" ? { id: event.item_id } : {}),
+      });
       if (this.responseActive) this.emitInterrupted();
       return;
     }
@@ -311,8 +431,12 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
             } | null;
           }
         | undefined;
+      this.responseDone = true;
+      this.responseRequested = false;
+      this.cancellationRequested = false;
       if (response?.status === "cancelled" || response?.status === "failed") {
         this.pendingToolCalls.clear();
+        this.cancelManualCalls();
       } else {
         this.queueResponseToolCalls(response?.output);
       }
@@ -325,6 +449,10 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
               : `${this.provider.providerName} realtime response failed`,
           ),
         );
+      } else if (this.session.toolHandling === "manual" && this.seenToolCallIds.size > 0) {
+        this.continueManualResponse();
+        if (this.textResponsePending) this.requestTextResponse();
+        return;
       } else if (this.pendingToolCalls.size > 0) {
         void this.completeToolCalls(this.responseGeneration).catch((error) =>
           this.fail(toError(error))
@@ -334,6 +462,7 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
         this.session.onEvent?.({ type: "response-end" });
       }
       this.responseActive = false;
+      if (this.textResponsePending) this.requestTextResponse();
       return;
     }
     if (type === "error") {
@@ -360,7 +489,7 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
     value: unknown,
     id?: unknown,
   ): void {
-    if (typeof value !== "string" || !value) return;
+    if (typeof value !== "string" || (!value && transcriptType !== "final")) return;
     this.session.onEvent?.({
       type,
       transcript: {
@@ -372,7 +501,7 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
   }
 
   private emitInterrupted(): void {
-    if (!this.responseActive || this.responseInterrupted) return;
+    if ((!this.responseActive && !this.responseRequested) || this.responseInterrupted) return;
     this.responseInterrupted = true;
     this.session.onEvent?.({ type: "response-interrupted" });
   }
@@ -401,6 +530,11 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
   ): void {
     if (!call || this.seenToolCallIds.has(call.callId)) return;
     this.seenToolCallIds.add(call.callId);
+    if (this.session.toolHandling === "manual") {
+      this.manualCalls.set(call.callId, { name: call.name, generation: this.responseGeneration });
+      this.session.onEvent?.({ type: "tool-call", call });
+      return;
+    }
     const task = executeSpeechToSpeechToolCall(
       this.session,
       call,
@@ -431,6 +565,7 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
     // still belong in history, but must not restart an interrupted response.
     if (generation === this.responseGeneration && !this.responseInterrupted) {
       this.responseActive = false;
+      this.responseRequested = true;
       this.send({ type: "response.create" });
     }
   }

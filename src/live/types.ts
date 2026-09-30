@@ -3,24 +3,50 @@ import type {
   PcmAudioFrame,
   TranscriptEvent,
 } from "../speech/types.js";
-import type { LangTool, ToolRequest } from "../lang/messages.js";
+import type { LangTool, LangToolWithHandler, ToolRequest } from "../lang/messages.js";
 import type { LangToolExecutionResult } from "../lang/tool-execution.js";
 
 export type SpeechToSpeechEvent =
   | { type: "output-audio"; frame: PcmAudioFrame }
   | { type: "input-transcript"; transcript: TranscriptEvent }
-  | { type: "output-transcript"; transcript: TranscriptEvent }
+  /** Transcription failed for one input item; the voice connection remains usable. */
+  | { type: "input-transcript-failed"; id?: string; error: Error }
+  /** source distinguishes generated text from the transcription of spoken audio. */
+  | { type: "output-transcript"; transcript: TranscriptEvent; source?: "text" }
+  | { type: "input-speech-start"; id?: string }
   | { type: "response-start" }
   | { type: "response-end" }
   | { type: "response-interrupted" }
   | { type: "tool-call"; call: ToolRequest }
   | { type: "tool-result"; result: LangToolExecutionResult }
+  | { type: "tool-calls-canceled"; callIds: string[] }
+  | { type: "session-resumption"; resumable: boolean; handle?: string }
+  | { type: "connection-expiring"; timeLeftMs?: number }
+  | { type: "connection-closed"; code?: number; reason?: string; wasClean?: boolean }
   | { type: "error"; error: Error };
+
+export type LiveToolDefinition = Pick<LangToolWithHandler, "name" | "description" | "parameters">;
+
+export type LiveTextOptions = {
+  role?: "user" | "assistant";
+  /** False appends context without requesting a response. Defaults to true. */
+  turnComplete?: boolean;
+  /** Send as live user activity instead of silent conversation context. */
+  realtime?: boolean;
+};
+
+export type LiveImageInput = {
+  /** Base64 image bytes, without a data URL prefix. */
+  data: string;
+  mimeType: "image/jpeg" | "image/png";
+};
 
 export type SpeechToSpeechSessionOptions = {
   signal?: AbortSignal;
   instructions?: string;
   tools?: LangTool[];
+  /** Manual mode emits calls without executing handlers. Supported by Gemini and OpenAI Realtime. */
+  toolHandling?: "automatic" | "manual";
   onEvent?: (event: SpeechToSpeechEvent) => void;
 };
 
@@ -36,6 +62,15 @@ export type SpeechToSpeechAnyEventListener = (
 
 export interface SpeechToSpeechSession {
   appendAudio(frame: PcmAudioFrame): Promise<void>;
+  /** End the microphone stream without closing the connection. Audio can resume later. */
+  endAudio?(): Promise<void>;
+  /** Optional capabilities: check before use when selecting a provider dynamically. */
+  sendText?(text: string, options?: LiveTextOptions): Promise<void>;
+  appendImage?(image: LiveImageInput): Promise<void>;
+  /** Cancel the current response without requesting another one, when supported. */
+  interrupt?(): Promise<void>;
+  /** Manual mode only. The application owns execution, ordering and replay. */
+  sendToolResults?(results: LangToolExecutionResult[]): Promise<void>;
   close(): Promise<void>;
   addEventListener(
     type: "event",

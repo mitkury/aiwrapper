@@ -7,6 +7,17 @@ import {
 } from "../../src/index.ts";
 
 describe("speech-to-speech timeline", () => {
+  it("does not invent a turn for completion after interruption or silence", () => {
+    const timeline = createSpeechToSpeechTimeline();
+    expect(timeline.record({ type: "response-end" }, 50)).toEqual([]);
+    timeline.record({ type: "response-start" }, 100);
+    timeline.record({ type: "response-interrupted" }, 200);
+    expect(timeline.record({ type: "response-end" }, 250)).toEqual([]);
+    expect(timeline.record({ type: "response-start" }, 300)).toEqual([
+      { turnId: 2, stage: "response-start", milliseconds: 0 },
+    ]);
+  });
+
   it("records each useful milestone once and starts a new turn", () => {
     const timeline = createSpeechToSpeechTimeline();
     const milestones = [

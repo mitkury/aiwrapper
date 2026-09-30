@@ -1,65 +1,50 @@
 # Working with the AIModels catalog
 
-`aimodels/` is a Git submodule of [mitkury/aimodels](https://github.com/mitkury/aimodels).
-AIWrapper pins a specific upstream commit. Its build includes the compiled
-JavaScript catalog, declarations, and MIT license in `dist/aimodels/`, so npm
-consumers do not need Git, the submodule, or an `aimodels` npm dependency.
+`aimodels/` pins a commit of [mitkury/aimodels](https://github.com/mitkury/aimodels)
+as a Git submodule. AIWrapper bundles its runtime, declarations, and license;
+npm consumers need neither Git nor a separate `aimodels` dependency.
 
-Import catalog APIs from AIWrapper: `import { models, Model } from 'aiwrapper'`.
-These exports and AIWrapper's providers share the same catalog instance. A
-separately installed `aimodels` package has its own instance and class identity.
+Import `models` and `Model` from `aiwrapper` to share the providers' catalog
+instance. A separately installed `aimodels` has its own instance and classes.
 
-## First checkout
+## Checkout and edit
 
-```bash
-git clone --recurse-submodules https://github.com/mitkury/aiwrapper.git
-cd aiwrapper
-npm ci
-npm run build
-```
+Initialize with `git submodule update --init --recursive`, then follow the
+[build guide](build.md). The build installs the submodule's locked dependencies
+on first use and when its lockfile changes, validates data, and runs its tests.
 
-For an existing checkout, run `git submodule update --init --recursive` first.
-The build installs the submodule's locked JavaScript build dependencies on first
-use and when its lockfile changes. It then validates the data, builds AIModels,
-and runs AIModels' deterministic tests. No npm publication or global link is needed.
+Read `aimodels/AGENTS.md` before editing canonical records in `aimodels/data/`
+or runtime code in `aimodels/js/src/`. Create a branch inside a detached
+submodule before editing. Then run:
 
-## Edit and test in the same checkout
-
-Read `aimodels/AGENTS.md` and its linked editing rules. Edit canonical catalog
-records in `aimodels/data/`, or the implementation in `aimodels/js/src/`.
-
-```bash
+```sh
 npm run aimodels:build
 npm run check
 npm run check:playground
 ```
 
-`aimodels:build` refreshes the generated, ignored `src/aimodels/` directory that
-the playground imports. `npm --prefix playground run dev` does this before
-starting Vite. After editing the catalog while Vite is running, rerun
-`npm run aimodels:build`. Never edit the generated copy.
+`aimodels:build` refreshes the ignored `src/aimodels/` used by the playground.
+Its dev command does this before Vite starts; rerun it after catalog edits
+while Vite is running. Never edit the generated copy.
 
-Submodules keep their own history. Before editing from a detached checkout,
-create a branch inside `aimodels/`. Commit and push catalog changes to its
-upstream repository first, then commit the `aimodels` pointer in AIWrapper.
-Local uncommitted edits can be built, but are not captured by a parent commit.
-Publish only pointers that other checkouts can fetch.
+Commit and push catalog changes upstream before committing the parent
+submodule pointer. Local uncommitted edits build but are not captured by a
+parent commit. Publish only pointers that other checkouts can fetch.
 
-## Get upstream updates
+## Update
 
-```bash
+```sh
 npm run aimodels:status
 npm run aimodels:update
 npm run check
 ```
 
-The updater fetches upstream `main` and advances only when catalog, runtime,
-build inputs, or license content changed. It preserves local edits, refuses
-diverged history, and skips repeated or older revisions. An exact upstream
-commit or stable tag can be selected with `npm run aimodels:update -- <ref>`.
+The updater fetches upstream `main` and advances only for catalog, runtime,
+build-input, or license changes. It preserves local edits, refuses diverged
+history, and skips repeated or older revisions. Select an exact commit or
+stable tag with `npm run aimodels:update -- <ref>`.
 
-After pulling AIWrapper changes, use `git submodule update --init --recursive`
-to check out its recorded catalog revision. Review local submodule changes
-before updating; `git status` and `npm run aimodels:status` show them separately.
-
-Automatic patch releases are described in [dependency updates](dependency-updates.md).
+After pulling AIWrapper, inspect local submodule changes with
+`npm run aimodels:status`, then run `git submodule update --init --recursive`
+to use its recorded revision. See [dependency updates](dependency-updates.md)
+for automatic patch releases.

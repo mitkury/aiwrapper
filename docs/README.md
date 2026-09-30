@@ -2,26 +2,23 @@
 
 ## Using AIWrapper
 
-- [Language providers](language-provider.md)
-- [AWS Bedrock](bedrock.md)
-- [Agents](agent.md)
-- [Realtime agents](realtime-agent.md)
-- [Interrupted tool calls](handling-broken-messages.md)
-- [Tool calling](dev/tools.md)
-- [Live language and speech providers](speech.md)
-
-The root [README](../README.md) contains installation and introductory examples.
+- [Quick start](../README.md)
+- [Language providers](language-provider.md): text, structured output, images, provider setup
+- [Agents and tools](agent.md): tool loops, results, events, cancellation
+- [Live sessions](live-sessions.md): native voice, Gemini controls, connection events
+- [Speech](speech.md): PCM, transcription, synthesis
+- [Realtime agents](realtime-agent.md): STT → LLM → TTS orchestration
+- [Playground](../playground/README.md): run the browser app
 
 ## Development
 
 - [Build](dev/build.md)
 - [Testing](../tests/README.md)
+- [AIModels catalog](dev/aimodels.md)
 - [Dependency updates](dev/dependency-updates.md)
-- [Editing the AIModels submodule](dev/aimodels.md)
-- [Agent actions](dev/actions-for-agents)
-- [Development rules](dev/rules)
-- [Architecture review and follow-ups](dev/architecture-review.md)
-- [Active proposal: interruption detection](dev/proposals/interruption-detection.md)
-- [Active proposal: speaker verification and extraction](dev/proposals/speaker-verification-and-extraction.md)
+- [Agent workflows](dev/actions-for-agents/README.md) and [development rules](dev/rules)
 
-OpenAI-specific protocol notes and captured streams are indexed under [dev/lang/openai](dev/lang/openai).
+## Proposed, not implemented
+
+- [Pluggable interruption detection](dev/proposals/interruption-detection.md)
+- [Speaker verification and extraction](dev/proposals/speaker-verification-and-extraction.md)

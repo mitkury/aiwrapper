@@ -1,63 +1,76 @@
 # Tests
 
-The suite contains deterministic unit tests and credential-gated provider integration tests.
+`npm test` builds the package and runs deterministic unit tests. Live provider
+checks end in `.integration.test.ts` and are excluded from that default suite.
 
 ## Commands
 
-```bash
-npm test
-npm run test:unit
-npm run test:integration
-npm run test:all
-npm run test:lang
-npm run test:tools
-npm run test:agents
-npm run test:speech
-npm run test:img-in
-npm run test:img-out
-```
+| Command | Scope |
+| --- | --- |
+| `npm run test:unit` | Unit tests without rebuilding |
+| `npm run test:integration` | Build, then live tests sequentially to reduce rate limits |
+| `npm run test:all` | Unit and integration suites |
+| `npm run test:lang`, `test:tools`, `test:agents`, `test:speech` | Build, then the named suite, including live tests |
+| `npm run test:img-in`, `test:img-out` | Image input or output checks |
+| `npm run check` | Build, unit tests, and a clean package-consumer check |
+| `npm run check:playground` | Catalog build, playground type check and production build |
 
-`npm test` builds first and runs deterministic unit tests. Files ending in `.integration.test.ts` use live providers and are excluded from the default test command.
+Integration tests use real, potentially billable calls. Missing credentials
+skip the corresponding tests; invalid or expired credentials cause failures.
+Filter providers or run a specific file after building:
 
-The complete integration command runs files sequentially to reduce provider
-rate-limit failures. Use `PROVIDERS` to narrow the run when debugging one or a
-small group of providers.
-
-`npm run check:playground` type-checks and production-builds the Svelte browser
-playground against the local AIWrapper source.
-
-Use `PROVIDERS` to limit integration tests:
-
-```bash
+```sh
+npm run build
 PROVIDERS=openai npx vitest run tests/lang/basic-lang.integration.test.ts
 PROVIDERS=openai,anthropic npm run test:tools
 ```
 
-Provider tests are skipped when the corresponding API key is absent. A present but expired or invalid key still causes a provider failure.
+Use `MODEL=<model-id>@<provider> npm run test:model` to check a catalog entry;
+the provider suffix is optional. See [AIModels](../docs/dev/aimodels.md) for
+local catalog edits. Generated images under `tests/img-out` are ignored.
 
-Speech integration tests use `OPENAI_API_KEY` for an OpenAI TTS-to-STT
-round trip. The ElevenLabs streaming test requires both `ELEVENLABS_API_KEY`
-and `ELEVENLABS_VOICE_ID`. Limit a run with `PROVIDERS=openai` or
-`PROVIDERS=elevenlabs`.
+## Speech checks
 
-Speech-to-speech unit tests use injected WebSockets for OpenAI Realtime, Gemini
-Live, xAI Voice, and Azure Voice Live, plus an injected bidirectional stream for
-Amazon Nova Sonic. Protocol translation, PCM formats, events, abort, and close
-behavior therefore remain deterministic and credential-free.
+Unit tests inject WebSockets or bidirectional streams to check provider
+protocols, PCM formats, events, abort, and close without credentials.
+OpenAI TTS-to-STT integration uses `OPENAI_API_KEY`; ElevenLabs streaming uses
+`ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID`. Select either with `PROVIDERS`.
 
-## Model check
+Gemini Live checks require `GOOGLE_API_KEY` and default to `gemini-3.8-live`;
+set `GEMINI_LIVE_MODEL` to override it:
 
-Use `test:model` for one catalog entry:
-
-```bash
-MODEL=<model-id> npm run test:model
-MODEL="<model-id>@<provider>" npm run test:model
+```sh
+PROVIDERS=google npx vitest run tests/speech/gemini-live.integration.test.ts
 ```
 
-The model test selects checks from the bundled AIModels catalog. See
-[working with AIModels](../docs/dev/aimodels.md) to test catalog edits directly
-from the submodule without publishing them to npm.
+The voice check sends a fixed [speech fixture](speech/fixtures/README.md) in
+20 ms packets twice on one connection, with explicit VAD settings and no text
+trigger. Each turn must produce nonempty input and output transcripts, at least
+100 ms of non-silent 24 kHz mono PCM, and a response-end event within 30 seconds.
+Errors fail the test; diagnostics report transcript lengths and turn progress.
+A separate check sends an image, context, and an application-owned tool result
+and expects spoken output. Both close their connections.
 
-## Generated files
+To run only voice, append `-t 'transcribes streamed speech'`. These are protocol
+checks without a model judge or exact-word assertions; they do not evaluate
+answer quality, physical audio devices, or an application's media transport.
 
-Image-output tests may write generated images under `tests/img-out`. Those files are ignored and should not be committed.
+OpenAI Realtime has the same two-turn PCM check plus an image/context/manual-tool
+check in `tests/speech/openai-live.integration.test.ts`. It uses `OPENAI_API_KEY`,
+`PROVIDERS=openai`, and `OPENAI_REALTIME_MODEL` (default `gpt-realtime-2.1`). The
+voice fixture is resampled to 24 kHz by the test, outside the provider adapter.
+
+## Language-test helpers
+
+[lang-gatherer.ts](utils/lang-gatherer.ts) selects configured providers and
+supports `modelOverrides`, `providers`, and `overrideProviders`. `PROVIDERS`
+has final authority; `overrideProviders` is intersected with it. Environment
+variables such as `OPENAI_MODEL` set models unless overridden in code.
+
+- `gatherLangs()` returns `LanguageProvider[]`.
+- `gatherLangsWithNames()` returns `{ name, lang }[]`.
+- `createLangTestRunner(callback, options?)` registers a suite per provider;
+  the callback receives the provider and defines its tests.
+
+See [a language test](lang/basic-lang.integration.test.ts) for usage. Supported
+providers and defaults live in the helper rather than a second provider list.

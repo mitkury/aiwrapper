@@ -1,65 +1,43 @@
 # Dependency updates
 
-Most dependencies are updated through normal pull requests. AIModels is a pinned
-Git submodule; AIWrapper's npm package includes its compiled catalog instead of
-fetching an `aimodels` npm dependency.
+AIModels is a pinned Git submodule whose compiled catalog ships inside
+AIWrapper. Other dependencies use normal npm updates and review.
 
-## Automatic catalog updates
+## Catalog automation
 
-`.github/workflows/update-aimodels.yml` checks upstream `main` hourly. It also
-accepts `aimodels-updated` and legacy `aimodels-package-updated` repository
-notifications, plus manual workflow runs. No upstream npm release is required.
-An optional notification `sha` selects an exact upstream commit. Legacy
-`version` notifications simply wake the main-branch check.
+[update-aimodels.yml](../../.github/workflows/update-aimodels.yml) checks upstream
+`main` hourly, on manual runs, and on `aimodels-updated` or legacy
+`aimodels-package-updated` notifications. A notification's `sha` selects an
+exact commit; a legacy `version` only wakes the main-branch check.
 
-The workflow:
+The updater skips repeated, older, and documentation-only revisions. Dirty or
+diverged submodules stop the update. Changes to catalog data, runtime, build
+inputs, or license advance the pin, bump AIWrapper's patch version, and run
+package and playground checks. It then atomically pushes the default branch
+and release tag; concurrent branch changes cause the push to fail.
 
-1. Fetches upstream `main` and compares it with the pinned catalog commit.
-2. Skips repeated, older, and documentation-only updates. Uncommitted edits or
-   diverged history stop the update without replacing local work.
-3. Advances the submodule, increments AIWrapper's patch version (for example,
-   `4.0.0` to `4.0.1`), and runs package and browser playground checks.
-4. Commits the pointer and version files, then atomically pushes the default
-   branch and release tag. A concurrent branch update causes this push to fail.
-5. Explicitly dispatches `publish.yml` at that tag. Tag pushes made with
-   `GITHUB_TOKEN` do not trigger another push workflow.
+It explicitly dispatches [publish.yml](../../.github/workflows/publish.yml) at
+that tag because `GITHUB_TOKEN` pushes do not trigger another push workflow.
+Breaking catalog changes require manual review. No upstream npm release is
+needed.
 
-Only changes under the upstream data, JavaScript runtime, build inputs, or
-license cause a patch release. An upstream API change that breaks the checks
-requires manual review. No website deployment is part of this workflow.
+## Setup and recovery
 
-## Activation and recovery
-
-The workflows become active when merged into the default branch. The updater
-uses `GITHUB_TOKEN` with contents and actions write permissions; branch rules
-must permit the automation's release commit. It needs no cross-repository
-secret for hourly checks because the upstream repository is public. Existing
-upstream dispatch notifications can still use their configured token.
-
-The `aiwrapper` package must trust `mitkury/aiwrapper`'s `publish.yml` through
-npm trusted publishing, with direct `npm publish` allowed. See
+Automation runs from the default branch. Its `GITHUB_TOKEN` needs contents and
+actions write permissions, and branch rules must allow the release commit.
+Hourly checks need no cross-repository secret; dispatch notifications use
+their configured token. Configure npm trusted publishing as described in the
 [publishing rules](rules/how-to-publish.md).
 
-Publication verifies the tag against the package version and skips a version
-already on npm. A later updater run retries publication if the current release
-tag was pushed but dispatch failed. A failed publish can also be retried with:
+Publication checks that the tag matches the package version and skips versions
+already on npm. Only a missing-version response counts as unpublished; other
+registry errors stop the workflow. The updater retries a missed dispatch for
+the current release tag. Retry a failed publish manually with:
 
-```bash
+```sh
 gh workflow run publish.yml --ref v<aiwrapper-version>
 ```
 
-Registry errors other than a missing version stop the workflow rather than
-being treated as evidence that a version is unpublished.
-
-## Local work
-
-See [working with AIModels](aimodels.md) to edit, build, or advance the catalog
-inside this checkout. Other dependencies still use normal npm commands:
-
-```bash
-npm outdated
-npm audit
-```
-
-Use `npm audit fix` only after reviewing its proposed dependency changes. Do not
-use `--force` without testing the required major upgrades.
+For local catalog changes, see [AIModels](aimodels.md). For other dependencies,
+use `npm outdated` and `npm audit`, then review and test updates before applying
+automatic fixes or major upgrades.

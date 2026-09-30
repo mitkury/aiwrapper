@@ -373,6 +373,62 @@ describe("speech-to-speech mock", () => {
 });
 
 describe("OpenAI realtime speech-to-speech", () => {
+  it("reports an input transcription failure without closing the live conversation", async () => {
+    const socket = new FakeLiveSocket({ type: "session.updated" });
+    const events: SpeechToSpeechEvent[] = [];
+    const session = await LiveLang.openai({ apiKey: "test", createWebSocket: () => socket }).connect({ onEvent: event => events.push(event) });
+    socket.serverMessage({ type: "conversation.item.input_audio_transcription.failed", item_id: "input-one", error: { message: "ASR unavailable" } });
+    await settleMessages();
+    expect(events).toEqual([{ type: "input-transcript-failed", id: "input-one", error: new Error("ASR unavailable") }]);
+    await session.appendAudio(frame([1, 2], 24000));
+    expect(socket.sent.at(-1)?.type).toBe("input_audio_buffer.append");
+    expect(socket.closed).toBe(false);
+    await session.close();
+  });
+
+  it("can stop a new response before acknowledgement after an earlier interruption", async () => {
+    const socket = new FakeLiveSocket({ type: "session.updated" });
+    const events: SpeechToSpeechEvent[] = [];
+    const session = await LiveLang.openai({ apiKey: "test", createWebSocket: () => socket }).connect({ onEvent: event => events.push(event) });
+    await session.sendText!("First");
+    socket.serverMessage({ type: "response.created" });
+    await settleMessages();
+    await session.interrupt!();
+    socket.serverMessage({ type: "response.done", response: { status: "cancelled" } });
+    await settleMessages();
+    await session.sendText!("Second");
+    await session.interrupt!();
+    expect(socket.sent.filter(item => item.type === "response.cancel")).toHaveLength(2);
+    socket.serverMessage({ type: "response.created" });
+    socket.serverMessage({ type: "response.output_audio.delta", delta: "AQD+/w==" });
+    socket.serverMessage({ type: "response.done", response: { status: "cancelled" } });
+    await settleMessages();
+    expect(events.some(event => event.type === "output-audio")).toBe(false);
+    expect(events.map(event => event.type)).toEqual(["response-start", "response-interrupted"]);
+    await session.sendText!("Third");
+    socket.serverMessage({ type: "response.created" });
+    socket.serverMessage({ type: "response.output_audio.delta", delta: "AQD+/w==" });
+    socket.serverMessage({ type: "response.done", response: { status: "completed" } });
+    await settleMessages();
+    expect(events.slice(-3).map(event => event.type)).toEqual(["response-start", "output-audio", "response-end"]);
+    await session.close();
+  });
+
+  it("delivers empty final transcripts so hosts can finish silent input items", async () => {
+    const socket = new FakeLiveSocket({ type: "session.updated" });
+    const events: SpeechToSpeechEvent[] = [];
+    const session = await LiveLang.openai({ apiKey: "test", createWebSocket: () => socket }).connect({ onEvent: event => events.push(event) });
+    socket.serverMessage({ type: "input_audio_buffer.speech_started", item_id: "silence" });
+    socket.serverMessage({ type: "conversation.item.input_audio_transcription.delta", item_id: "silence", delta: "" });
+    socket.serverMessage({ type: "conversation.item.input_audio_transcription.completed", item_id: "silence", transcript: "" });
+    await settleMessages();
+    expect(events).toEqual([
+      { type: "input-speech-start", id: "silence" },
+      { type: "input-transcript", transcript: { type: "final", id: "silence", text: "" } },
+    ]);
+    await session.close();
+  });
+
   it.each(["interruption", "new-response"])("does not restart an old tool response after %s", async (event) => {
     const socket = new FakeLiveSocket({ type: "session.updated" });
     const completion = deferred<string>();
@@ -401,6 +457,127 @@ describe("OpenAI realtime speech-to-speech", () => {
     });
     expect(socket.sent.some((message) => message.type === "response.create")).toBe(false);
     await session.close();
+  });
+
+  it("seeds silent text and images, and cancels before starting a new text response", async () => {
+    const socket = new FakeLiveSocket({ type: "session.updated" });
+    const session = await LiveLang.openai({ apiKey: "test", createWebSocket: () => socket }).connect();
+    await session.sendText!("Earlier context", { turnComplete: false });
+    await session.sendText!("Earlier answer", { role: "assistant", turnComplete: false });
+    await session.appendImage!({ data: "aW1hZ2U=", mimeType: "image/jpeg" });
+    expect(socket.sent.slice(1).map(item => item.item.content[0].type)).toEqual(["input_text", "output_text", "input_image"]);
+    expect(socket.sent.some(item => item.type === "response.create")).toBe(false);
+    await session.sendText!("Hello", { realtime: true });
+    socket.serverMessage({ type: "response.created" });
+    await settleMessages();
+    await session.sendText!("Actually, stop and answer this instead", { realtime: true });
+    expect(socket.sent.at(-1)).toEqual({ type: "response.cancel" });
+    expect(socket.sent.filter(item => item.type === "response.create")).toHaveLength(1);
+    socket.serverMessage({ type: "response.done", response: { status: "cancelled" } });
+    await settleMessages();
+    expect(socket.sent.filter(item => item.type === "response.create")).toHaveLength(2);
+    socket.serverMessage({ type: "response.created" });
+    await settleMessages();
+    await session.interrupt!();
+    socket.serverMessage({ type: "response.done", response: { status: "cancelled" } });
+    await settleMessages();
+    expect(socket.sent.filter(item => item.type === "response.create")).toHaveLength(2);
+    await expect(session.sendText!("bad", { realtime: true, turnComplete: false })).rejects.toThrow("Realtime text");
+    await session.close();
+    await expect(session.sendText!("after close")).rejects.toThrow("closed");
+  });
+
+  it("coalesces rapid text/stop controls before a response acknowledgement", async () => {
+    const socket = new FakeLiveSocket({ type: "session.updated" });
+    const session = await LiveLang.openai({ apiKey: "test", createWebSocket: () => socket }).connect();
+    await session.sendText!("First");
+    await session.sendText!("Second");
+    await session.sendText!("Third");
+    await session.interrupt!();
+    expect(socket.sent.filter(item => item.type === "response.cancel")).toHaveLength(1);
+    socket.serverMessage({ type: "response.created" });
+    socket.serverMessage({ type: "response.done", response: { status: "cancelled" } });
+    await settleMessages();
+    expect(socket.sent.filter(item => item.type === "response.create")).toHaveLength(1);
+    await session.sendText!("After stop");
+    expect(socket.sent.filter(item => item.type === "response.create")).toHaveLength(2);
+    await session.close();
+  });
+
+  it.each([true, false])("waits for all manual results and response.done (early results: %s)", async (earlyResults) => {
+    const socket = new FakeLiveSocket({ type: "session.updated" });
+    const handler = vi.fn();
+    const events: SpeechToSpeechEvent[] = [];
+    const session = await LiveLang.openai({ apiKey: "test", createWebSocket: () => socket }).connect({
+      toolHandling: "manual", tools: [{ ...weatherTool(), handler }], onEvent: event => events.push(event),
+    });
+    socket.serverMessage({ type: "response.created" });
+    for (const id of ["a", "b"]) socket.serverMessage({ type: "response.function_call_arguments.done", call_id: id, name: "get_weather", arguments: "{}" });
+    await settleMessages();
+    expect(handler).not.toHaveBeenCalled();
+    expect(events.filter(event => event.type === "tool-call")).toHaveLength(2);
+    const done = () => socket.serverMessage({ type: "response.done", response: { status: "completed", output: [
+      { type: "function_call", call_id: "a", name: "get_weather", arguments: "{}" },
+      { type: "function_call", call_id: "b", name: "get_weather", arguments: "{}" },
+    ] } });
+    if (!earlyResults) { done(); await settleMessages(); }
+    await session.sendToolResults!([{ callId: "a", name: "get_weather", result: { temperature: 21 } }]);
+    expect(socket.sent.some(item => item.type === "response.create")).toBe(false);
+    await session.sendToolResults!([{ callId: "b", name: "get_weather", result: null }]);
+    if (earlyResults) {
+      expect(socket.sent.some(item => item.type === "response.create")).toBe(false);
+      done(); await settleMessages();
+    }
+    expect(socket.sent.filter(item => item.type === "response.create")).toHaveLength(1);
+    done(); await settleMessages();
+    expect(socket.sent.filter(item => item.type === "response.create")).toHaveLength(1);
+    expect(events.filter(event => event.type === "tool-call")).toHaveLength(2);
+    expect(events.some(event => event.type === "response-end")).toBe(false);
+    await expect(session.sendToolResults!([{ callId: "a", name: "get_weather", result: {} }])).rejects.toThrow("Unknown or duplicate");
+    socket.serverMessage({ type: "response.created" });
+    socket.serverMessage({ type: "response.done", response: { status: "completed" } });
+    await settleMessages();
+    expect(events.filter(event => event.type === "response-end")).toHaveLength(1);
+    await session.close();
+  });
+
+  it("starts user text during a pending tool without cancelling an already finished response", async () => {
+    const socket = new FakeLiveSocket({ type: "session.updated" });
+    const session = await LiveLang.openai({ apiKey: "test", createWebSocket: () => socket }).connect({ toolHandling: "manual", tools: [weatherTool()] });
+    socket.serverMessage({ type: "response.created" });
+    socket.serverMessage({ type: "response.function_call_arguments.done", call_id: "a", name: "get_weather", arguments: "{}" });
+    socket.serverMessage({ type: "response.done", response: { status: "completed" } });
+    await settleMessages();
+    await session.sendText!("A new request", { realtime: true });
+    expect(socket.sent.some(item => item.type === "response.cancel")).toBe(false);
+    expect(socket.sent.filter(item => item.type === "response.create")).toHaveLength(1);
+    socket.serverMessage({ type: "response.created" });
+    await settleMessages();
+    await session.sendToolResults!([{ callId: "a", name: "get_weather", result: {} }]);
+    expect(socket.sent.filter(item => item.type === "response.create")).toHaveLength(1);
+    await session.close();
+  });
+
+  it("cancels manual calls on provider cancellation and leaves other adapters' capabilities unchanged", async () => {
+    const socket = new FakeLiveSocket({ type: "session.updated" });
+    const events: SpeechToSpeechEvent[] = [];
+    const session = await LiveLang.openai({ apiKey: "test", createWebSocket: () => socket }).connect({
+      toolHandling: "manual", tools: [{ name: "wait", description: "Wait", parameters: { type: "object" } }],
+      onEvent: event => events.push(event),
+    });
+    socket.serverMessage({ type: "response.created" });
+    socket.serverMessage({ type: "response.function_call_arguments.done", call_id: "a", name: "wait", arguments: "{}" });
+    socket.serverMessage({ type: "response.done", response: { status: "cancelled" } });
+    await settleMessages();
+    expect(events).toContainEqual({ type: "tool-calls-canceled", callIds: ["a"] });
+    await expect(session.sendToolResults!([{ callId: "a", name: "wait", result: {} }])).rejects.toThrow("Unknown or duplicate");
+    expect(socket.sent.some(item => item.type === "response.create")).toBe(false);
+    await session.close();
+    const xai = await LiveLang.xai({ apiKey: "test", createWebSocket: () => new FakeLiveSocket({ type: "session.updated" }) }).connect();
+    expect(xai.appendImage).toBeUndefined();
+    expect(xai.sendText).toBeUndefined();
+    expect(xai.sendToolResults).toBeUndefined();
+    await xai.close();
   });
 
   it("executes shared tools and returns function outputs before continuing", async () => {
@@ -548,6 +725,7 @@ describe("OpenAI realtime speech-to-speech", () => {
     socket.serverMessage({
       type: "conversation.item.input_audio_transcription.delta",
       delta: "hel",
+      item_id: "input-one",
     });
     socket.serverMessage({
       type: "response.output_audio_transcript.delta",
@@ -557,7 +735,7 @@ describe("OpenAI realtime speech-to-speech", () => {
       type: "response.output_audio.delta",
       delta: "AQD+/w==",
     });
-    socket.serverMessage({ type: "input_audio_buffer.speech_started" });
+    socket.serverMessage({ type: "input_audio_buffer.speech_started", item_id: "input-two" });
     socket.serverMessage({
       type: "response.done",
       response: { status: "cancelled" },
@@ -569,8 +747,11 @@ describe("OpenAI realtime speech-to-speech", () => {
       "input-transcript",
       "output-transcript",
       "output-audio",
+      "input-speech-start",
       "response-interrupted",
     ]);
+    expect(events.find(event => event.type === "input-transcript")).toMatchObject({ transcript: { id: "input-one" } });
+    expect(events.find(event => event.type === "input-speech-start")).toMatchObject({ id: "input-two" });
     const audioEvent = events.find(
       (
         event,
@@ -1132,7 +1313,7 @@ describe("Gemini Live speech-to-speech", () => {
           functionDeclarations: [{
             name: "get_weather",
             description: "Get current weather",
-            parameters: { type: "object" },
+            parametersJsonSchema: { type: "object" },
           }],
         }],
       },
