@@ -489,6 +489,7 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
     value: unknown,
     id?: unknown,
   ): void {
+    if (type === "output-transcript" && this.responseInterrupted) return;
     if (typeof value !== "string" || (!value && transcriptType !== "final")) return;
     this.session.onEvent?.({
       type,
@@ -528,7 +529,7 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
   private queueToolCall(
     call: ReturnType<typeof parseSpeechToSpeechToolCall>,
   ): void {
-    if (!call || this.seenToolCallIds.has(call.callId)) return;
+    if (!call || this.responseInterrupted || this.seenToolCallIds.has(call.callId)) return;
     this.seenToolCallIds.add(call.callId);
     if (this.session.toolHandling === "manual") {
       this.manualCalls.set(call.callId, { name: call.name, generation: this.responseGeneration });

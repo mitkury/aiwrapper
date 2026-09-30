@@ -373,6 +373,33 @@ describe("speech-to-speech mock", () => {
 });
 
 describe("OpenAI realtime speech-to-speech", () => {
+  it.each(["stop", "barge-in"])("ignores late transcript and tool events after %s", async (interruption) => {
+    const socket = new FakeLiveSocket({ type: "session.updated" });
+    const events: SpeechToSpeechEvent[] = [];
+    const session = await LiveLang.openai({ apiKey: "test", createWebSocket: () => socket }).connect({
+      toolHandling: "manual", tools: [weatherTool()], onEvent: event => events.push(event),
+    });
+    socket.serverMessage({ type: "response.created" });
+    socket.serverMessage({ type: "response.output_audio_transcript.delta", delta: "Hello" });
+    await settleMessages();
+    if (interruption === "stop") await session.interrupt!();
+    else socket.serverMessage({ type: "input_audio_buffer.speech_started", item_id: "next-input" });
+    await settleMessages();
+    const count = events.length;
+    socket.serverMessage({ type: "response.output_audio_transcript.delta", delta: " again" });
+    socket.serverMessage({ type: "response.output_audio_transcript.done", transcript: "Hello again" });
+    socket.serverMessage({ type: "response.function_call_arguments.done", call_id: "late-call", name: "get_weather", arguments: "{}" });
+    socket.serverMessage({ type: "response.done", response: { status: "cancelled" } });
+    await settleMessages();
+    expect(events.slice(count)).toEqual([]);
+    socket.serverMessage({ type: "response.created" });
+    socket.serverMessage({ type: "response.output_audio_transcript.delta", delta: "Next turn" });
+    socket.serverMessage({ type: "response.done", response: { status: "completed" } });
+    await settleMessages();
+    expect(events.slice(-3).map(event => event.type)).toEqual(["response-start", "output-transcript", "response-end"]);
+    await session.close();
+  });
+
   it("reports an input transcription failure without closing the live conversation", async () => {
     const socket = new FakeLiveSocket({ type: "session.updated" });
     const events: SpeechToSpeechEvent[] = [];
