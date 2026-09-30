@@ -45,14 +45,35 @@ Live, xAI Voice, and Azure Voice Live, plus an injected bidirectional stream for
 Amazon Nova Sonic. Protocol translation, PCM formats, events, abort, and close
 behavior therefore remain deterministic and credential-free.
 
-The Gemini Live smoke test uses `GOOGLE_API_KEY` and defaults to
-`gemini-3.8-live` (override with `GEMINI_LIVE_MODEL`). It sends a synthetic image,
-conversation context and an application-owned tool result, then checks for
-spoken output:
+The Gemini Live smoke tests use `GOOGLE_API_KEY` and default to
+`gemini-3.8-live` (override with `GEMINI_LIVE_MODEL`). Run them with:
 
 ```bash
 npm run build
 PROVIDERS=google npx vitest run tests/speech/gemini-live.integration.test.ts
+```
+
+The voice test streams a checked-in [speech fixture](speech/fixtures/README.md)
+in 20 ms packets, ends microphone input, and repeats on the same connection.
+Voice detection settings are explicit, including a 500 ms end-of-speech silence
+threshold, so the fixture does not depend on the provider's current defaults.
+Each turn must produce nonempty input and spoken-output transcripts, at least
+100 ms of 24 kHz mono PCM with a non-silent signal, and a response-end event.
+It sends no text prompt to trigger the response. Each turn has a 30-second
+deadline; provider errors fail the test and the connection is always closed.
+Failure diagnostics report transcript lengths and audio/turn progress.
+
+There is no model judge, exact-word assertion, or live TTS dependency. This
+checks the voice protocol round trip, not answer quality, intelligibility,
+physical audio devices, or an application's WebRTC transport. The separate
+tool test sends a synthetic image, conversation context and an
+application-owned tool result, then checks for spoken output.
+
+These tests make real, potentially billable provider calls and remain outside
+the default deterministic suite. Run only the voice check with:
+
+```bash
+PROVIDERS=google npx vitest run tests/speech/gemini-live.integration.test.ts -t 'transcribes streamed speech'
 ```
 
 ## Model check
