@@ -11,6 +11,7 @@ export type SpeechToSpeechEvent =
   | { type: "input-transcript"; transcript: TranscriptEvent }
   /** source distinguishes generated text from the transcription of spoken audio. */
   | { type: "output-transcript"; transcript: TranscriptEvent; source?: "text" }
+  | { type: "input-speech-start"; id?: string }
   | { type: "response-start" }
   | { type: "response-end" }
   | { type: "response-interrupted" }
@@ -28,7 +29,7 @@ export type LiveTextOptions = {
   role?: "user" | "assistant";
   /** False appends context without requesting a response. Defaults to true. */
   turnComplete?: boolean;
-  /** Send as live user activity instead of conversation context (Gemini only). */
+  /** Send as live user activity instead of silent conversation context. */
   realtime?: boolean;
 };
 
@@ -42,7 +43,7 @@ export type SpeechToSpeechSessionOptions = {
   signal?: AbortSignal;
   instructions?: string;
   tools?: LangTool[];
-  /** Manual mode emits calls without executing handlers. Currently supported by Gemini. */
+  /** Manual mode emits calls without executing handlers. Supported by Gemini and OpenAI Realtime. */
   toolHandling?: "automatic" | "manual";
   onEvent?: (event: SpeechToSpeechEvent) => void;
 };
@@ -64,6 +65,8 @@ export interface SpeechToSpeechSession {
   /** Optional capabilities: check before use when selecting a provider dynamically. */
   sendText?(text: string, options?: LiveTextOptions): Promise<void>;
   appendImage?(image: LiveImageInput): Promise<void>;
+  /** Cancel the current response without requesting another one, when supported. */
+  interrupt?(): Promise<void>;
   /** Manual mode only. The application owns execution, ordering and replay. */
   sendToolResults?(results: LangToolExecutionResult[]): Promise<void>;
   close(): Promise<void>;

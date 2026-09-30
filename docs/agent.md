@@ -79,8 +79,8 @@ MIME type. Provider support differs:
 Native live sessions accept text and JSON-serializable tool results, not image
 content parts or provider-managed built-ins. They execute handlers and continue
 the model automatically. Results are normalized once: `undefined` becomes `{}`,
-`null` remains `null`, and unserializable values become tool errors. Gemini also
-supports [manual result delivery](live-sessions.md#tool-ownership).
+`null` remains `null`, and unserializable values become tool errors. Gemini and OpenAI
+support [manual result delivery](live-sessions.md#tool-ownership).
 
 ## Provider-managed tools
 

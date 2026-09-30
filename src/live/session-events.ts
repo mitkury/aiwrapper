@@ -12,7 +12,7 @@ type Listener = (event: SpeechToSpeechEvent) => void;
 type ListenerType = SpeechToSpeechEventType | "event";
 type SpeechToSpeechSessionTransport = Pick<
   SpeechToSpeechSession,
-  "appendAudio" | "endAudio" | "close" | "sendText" | "appendImage" | "sendToolResults"
+  "appendAudio" | "endAudio" | "close" | "sendText" | "appendImage" | "sendToolResults" | "interrupt"
 >;
 
 export async function createObservableSpeechToSpeechSession(
@@ -63,6 +63,12 @@ export async function createObservableSpeechToSpeechSession(
       async appendImage(image) {
         assertOpen();
         await transport.appendImage!(image);
+      },
+    } : {}),
+    ...(transport.interrupt ? {
+      async interrupt() {
+        assertOpen();
+        await transport.interrupt!();
       },
     } : {}),
     ...(transport.sendToolResults ? {

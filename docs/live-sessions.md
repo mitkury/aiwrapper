@@ -93,8 +93,8 @@ activity detection is required; manual activity markers are not exposed.
 `connect()` waits for setup acknowledgement. Its timeout bounds socket creation
 and setup, and closes sockets arriving after timeout or cancellation.
 
-These optional methods currently exist only on Gemini sessions; check their
-presence when selecting another provider:
+Gemini and OpenAI Realtime support text, images, and manual tool results. Check
+optional methods before selecting another provider:
 
 | Method | Meaning |
 | --- | --- |
@@ -103,7 +103,8 @@ presence when selecting another provider:
 | `sendText(text, { role: "assistant", turnComplete: false })` | Restore assistant context |
 | `sendText(text, { realtime: true })` | Send user activity; cannot combine with assistant role or `turnComplete` |
 | `appendImage({ data, mimeType })` | Send base64 JPEG/PNG bytes as video input |
-| `endAudio()` | End microphone input; later audio resumes the same connection |
+| `endAudio()` | Gemini: end microphone input; later audio resumes the same connection |
+| `interrupt()` | OpenAI: cancel generation without requesting another response |
 | `sendToolResults(results)` | Submit results in manual tool mode |
 
 Completed client content can interrupt generation; use incomplete content for
@@ -117,7 +118,7 @@ By default, sessions execute [local tool handlers](agent.md#local-tools), emit
 `tool-result`, and continue the model. Gemini additionally aborts individual
 handlers on provider cancellation and suppresses their late results.
 
-For application-owned execution, Gemini accepts declarations without handlers:
+For application-owned execution, Gemini and OpenAI accept declarations without handlers:
 
 ```ts
 const session = await live.connect({
@@ -135,7 +136,7 @@ await session.sendToolResults!([{ callId, name: "lookup", result: { found: true 
 
 Manual mode emits `tool-call` without executing it; replayed calls are delivered
 again. The host owns ordering, authorization, result caching, and cancellation
-across connections. Other live providers reject manual mode before connecting.
+across connections. The remaining live providers reject manual mode before connecting.
 
 `tool-calls-canceled` carries `callIds`, which Gemini filters from subsequent
 submissions on that connection. The host must still check cancellation before
@@ -147,6 +148,14 @@ preserved; primitives and arrays are wrapped in `{ result: value }`. Manual
 submission emits no `tool-result`, so the host keeps its own execution timeline.
 Image content parts are not supported in live tool results. A host can serialize
 `appendImage()` before its JSON result, but those are separate, non-atomic messages.
+
+OpenAI inserts silent text/images as conversation items. Completed text requests
+a response, cancelling active generation first. Manual results must match calls
+from the current connection; the adapter waits for the tool-producing response
+to finish and for all its results before continuing. It emits `input-speech-start`
+on VAD speech start so hosts can clear audio still queued for playback. Stop
+local playback as well as calling `interrupt()`; generated audio is not a playback
+cursor. OpenAI does not expose Gemini's resumption or compression controls.
 
 ## Gemini connection events
 

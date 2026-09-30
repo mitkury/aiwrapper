@@ -246,7 +246,7 @@ describe("Gemini Live application integration", () => {
 
   it("rejects manual tools for unsupported providers before opening a socket", async () => {
     const factory = vi.fn();
-    await expect(LiveLang.openai({ apiKey: "test", createWebSocket: factory })
+    await expect(LiveLang.xai({ apiKey: "test", createWebSocket: factory })
       .connect({ toolHandling: "manual", tools: [tool] })).rejects.toThrow("manual tool handling");
     expect(factory).not.toHaveBeenCalled();
     await expect(LiveLang.mock().connect({ toolHandling: "manual" })).rejects.toThrow("manual tool handling");

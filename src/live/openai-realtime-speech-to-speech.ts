@@ -96,6 +96,7 @@ function openAIProtocolConfig(
 ): OpenAICompatibleRealtimeSpeechToSpeechConfig {
   return {
     providerName: "OpenAI realtime",
+    conversationControl: true,
     audioLabel: "OpenAI",
     url: `${websocketURL(config.baseURL, "/realtime")}?model=${encodeURIComponent(config.model)}`,
     headers: {
@@ -104,7 +105,7 @@ function openAIProtocolConfig(
     },
     createWebSocket: config.createWebSocket,
     createSessionUpdate: (session) => {
-      const tools = speechToSpeechFunctionDeclarations(session);
+      const tools = speechToSpeechFunctionDeclarations(session, true);
       return {
         type: "session.update",
         session: {

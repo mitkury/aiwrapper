@@ -55,6 +55,11 @@ To run only voice, append `-t 'transcribes streamed speech'`. These are protocol
 checks without a model judge or exact-word assertions; they do not evaluate
 answer quality, physical audio devices, or an application's media transport.
 
+OpenAI Realtime has the same two-turn PCM check plus an image/context/manual-tool
+check in `tests/speech/openai-live.integration.test.ts`. It uses `OPENAI_API_KEY`,
+`PROVIDERS=openai`, and `OPENAI_REALTIME_MODEL` (default `gpt-realtime-2.1`). The
+voice fixture is resampled to 24 kHz by the test, outside the provider adapter.
+
 ## Language-test helpers
 
 [lang-gatherer.ts](utils/lang-gatherer.ts) selects configured providers and
