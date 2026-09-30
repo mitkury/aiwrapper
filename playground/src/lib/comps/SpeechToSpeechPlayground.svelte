@@ -40,7 +40,7 @@
 
 	let config = $state<LiveConfig>({
 		openai: { configured: false, model: 'gpt-realtime-2.1', voice: 'marin' },
-		gemini: { configured: false, model: 'gemini-3.1-flash-live-preview', voice: 'Kore' },
+		gemini: { configured: false, model: 'gemini-3.8-live', voice: 'Kore' },
 		xai: { configured: false, model: 'grok-voice-think-fast-2.0', voice: 'eve' },
 		azure: { configured: false, model: 'gpt-realtime', voice: 'alloy' },
 		nova: { configured: true, model: 'amazon.nova-2-sonic-v1:0', voice: 'tiffany' }
@@ -475,7 +475,7 @@
 						<option value="gpt-realtime-2"></option>
 						<option value="gpt-realtime-1.5"></option>
 					{:else if provider === 'gemini'}
-						<option value="gemini-3.1-flash-live-preview"></option>
+						<option value="gemini-3.8-live"></option>
 					{:else if provider === 'xai'}
 						<option value="grok-voice-think-fast-2.0"></option>
 						<option value="grok-voice-latest"></option>

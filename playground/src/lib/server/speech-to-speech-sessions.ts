@@ -30,6 +30,7 @@ export type SpeechToSpeechRecord = {
 
 const records = new Map<string, SpeechToSpeechRecord>();
 const maximumIdleMs = 30 * 60 * 1000;
+const defaultGeminiLiveModel = 'gemini-3.8-live';
 
 export function speechToSpeechConfig() {
 	return {
@@ -40,7 +41,7 @@ export function speechToSpeechConfig() {
 		},
 		gemini: {
 			configured: Boolean(env.GOOGLE_API_KEY?.trim()),
-			model: env.GEMINI_LIVE_MODEL || 'gemini-3.1-flash-live-preview',
+			model: env.GEMINI_LIVE_MODEL || defaultGeminiLiveModel,
 			voice: env.GEMINI_LIVE_VOICE || 'Kore'
 		},
 		xai: {
@@ -152,8 +153,19 @@ function createProvider(config: SpeechToSpeechSessionConfig): LiveLang {
 		if (!env.GOOGLE_API_KEY) throw new Error('GOOGLE_API_KEY is not configured');
 		return LiveLang.google({
 			apiKey: env.GOOGLE_API_KEY,
-			model: config.model || env.GEMINI_LIVE_MODEL || undefined,
-			voice: config.voice || env.GEMINI_LIVE_VOICE || undefined
+			model: config.model || env.GEMINI_LIVE_MODEL || defaultGeminiLiveModel,
+			voice: config.voice || env.GEMINI_LIVE_VOICE || undefined,
+			config: {
+				realtimeInputConfig: {
+					automaticActivityDetection: {
+						disabled: false,
+						startOfSpeechSensitivity: 'START_SENSITIVITY_HIGH',
+						endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH',
+						prefixPaddingMs: 300,
+						silenceDurationMs: 500
+					}
+				}
+			}
 		});
 	}
 	if (config.provider === 'xai') {

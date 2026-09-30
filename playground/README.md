@@ -127,6 +127,14 @@ to hide it from the page. Provider and model controls are
 disabled during an active session because live conversation state cannot be
 transferred losslessly between providers.
 
+Gemini Live defaults to `gemini-3.8-live` with the `Kore` voice. Its automatic
+voice detection uses high start/end sensitivity, 300 ms of prefix padding, and
+500 ms of silence to finish a spoken turn, matching the live voice smoke test.
+Select **Live voice → Gemini Live → Connect microphone** to talk to it.
+`GEMINI_LIVE_MODEL` and `GEMINI_LIVE_VOICE` override the defaults, and the page
+also accepts an explicit model or voice. See Google's
+[Live API guide](https://ai.google.dev/gemini-api/docs/live-api/capabilities).
+
 The page derives a provider-neutral turn timeline from the shared
 speech-to-speech events. It reports connection setup, first/final input
 transcript, response start, first response text, first playable audio,
