@@ -51,7 +51,9 @@ such as `"output-audio"` for typed events. Remove subscriptions with
 
 Events cover transcripts, audio, response start/end, interruption, tools, and
 errors. Final transcripts may revise an existing `id`; replace that entry in
-the UI. `observeLiveLangTimeline(session, callback)` derives turn milestones
+the UI. An empty final transcript still completes its input item. OpenAI's
+`input-transcript-failed` event completes a failed transcription without closing
+the voice connection. `observeLiveLangTimeline(session, callback)` derives turn milestones
 and elapsed times and returns an unsubscribe function.
 
 Pass `signal` to `connect()` for cancellation. `close()` is idempotent, stops

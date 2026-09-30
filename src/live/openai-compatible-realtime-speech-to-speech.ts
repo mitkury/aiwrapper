@@ -230,7 +230,7 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
   async interrupt(): Promise<void> {
     this.assertOpen();
     this.textResponsePending = false;
-    if ((this.responseActive || this.responseRequested) && !this.responseInterrupted) {
+    if (this.responseRequested || (this.responseActive && !this.responseInterrupted)) {
       if (!this.responseDone || this.responseRequested) this.cancelResponse();
       else this.emitInterrupted();
     }
@@ -327,7 +327,7 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
       this.seenToolCallIds.clear();
       this.responseActive = true;
       this.responseInterrupted = this.cancellationRequested;
-      this.session.onEvent?.({ type: "response-start" });
+      if (!this.responseInterrupted) this.session.onEvent?.({ type: "response-start" });
       return;
     }
     if (
@@ -356,6 +356,15 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
         event.transcript,
         event.item_id,
       );
+      return;
+    }
+    if (type === "conversation.item.input_audio_transcription.failed") {
+      const error = objectValue(event.error);
+      this.session.onEvent?.({
+        type: "input-transcript-failed",
+        ...(typeof event.item_id === "string" ? { id: event.item_id } : {}),
+        error: new Error(typeof error?.message === "string" ? error.message : "Input audio transcription failed"),
+      });
       return;
     }
     if (
@@ -480,7 +489,7 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
     value: unknown,
     id?: unknown,
   ): void {
-    if (typeof value !== "string" || !value) return;
+    if (typeof value !== "string" || (!value && transcriptType !== "final")) return;
     this.session.onEvent?.({
       type,
       transcript: {

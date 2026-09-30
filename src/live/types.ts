@@ -9,6 +9,8 @@ import type { LangToolExecutionResult } from "../lang/tool-execution.js";
 export type SpeechToSpeechEvent =
   | { type: "output-audio"; frame: PcmAudioFrame }
   | { type: "input-transcript"; transcript: TranscriptEvent }
+  /** Transcription failed for one input item; the voice connection remains usable. */
+  | { type: "input-transcript-failed"; id?: string; error: Error }
   /** source distinguishes generated text from the transcription of spoken audio. */
   | { type: "output-transcript"; transcript: TranscriptEvent; source?: "text" }
   | { type: "input-speech-start"; id?: string }

@@ -373,6 +373,62 @@ describe("speech-to-speech mock", () => {
 });
 
 describe("OpenAI realtime speech-to-speech", () => {
+  it("reports an input transcription failure without closing the live conversation", async () => {
+    const socket = new FakeLiveSocket({ type: "session.updated" });
+    const events: SpeechToSpeechEvent[] = [];
+    const session = await LiveLang.openai({ apiKey: "test", createWebSocket: () => socket }).connect({ onEvent: event => events.push(event) });
+    socket.serverMessage({ type: "conversation.item.input_audio_transcription.failed", item_id: "input-one", error: { message: "ASR unavailable" } });
+    await settleMessages();
+    expect(events).toEqual([{ type: "input-transcript-failed", id: "input-one", error: new Error("ASR unavailable") }]);
+    await session.appendAudio(frame([1, 2], 24000));
+    expect(socket.sent.at(-1)?.type).toBe("input_audio_buffer.append");
+    expect(socket.closed).toBe(false);
+    await session.close();
+  });
+
+  it("can stop a new response before acknowledgement after an earlier interruption", async () => {
+    const socket = new FakeLiveSocket({ type: "session.updated" });
+    const events: SpeechToSpeechEvent[] = [];
+    const session = await LiveLang.openai({ apiKey: "test", createWebSocket: () => socket }).connect({ onEvent: event => events.push(event) });
+    await session.sendText!("First");
+    socket.serverMessage({ type: "response.created" });
+    await settleMessages();
+    await session.interrupt!();
+    socket.serverMessage({ type: "response.done", response: { status: "cancelled" } });
+    await settleMessages();
+    await session.sendText!("Second");
+    await session.interrupt!();
+    expect(socket.sent.filter(item => item.type === "response.cancel")).toHaveLength(2);
+    socket.serverMessage({ type: "response.created" });
+    socket.serverMessage({ type: "response.output_audio.delta", delta: "AQD+/w==" });
+    socket.serverMessage({ type: "response.done", response: { status: "cancelled" } });
+    await settleMessages();
+    expect(events.some(event => event.type === "output-audio")).toBe(false);
+    expect(events.map(event => event.type)).toEqual(["response-start", "response-interrupted"]);
+    await session.sendText!("Third");
+    socket.serverMessage({ type: "response.created" });
+    socket.serverMessage({ type: "response.output_audio.delta", delta: "AQD+/w==" });
+    socket.serverMessage({ type: "response.done", response: { status: "completed" } });
+    await settleMessages();
+    expect(events.slice(-3).map(event => event.type)).toEqual(["response-start", "output-audio", "response-end"]);
+    await session.close();
+  });
+
+  it("delivers empty final transcripts so hosts can finish silent input items", async () => {
+    const socket = new FakeLiveSocket({ type: "session.updated" });
+    const events: SpeechToSpeechEvent[] = [];
+    const session = await LiveLang.openai({ apiKey: "test", createWebSocket: () => socket }).connect({ onEvent: event => events.push(event) });
+    socket.serverMessage({ type: "input_audio_buffer.speech_started", item_id: "silence" });
+    socket.serverMessage({ type: "conversation.item.input_audio_transcription.delta", item_id: "silence", delta: "" });
+    socket.serverMessage({ type: "conversation.item.input_audio_transcription.completed", item_id: "silence", transcript: "" });
+    await settleMessages();
+    expect(events).toEqual([
+      { type: "input-speech-start", id: "silence" },
+      { type: "input-transcript", transcript: { type: "final", id: "silence", text: "" } },
+    ]);
+    await session.close();
+  });
+
   it.each(["interruption", "new-response"])("does not restart an old tool response after %s", async (event) => {
     const socket = new FakeLiveSocket({ type: "session.updated" });
     const completion = deferred<string>();
