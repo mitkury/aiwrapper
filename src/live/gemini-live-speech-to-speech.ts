@@ -429,7 +429,7 @@ class GeminiLiveSpeechToSpeechSession {
       const partText = Reflect.get(part, "text");
       if (typeof partText === "string" && partText && Reflect.get(part, "thought") !== true) {
         this.ensureResponseStarted();
-        this.session.onEvent?.({ type: "output-transcript", transcript: { type: "delta", text: partText } });
+        this.session.onEvent?.({ type: "output-transcript", transcript: { type: "delta", text: partText }, source: "text" });
       }
       const inlineData = Reflect.get(part, "inlineData") as
         { data?: unknown } | undefined;

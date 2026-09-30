@@ -130,6 +130,10 @@ messages are not an atomic multimodal function response.
 
 ## Connection management events
 
+Gemini's `output-transcript` event includes `source: "text"` for generated
+text parts, so a host can distinguish them from the transcription of spoken
+audio. Other transcript events omit this field.
+
 Gemini emits these additional normalized events:
 
 | Event | Application action |

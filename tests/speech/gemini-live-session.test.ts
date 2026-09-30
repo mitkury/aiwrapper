@@ -240,7 +240,7 @@ describe("Gemini Live application integration", () => {
     await settle();
     expect(events).toEqual([
       { type: "response-interrupted" }, { type: "response-end" }, { type: "response-start" },
-      { type: "output-transcript", transcript: { type: "delta", text: "Hello" } }, { type: "response-end" },
+      { type: "output-transcript", transcript: { type: "delta", text: "Hello" }, source: "text" }, { type: "response-end" },
     ]);
   });
 

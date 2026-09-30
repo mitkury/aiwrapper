@@ -9,7 +9,8 @@ import type { LangToolExecutionResult } from "../lang/tool-execution.js";
 export type SpeechToSpeechEvent =
   | { type: "output-audio"; frame: PcmAudioFrame }
   | { type: "input-transcript"; transcript: TranscriptEvent }
-  | { type: "output-transcript"; transcript: TranscriptEvent }
+  /** source distinguishes generated text from the transcription of spoken audio. */
+  | { type: "output-transcript"; transcript: TranscriptEvent; source?: "text" }
   | { type: "response-start" }
   | { type: "response-end" }
   | { type: "response-interrupted" }
