@@ -13,6 +13,7 @@ import {
   type RealtimeSpeechWebSocketFactory,
 } from "../speech/realtime-websocket.js";
 import type {
+  LiveAudioReference,
   LiveImageInput,
   LiveTextOptions,
   SpeechToSpeechProvider,
@@ -258,6 +259,18 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
     this.continueManualResponse();
   }
 
+  async truncateAudio(position: LiveAudioReference & { playedMs: number }): Promise<void> {
+    this.assertOpen();
+    const { itemId, contentIndex, playedMs } = position;
+    if (typeof itemId !== "string" || !itemId.trim()
+      || !Number.isInteger(contentIndex) || contentIndex < 0
+      || !Number.isFinite(playedMs) || playedMs < 0) {
+      throw new Error("Audio truncation requires an itemId, a non-negative contentIndex and finite non-negative playedMs");
+    }
+    this.send({ type: "conversation.item.truncate", item_id: itemId,
+      content_index: contentIndex, audio_end_ms: Math.floor(playedMs) });
+  }
+
   private cancelResponse(): void {
     if (this.cancellationRequested) return;
     this.cancellationRequested = true;
@@ -337,6 +350,9 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
       if (!this.responseInterrupted && typeof event.delta === "string" && event.delta) {
         this.session.onEvent?.({
           type: "output-audio",
+          ...(this.provider.conversationControl && typeof event.item_id === "string" && event.item_id
+            && typeof event.content_index === "number" && Number.isInteger(event.content_index) && event.content_index >= 0
+            ? { playback: { itemId: event.item_id, contentIndex: event.content_index } } : {}),
           frame: {
             ...pcm24k,
             samples: decodeBase64Pcm(event.delta, this.provider.audioLabel),

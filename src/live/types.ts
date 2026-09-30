@@ -6,8 +6,11 @@ import type {
 import type { LangTool, LangToolWithHandler, ToolRequest } from "../lang/messages.js";
 import type { LangToolExecutionResult } from "../lang/tool-execution.js";
 
+/** Identifies one audio content part on the connection that emitted it. */
+export type LiveAudioReference = { itemId: string; contentIndex: number };
+
 export type SpeechToSpeechEvent =
-  | { type: "output-audio"; frame: PcmAudioFrame }
+  | { type: "output-audio"; frame: PcmAudioFrame; playback?: LiveAudioReference }
   | { type: "input-transcript"; transcript: TranscriptEvent }
   /** Transcription failed for one input item; the voice connection remains usable. */
   | { type: "input-transcript-failed"; id?: string; error: Error }
@@ -69,6 +72,8 @@ export interface SpeechToSpeechSession {
   appendImage?(image: LiveImageInput): Promise<void>;
   /** Cancel the current response without requesting another one, when supported. */
   interrupt?(): Promise<void>;
+  /** Trim unheard output on its original connection. playedMs is cumulative for this audio part, not this chunk. */
+  truncateAudio?(position: LiveAudioReference & { playedMs: number }): Promise<void>;
   /** Manual mode only. The application owns execution, ordering and replay. */
   sendToolResults?(results: LangToolExecutionResult[]): Promise<void>;
   close(): Promise<void>;

@@ -1,7 +1,8 @@
+import { WebSocket } from "ws";
 import { describe, expect, it } from "vitest";
 import { readFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
-import { LiveLang, type LiveLangEvent, type LiveLangSession } from "../../src/index.ts";
+import { LiveLang, type LiveLangEvent, type LiveLangSession, type LiveAudioReference, type RealtimeSpeechWebSocket } from "../../src/index.ts";
 
 const apiKey = process.env.OPENAI_API_KEY;
 const providers = (process.env.PROVIDERS ?? "").split(",").filter(Boolean);
@@ -57,6 +58,53 @@ describe.skipIf(!apiKey || (providers.length > 0 && !providers.includes("openai"
       }
     } finally { clearTimeout(timer); await session?.close(); }
   }, 65_000);
+
+  it("acknowledges audio truncation and speaks again after Stop", async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new Error("OpenAI playback test timed out")), 30_000);
+    let session: LiveLangSession | undefined;
+    let reference: LiveAudioReference | undefined;
+    let truncated: { item_id: string; content_index: number; audio_end_ms: number } | undefined;
+    let nextTurn = false, ended = false, nextSamples = 0;
+    const waitFor = async (ready: () => boolean) => {
+      controller.signal.throwIfAborted();
+      while (!ready()) await delay(20, undefined, { signal: controller.signal });
+    };
+    try {
+      session = await LiveLang.openai({
+        apiKey: apiKey!, model: process.env.OPENAI_REALTIME_MODEL || "gpt-realtime-2.1",
+        createWebSocket(url, headers) {
+          const socket = new WebSocket(url, { headers });
+          // Observe the provider acknowledgement without expanding the public event API.
+          socket.on("message", data => {
+            const event = JSON.parse(data.toString());
+            if (event.type === "conversation.item.truncated") truncated = event;
+          });
+          return socket as unknown as RealtimeSpeechWebSocket;
+        },
+      }).connect({
+        signal: controller.signal, instructions: "Speak aloud and follow the user's request.",
+        onEvent(event) {
+          if (event.type === "error") controller.abort(event.error);
+          if (event.type === "output-audio") {
+            reference ??= event.playback;
+            if (nextTurn) nextSamples += event.frame.samples.length;
+          }
+          if (nextTurn && event.type === "response-start") ended = false;
+          if (nextTurn && event.type === "response-end") ended = true;
+        },
+      });
+      await session.sendText!("Count aloud from one to twenty.");
+      await waitFor(() => Boolean(reference));
+      await session.interrupt!();
+      await session.truncateAudio!({ ...reference!, playedMs: 0 });
+      await waitFor(() => Boolean(truncated));
+      expect(truncated).toMatchObject({ item_id: reference!.itemId, content_index: reference!.contentIndex, audio_end_ms: 0 });
+      nextTurn = true;
+      await session.sendText!("Say ready.");
+      await waitFor(() => nextSamples > 2400 && ended);
+    } finally { clearTimeout(timer); await session?.close(); }
+  }, 35_000);
 
   it("accepts silent context, an image and manual tool results, then speaks", async () => {
     const controller = new AbortController();

@@ -107,6 +107,7 @@ optional methods before selecting another provider:
 | `appendImage({ data, mimeType })` | Send base64 JPEG/PNG bytes as video input |
 | `endAudio()` | Gemini: end microphone input; later audio resumes the same connection |
 | `interrupt()` | OpenAI: cancel generation without requesting another response |
+| `truncateAudio({ itemId, contentIndex, playedMs })` | OpenAI: trim an audio part to its cumulative playback position |
 | `sendToolResults(results)` | Submit results in manual tool mode |
 
 Completed client content can interrupt generation; use incomplete content for
@@ -157,7 +158,29 @@ from the current connection; the adapter waits for the tool-producing response
 to finish and for all its results before continuing. It emits `input-speech-start`
 on VAD speech start so hosts can clear audio still queued for playback. Stop
 local playback as well as calling `interrupt()`; generated audio is not a playback
-cursor. OpenAI does not expose Gemini's resumption or compression controls.
+cursor. OpenAI audio events include `playback: { itemId, contentIndex }`. Track
+cumulative played milliseconds for each part across chunks. On Stop, cancel
+generation, clear the playback queue, and call `truncateAudio` on the **same
+session that emitted that audio**, even if generation has already finished:
+
+```ts
+await session.interrupt!();
+// Application-owned: stop playback and return the discarded parts' positions.
+for (const position of speaker.clearAndGetPlaybackPositions()) {
+  await session.truncateAudio!(position); // { itemId, contentIndex, playedMs }
+}
+```
+
+On `input-speech-start` or `response-interrupted`, clear and truncate without
+requesting another response. Deduplicate repeated interruption events. Use zero
+for queued audio that never played; never count silence padding or buffered
+samples as played. The adapter rounds milliseconds down and rejects invalid
+positions, but the application must keep them within the audio's actual duration.
+Truncation removes unheard audio from provider context; it does not return an
+aligned, shortened transcript. Other providers do not expose this capability.
+See [OpenAI's interruption guidance](https://developers.openai.com/api/docs/guides/realtime-conversations#interruption-and-truncation).
+
+OpenAI does not expose Gemini's resumption or compression controls.
 
 ## Gemini connection events
 

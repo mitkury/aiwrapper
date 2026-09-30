@@ -373,6 +373,43 @@ describe("speech-to-speech mock", () => {
 });
 
 describe("OpenAI realtime speech-to-speech", () => {
+  it.each(["response.output_audio.delta", "response.audio.delta"])("preserves %s identity and truncates a completed response at the playback position", async type => {
+    const socket = new FakeLiveSocket({ type: "session.updated" });
+    const events: SpeechToSpeechEvent[] = [];
+    const session = await LiveLang.openai({ apiKey: "test", createWebSocket: () => socket }).connect({ onEvent: event => events.push(event) });
+    socket.serverMessage({ type: "response.created" });
+    socket.serverMessage({ type, item_id: "spoken-item", content_index: 2, delta: "AQD+/w==" });
+    socket.serverMessage({ type: "response.done", response: { status: "completed" } });
+    await settleMessages();
+    const audio = events.find(event => event.type === "output-audio");
+    expect(audio?.playback).toEqual({ itemId: "spoken-item", contentIndex: 2 });
+    // Playback can lag behind generation, including the start of another response.
+    socket.serverMessage({ type: "response.created" });
+    await settleMessages();
+    await session.truncateAudio!({ ...audio!.playback!, playedMs: 0.08 });
+    expect(socket.sent.at(-1)).toEqual({ type: "conversation.item.truncate", item_id: "spoken-item", content_index: 2, audio_end_ms: 0 });
+    expect(socket.sent.some(message => message.type === "response.cancel")).toBe(false);
+    await session.close();
+    await expect(session.truncateAudio!({ itemId: "spoken-item", contentIndex: 2, playedMs: 0 })).rejects.toThrow(/closed/);
+  });
+
+  it("rejects invalid playback positions before writing to the provider", async () => {
+    const socket = new FakeLiveSocket({ type: "session.updated" });
+    const session = await LiveLang.openai({ apiKey: "test", createWebSocket: () => socket }).connect();
+    for (const position of [
+      { itemId: "", contentIndex: 0, playedMs: 10 },
+      { itemId: "audio", contentIndex: -1, playedMs: 10 },
+      { itemId: "audio", contentIndex: 0.5, playedMs: 10 },
+      { itemId: "audio", contentIndex: 0, playedMs: -1 },
+      { itemId: "audio", contentIndex: 0, playedMs: NaN },
+      { itemId: "audio", contentIndex: 0, playedMs: Infinity },
+    ]) await expect(session.truncateAudio!(position)).rejects.toThrow(/Audio truncation/);
+    expect(socket.sent.map(message => message.type)).toEqual(["session.update"]);
+    await session.truncateAudio!({ itemId: "audio", contentIndex: 0, playedMs: 1234.9 });
+    expect(socket.sent.at(-1)?.audio_end_ms).toBe(1234);
+    await session.close();
+  });
+
   it.each(["stop", "barge-in"])("ignores late transcript and tool events after %s", async (interruption) => {
     const socket = new FakeLiveSocket({ type: "session.updated" });
     const events: SpeechToSpeechEvent[] = [];
