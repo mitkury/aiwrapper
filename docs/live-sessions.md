@@ -137,6 +137,12 @@ const session = await live.connect({
 await session.sendToolResults!([{ callId, name: "lookup", result: { found: true } }]);
 ```
 
+A result can carry pictures the model should see as part of it (a map, a photo):
+`images: [{ data, mimeType }]`, base64 JPEG or PNG. Gemini Live puts them inside the
+function response, where the model reads them as that result's own; a frame on the
+video input reads as the camera and is often missed. OpenAI-compatible providers,
+whose function output is text only, follow the output with an image message.
+
 Manual mode emits `tool-call` without executing it; replayed calls are delivered
 again. The host owns ordering, authorization, result caching, and cancellation
 across connections. The remaining live providers reject manual mode before connecting.

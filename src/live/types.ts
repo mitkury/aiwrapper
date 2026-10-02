@@ -44,6 +44,11 @@ export type LiveImageInput = {
   mimeType: "image/jpeg" | "image/png";
 };
 
+/** A tool's result for a live session, with pictures the model should see as part of it (a map,
+ *  a photo). Each provider delivers them where its protocol puts tool output: inside the function
+ *  response where it can (Gemini Live), else as an image message right after the result. */
+export type LiveToolResult = LangToolExecutionResult & { images?: LiveImageInput[] };
+
 export type SpeechToSpeechSessionOptions = {
   signal?: AbortSignal;
   instructions?: string;
@@ -75,7 +80,7 @@ export interface SpeechToSpeechSession {
   /** Trim unheard output on its original connection. playedMs is cumulative for this audio part, not this chunk. */
   truncateAudio?(position: LiveAudioReference & { playedMs: number }): Promise<void>;
   /** Manual mode only. The application owns execution, ordering and replay. */
-  sendToolResults?(results: LangToolExecutionResult[]): Promise<void>;
+  sendToolResults?(results: LiveToolResult[]): Promise<void>;
   close(): Promise<void>;
   addEventListener(
     type: "event",

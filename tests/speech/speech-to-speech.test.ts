@@ -605,6 +605,23 @@ describe("OpenAI realtime speech-to-speech", () => {
     await session.close();
   });
 
+  it("follows a function output with its pictures as an image message", async () => {
+    const socket = new FakeLiveSocket({ type: "session.updated" });
+    const session = await LiveLang.openai({ apiKey: "test", createWebSocket: () => socket }).connect({ toolHandling: "manual", tools: [weatherTool()] });
+    socket.serverMessage({ type: "response.created" });
+    socket.serverMessage({ type: "response.function_call_arguments.done", call_id: "a", name: "get_weather", arguments: "{}" });
+    socket.serverMessage({ type: "response.done", response: { status: "completed" } });
+    await settleMessages();
+    await session.sendToolResults!([{ callId: "a", name: "get_weather", result: { map: "attached" }, images: [{ data: "AQID", mimeType: "image/png" }] }]);
+    const items = socket.sent.filter(item => item.type === "conversation.item.create").map(item => item.item);
+    expect(items.slice(-2)).toEqual([
+      { type: "function_call_output", call_id: "a", output: JSON.stringify({ map: "attached" }) },
+      { type: "message", role: "user", content: [{ type: "input_image", image_url: "data:image/png;base64,AQID" }] },
+    ]);
+    expect(socket.sent.at(-1)?.type).toBe("response.create");
+    await session.close();
+  });
+
   it("starts user text during a pending tool without cancelling an already finished response", async () => {
     const socket = new FakeLiveSocket({ type: "session.updated" });
     const session = await LiveLang.openai({ apiKey: "test", createWebSocket: () => socket }).connect({ toolHandling: "manual", tools: [weatherTool()] });
