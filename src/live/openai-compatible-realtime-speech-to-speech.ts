@@ -13,8 +13,10 @@ import {
   type RealtimeSpeechWebSocketFactory,
 } from "../speech/realtime-websocket.js";
 import type {
+  LiveAudioReference,
   LiveImageInput,
   LiveTextOptions,
+  LiveToolResult,
   SpeechToSpeechProvider,
   SpeechToSpeechSession,
   SpeechToSpeechSessionOptions,
@@ -218,13 +220,8 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
 
   async appendImage(image: LiveImageInput): Promise<void> {
     this.assertOpen();
-    if (!image.data || !["image/jpeg", "image/png"].includes(image.mimeType)) {
-      throw new Error("Live images require base64 JPEG or PNG data");
-    }
-    this.send({ type: "conversation.item.create", item: {
-      type: "message", role: "user",
-      content: [{ type: "input_image", image_url: `data:${image.mimeType};base64,${image.data}` }],
-    } });
+    assertImage(image);
+    this.send(imageMessage([image]));
   }
 
   async interrupt(): Promise<void> {
@@ -236,26 +233,40 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
     }
   }
 
-  async sendToolResults(results: LangToolExecutionResult[]): Promise<void> {
+  async sendToolResults(results: LiveToolResult[]): Promise<void> {
     this.assertOpen();
     if (this.session.toolHandling !== "manual") throw new Error("Manual tool handling is not enabled");
     const ids = new Set<string>();
-    const outputs = results.map(result => {
+    for (const result of results) {
       const call = this.manualCalls.get(result.callId);
       if (!call || call.name !== result.name || ids.has(result.callId)) {
         throw new Error(`Unknown or duplicate live tool result: ${result.callId}`);
       }
       ids.add(result.callId);
-      return { type: "conversation.item.create", item: {
+      result.images?.forEach(assertImage);
+    }
+    for (const result of results) {
+      this.send({ type: "conversation.item.create", item: {
         type: "function_call_output", call_id: result.callId,
         output: serializeSpeechToSpeechToolResult(result.result),
-      } };
-    });
-    for (const output of outputs) {
-      this.send(output);
-      this.manualCalls.delete(output.item.call_id);
+      } });
+      // A function output is text only: its pictures follow it as an image message.
+      if (result.images?.length) this.send(imageMessage(result.images));
+      this.manualCalls.delete(result.callId);
     }
     this.continueManualResponse();
+  }
+
+  async truncateAudio(position: LiveAudioReference & { playedMs: number }): Promise<void> {
+    this.assertOpen();
+    const { itemId, contentIndex, playedMs } = position;
+    if (typeof itemId !== "string" || !itemId.trim()
+      || !Number.isInteger(contentIndex) || contentIndex < 0
+      || !Number.isFinite(playedMs) || playedMs < 0) {
+      throw new Error("Audio truncation requires an itemId, a non-negative contentIndex and finite non-negative playedMs");
+    }
+    this.send({ type: "conversation.item.truncate", item_id: itemId,
+      content_index: contentIndex, audio_end_ms: Math.floor(playedMs) });
   }
 
   private cancelResponse(): void {
@@ -337,6 +348,9 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
       if (!this.responseInterrupted && typeof event.delta === "string" && event.delta) {
         this.session.onEvent?.({
           type: "output-audio",
+          ...(this.provider.conversationControl && typeof event.item_id === "string" && event.item_id
+            && typeof event.content_index === "number" && Number.isInteger(event.content_index) && event.content_index >= 0
+            ? { playback: { itemId: event.item_id, contentIndex: event.content_index } } : {}),
           frame: {
             ...pcm24k,
             samples: decodeBase64Pcm(event.delta, this.provider.audioLabel),
@@ -489,6 +503,7 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
     value: unknown,
     id?: unknown,
   ): void {
+    if (type === "output-transcript" && this.responseInterrupted) return;
     if (typeof value !== "string" || (!value && transcriptType !== "final")) return;
     this.session.onEvent?.({
       type,
@@ -528,7 +543,7 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
   private queueToolCall(
     call: ReturnType<typeof parseSpeechToSpeechToolCall>,
   ): void {
-    if (!call || this.seenToolCallIds.has(call.callId)) return;
+    if (!call || this.responseInterrupted || this.seenToolCallIds.has(call.callId)) return;
     this.seenToolCallIds.add(call.callId);
     if (this.session.toolHandling === "manual") {
       this.manualCalls.set(call.callId, { name: call.name, generation: this.responseGeneration });
@@ -625,4 +640,17 @@ function toError(
   fallback = "Realtime speech-to-speech failed",
 ): Error {
   return value instanceof Error ? value : new Error(fallback);
+}
+
+function assertImage(image: LiveImageInput): void {
+  if (!image.data || !["image/jpeg", "image/png"].includes(image.mimeType)) {
+    throw new Error("Live images require base64 JPEG or PNG data");
+  }
+}
+
+function imageMessage(images: LiveImageInput[]) {
+  return { type: "conversation.item.create", item: {
+    type: "message", role: "user",
+    content: images.map((image) => ({ type: "input_image", image_url: `data:${image.mimeType};base64,${image.data}` })),
+  } };
 }

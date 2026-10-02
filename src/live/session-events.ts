@@ -12,7 +12,7 @@ type Listener = (event: SpeechToSpeechEvent) => void;
 type ListenerType = SpeechToSpeechEventType | "event";
 type SpeechToSpeechSessionTransport = Pick<
   SpeechToSpeechSession,
-  "appendAudio" | "endAudio" | "close" | "sendText" | "appendImage" | "sendToolResults" | "interrupt"
+  "appendAudio" | "endAudio" | "close" | "sendText" | "appendImage" | "sendToolResults" | "interrupt" | "truncateAudio"
 >;
 
 export async function createObservableSpeechToSpeechSession(
@@ -69,6 +69,12 @@ export async function createObservableSpeechToSpeechSession(
       async interrupt() {
         assertOpen();
         await transport.interrupt!();
+      },
+    } : {}),
+    ...(transport.truncateAudio ? {
+      async truncateAudio(position) {
+        assertOpen();
+        await transport.truncateAudio!(position);
       },
     } : {}),
     ...(transport.sendToolResults ? {

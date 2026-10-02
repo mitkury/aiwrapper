@@ -373,6 +373,70 @@ describe("speech-to-speech mock", () => {
 });
 
 describe("OpenAI realtime speech-to-speech", () => {
+  it.each(["response.output_audio.delta", "response.audio.delta"])("preserves %s identity and truncates a completed response at the playback position", async type => {
+    const socket = new FakeLiveSocket({ type: "session.updated" });
+    const events: SpeechToSpeechEvent[] = [];
+    const session = await LiveLang.openai({ apiKey: "test", createWebSocket: () => socket }).connect({ onEvent: event => events.push(event) });
+    socket.serverMessage({ type: "response.created" });
+    socket.serverMessage({ type, item_id: "spoken-item", content_index: 2, delta: "AQD+/w==" });
+    socket.serverMessage({ type: "response.done", response: { status: "completed" } });
+    await settleMessages();
+    const audio = events.find(event => event.type === "output-audio");
+    expect(audio?.playback).toEqual({ itemId: "spoken-item", contentIndex: 2 });
+    // Playback can lag behind generation, including the start of another response.
+    socket.serverMessage({ type: "response.created" });
+    await settleMessages();
+    await session.truncateAudio!({ ...audio!.playback!, playedMs: 0.08 });
+    expect(socket.sent.at(-1)).toEqual({ type: "conversation.item.truncate", item_id: "spoken-item", content_index: 2, audio_end_ms: 0 });
+    expect(socket.sent.some(message => message.type === "response.cancel")).toBe(false);
+    await session.close();
+    await expect(session.truncateAudio!({ itemId: "spoken-item", contentIndex: 2, playedMs: 0 })).rejects.toThrow(/closed/);
+  });
+
+  it("rejects invalid playback positions before writing to the provider", async () => {
+    const socket = new FakeLiveSocket({ type: "session.updated" });
+    const session = await LiveLang.openai({ apiKey: "test", createWebSocket: () => socket }).connect();
+    for (const position of [
+      { itemId: "", contentIndex: 0, playedMs: 10 },
+      { itemId: "audio", contentIndex: -1, playedMs: 10 },
+      { itemId: "audio", contentIndex: 0.5, playedMs: 10 },
+      { itemId: "audio", contentIndex: 0, playedMs: -1 },
+      { itemId: "audio", contentIndex: 0, playedMs: NaN },
+      { itemId: "audio", contentIndex: 0, playedMs: Infinity },
+    ]) await expect(session.truncateAudio!(position)).rejects.toThrow(/Audio truncation/);
+    expect(socket.sent.map(message => message.type)).toEqual(["session.update"]);
+    await session.truncateAudio!({ itemId: "audio", contentIndex: 0, playedMs: 1234.9 });
+    expect(socket.sent.at(-1)?.audio_end_ms).toBe(1234);
+    await session.close();
+  });
+
+  it.each(["stop", "barge-in"])("ignores late transcript and tool events after %s", async (interruption) => {
+    const socket = new FakeLiveSocket({ type: "session.updated" });
+    const events: SpeechToSpeechEvent[] = [];
+    const session = await LiveLang.openai({ apiKey: "test", createWebSocket: () => socket }).connect({
+      toolHandling: "manual", tools: [weatherTool()], onEvent: event => events.push(event),
+    });
+    socket.serverMessage({ type: "response.created" });
+    socket.serverMessage({ type: "response.output_audio_transcript.delta", delta: "Hello" });
+    await settleMessages();
+    if (interruption === "stop") await session.interrupt!();
+    else socket.serverMessage({ type: "input_audio_buffer.speech_started", item_id: "next-input" });
+    await settleMessages();
+    const count = events.length;
+    socket.serverMessage({ type: "response.output_audio_transcript.delta", delta: " again" });
+    socket.serverMessage({ type: "response.output_audio_transcript.done", transcript: "Hello again" });
+    socket.serverMessage({ type: "response.function_call_arguments.done", call_id: "late-call", name: "get_weather", arguments: "{}" });
+    socket.serverMessage({ type: "response.done", response: { status: "cancelled" } });
+    await settleMessages();
+    expect(events.slice(count)).toEqual([]);
+    socket.serverMessage({ type: "response.created" });
+    socket.serverMessage({ type: "response.output_audio_transcript.delta", delta: "Next turn" });
+    socket.serverMessage({ type: "response.done", response: { status: "completed" } });
+    await settleMessages();
+    expect(events.slice(-3).map(event => event.type)).toEqual(["response-start", "output-transcript", "response-end"]);
+    await session.close();
+  });
+
   it("reports an input transcription failure without closing the live conversation", async () => {
     const socket = new FakeLiveSocket({ type: "session.updated" });
     const events: SpeechToSpeechEvent[] = [];
@@ -538,6 +602,23 @@ describe("OpenAI realtime speech-to-speech", () => {
     socket.serverMessage({ type: "response.done", response: { status: "completed" } });
     await settleMessages();
     expect(events.filter(event => event.type === "response-end")).toHaveLength(1);
+    await session.close();
+  });
+
+  it("follows a function output with its pictures as an image message", async () => {
+    const socket = new FakeLiveSocket({ type: "session.updated" });
+    const session = await LiveLang.openai({ apiKey: "test", createWebSocket: () => socket }).connect({ toolHandling: "manual", tools: [weatherTool()] });
+    socket.serverMessage({ type: "response.created" });
+    socket.serverMessage({ type: "response.function_call_arguments.done", call_id: "a", name: "get_weather", arguments: "{}" });
+    socket.serverMessage({ type: "response.done", response: { status: "completed" } });
+    await settleMessages();
+    await session.sendToolResults!([{ callId: "a", name: "get_weather", result: { map: "attached" }, images: [{ data: "AQID", mimeType: "image/png" }] }]);
+    const items = socket.sent.filter(item => item.type === "conversation.item.create").map(item => item.item);
+    expect(items.slice(-2)).toEqual([
+      { type: "function_call_output", call_id: "a", output: JSON.stringify({ map: "attached" }) },
+      { type: "message", role: "user", content: [{ type: "input_image", image_url: "data:image/png;base64,AQID" }] },
+    ]);
+    expect(socket.sent.at(-1)?.type).toBe("response.create");
     await session.close();
   });
 

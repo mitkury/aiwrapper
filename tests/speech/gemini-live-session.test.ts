@@ -164,6 +164,24 @@ describe("Gemini Live application integration", () => {
     ] } });
   });
 
+  it("puts a result's pictures inside its function response and rejects ones Gemini cannot take", async () => {
+    const socket = new Socket();
+    const session = await connect(socket, { toolHandling: "manual", tools: [tool] });
+    await session.sendToolResults!([
+      { callId: "map", name: tool.name, result: { steps: 2 }, images: [{ data: "AQID", mimeType: "image/png" }] },
+      { callId: "plain", name: tool.name, result: "done" },
+    ]);
+    expect(socket.sent.at(-1)).toEqual({ toolResponse: { functionResponses: [
+      { id: "map", name: tool.name, response: { steps: 2 }, parts: [{ inlineData: { mimeType: "image/png", data: "AQID" } }] },
+      { id: "plain", name: tool.name, response: { result: "done" } },
+    ] } });
+    const sent = socket.sent.length;
+    await expect(session.sendToolResults!([
+      { callId: "bad", name: tool.name, result: {}, images: [{ data: "data:image/png;base64,AQID", mimeType: "image/png" }] },
+    ])).rejects.toThrow("base64 bytes");
+    expect(socket.sent).toHaveLength(sent);
+  });
+
   it("aborts canceled handlers without blocking surviving results or closing the session", async () => {
     const socket = new Socket();
     const events: LiveLangEvent[] = [];

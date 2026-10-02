@@ -17,6 +17,7 @@ import {
 import type {
   LiveImageInput,
   LiveTextOptions,
+  LiveToolResult,
   SpeechToSpeechProvider,
   SpeechToSpeechSession,
   SpeechToSpeechSessionOptions,
@@ -502,22 +503,21 @@ class GeminiLiveSpeechToSpeechSession {
   async appendImage(image: LiveImageInput): Promise<void> {
     this.assertOpen();
     throwIfAborted(this.controller.signal);
-    if (!image.data || image.data.startsWith("data:") || !["image/jpeg", "image/png"].includes(image.mimeType)) {
-      throw new Error("Gemini Live images require base64 bytes and an image/jpeg or image/png MIME type");
-    }
+    assertGeminiImage(image);
     this.send({ realtimeInput: { video: { data: image.data, mimeType: image.mimeType } } });
   }
 
-  async sendToolResults(results: LangToolExecutionResult[]): Promise<void> {
+  async sendToolResults(results: LiveToolResult[]): Promise<void> {
     this.assertOpen();
     throwIfAborted(this.controller.signal);
     if (this.session.toolHandling !== "manual") {
       throw new Error("sendToolResults requires manual tool handling");
     }
+    results.forEach((result) => result.images?.forEach(assertGeminiImage));
     this.writeToolResults(results);
   }
 
-  private writeToolResults(results: LangToolExecutionResult[], automatic = false): void {
+  private writeToolResults(results: LiveToolResult[], automatic = false): void {
     const active = results.filter((result) => !this.canceledToolCallIds.has(result.callId));
     if (!active.length) return;
     this.send({
@@ -526,6 +526,11 @@ class GeminiLiveSpeechToSpeechSession {
           id: result.callId,
           name: result.name,
           response: automatic ? { result: jsonSpeechToSpeechToolResult(result.result) } : toolResponseObject(result.result),
+          // Pictures go inside the response: the model reads them as this result's own. A frame
+          // on the video input instead reads as the camera, and is often missed.
+          ...(result.images?.length
+            ? { parts: result.images.map((image) => ({ inlineData: { mimeType: image.mimeType, data: image.data } })) }
+            : {}),
         })),
       },
     });
@@ -572,6 +577,12 @@ class GeminiLiveSpeechToSpeechSession {
 
 function modelResourceName(model: string): string {
   return model.startsWith("models/") ? model : `models/${model}`;
+}
+
+function assertGeminiImage(image: LiveImageInput): void {
+  if (!image.data || image.data.startsWith("data:") || !["image/jpeg", "image/png"].includes(image.mimeType)) {
+    throw new Error("Gemini Live images require base64 bytes and an image/jpeg or image/png MIME type");
+  }
 }
 
 function toolResponseObject(value: unknown): Record<string, unknown> {
