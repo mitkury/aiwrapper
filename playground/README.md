@@ -7,15 +7,14 @@ One browser app for manually testing the local library source.
 From the repository root:
 
 ```sh
-git submodule update --init --recursive
 npm ci
 npm ci --prefix playground
 npm --prefix playground run dev
 ```
 
 Fill in the providers you use in the root `.env`; see [`.env.example`](../.env.example).
-Open the URL printed by Vite. The dev command builds the pinned model catalog
-before starting. After editing catalog data, run `npm run aimodels:build` again.
+Open the URL printed by Vite. After editing catalog data, run
+`npm run aimodels:build`.
 
 | Page | Route | What it tests |
 | --- | --- | --- |

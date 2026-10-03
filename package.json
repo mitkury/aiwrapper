@@ -53,15 +53,14 @@
     "node": ">=20"
   },
   "scripts": {
-    "clean": "rm -rf dist",
     "build": "node scripts/build.mjs",
     "check": "npm run build && npm run test:unit && npm run check:package",
     "check:package": "node scripts/check-package.mjs",
-    "check:playground": "npm run aimodels:build && npm --prefix playground run check && npm --prefix playground run build",
+    "check:playground": "npm --prefix playground run check && npm --prefix playground run build",
     "check:demo": "npm run check:playground",
     "prepack": "npm run build",
     "test": "npm run build && npm run test:unit",
-    "test:unit": "vitest run --exclude '**/*.integration.test.ts'",
+    "test:unit": "vitest run --exclude \"**/*.integration.test.ts\"",
     "test:integration": "npm run build && vitest run integration --no-file-parallelism",
     "test:all": "npm test && npm run test:integration",
     "test:lang": "npm run build && vitest run tests/lang",
@@ -72,7 +71,7 @@
     "test:img-out": "npm run build && vitest run tests/img-out",
     "test:model": "npm run build && vitest run tests/model.integration.test.ts",
     "aimodels:status": "git submodule status aimodels && git -C aimodels status --short",
-    "aimodels:build": "node scripts/build.mjs --catalog-only",
+    "aimodels:build": "node scripts/build-aimodels.mjs",
     "aimodels:update": "node scripts/update-aimodels.mjs"
   },
   "dependencies": {

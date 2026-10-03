@@ -53,6 +53,7 @@ jobs:
         if: steps.catalog.outputs.changed == 'true'
         run: |
           npm version patch --no-git-tag-version
+          npm run aimodels:build
           npm run check
           npm run check:playground
       - name: Commit and tag the verified patch
@@ -63,7 +64,7 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add aimodels package.json package-lock.json
+          git add aimodels src/aimodels package.json package-lock.json
           git commit -m "deps: update catalog to $CATALOG_REVISION"
           VERSION=$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")
           git tag -a "v$VERSION" -m "Release v$VERSION"

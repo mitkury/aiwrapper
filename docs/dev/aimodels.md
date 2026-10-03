@@ -1,17 +1,21 @@
 # Working with the AIModels catalog
 
 `aimodels/` pins a commit of [mitkury/aimodels](https://github.com/mitkury/aimodels)
-as a Git submodule. AIWrapper bundles its runtime, declarations, and license;
-npm consumers need neither Git nor a separate `aimodels` dependency.
+as a Git submodule. `src/aimodels/` is its built runtime, declarations, and
+license, generated from the pinned commit and committed. AIWrapper's build and
+its consumers use that copy; npm consumers need neither Git nor a separate
+`aimodels` dependency, and source checkouts need the submodule only to change
+the catalog. CI fails when the committed copy differs from a fresh build.
 
 Import `models` and `Model` from `aiwrapper` to share the providers' catalog
 instance. A separately installed `aimodels` has its own instance and classes.
 
 ## Checkout and edit
 
-Initialize with `git submodule update --init --recursive`, then follow the
-[build guide](build.md). The build installs the submodule's locked dependencies
-on first use and when its lockfile changes, validates data, and runs its tests.
+Initialize with `git submodule update --init --recursive`. `npm run
+aimodels:build` installs the submodule's locked dependencies on first use and
+when its lockfile changes, validates data, runs its tests, and regenerates
+`src/aimodels/`.
 
 Read `aimodels/AGENTS.md` before editing canonical records in `aimodels/data/`
 or runtime code in `aimodels/js/src/`. Create a branch inside a detached
@@ -23,19 +27,16 @@ npm run check
 npm run check:playground
 ```
 
-`aimodels:build` refreshes the ignored `src/aimodels/` used by the playground.
-Its dev command does this before Vite starts; rerun it after catalog edits
-while Vite is running. Never edit the generated copy.
-
-Commit and push catalog changes upstream before committing the parent
-submodule pointer. Local uncommitted edits build but are not captured by a
-parent commit. Publish only pointers that other checkouts can fetch.
+Never edit the generated copy by hand. Push catalog changes upstream first,
+then commit the submodule pointer and the regenerated copy together. Publish
+only pointers that other checkouts can fetch.
 
 ## Update
 
 ```sh
 npm run aimodels:status
 npm run aimodels:update
+npm run aimodels:build
 npm run check
 ```
 

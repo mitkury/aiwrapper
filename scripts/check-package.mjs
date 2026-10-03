@@ -4,23 +4,24 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { npm } from './npm.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const temporary = mkdtempSync(join(tmpdir(), 'aiwrapper-package-'));
 
 try {
-  const packed = JSON.parse(execFileSync('npm', [
+  const packed = JSON.parse(execFileSync(...npm([
     'pack', '--ignore-scripts', '--json', '--pack-destination', temporary,
-  ], { cwd: root, encoding: 'utf8' }))[0];
+  ], { cwd: root, encoding: 'utf8' })))[0];
   for (const path of ['dist/aimodels/index.js', 'dist/aimodels/index.d.ts', 'dist/aimodels/LICENSE']) {
     assert(packed.files.some(file => file.path === path), `Missing packed catalog file: ${path}`);
   }
   assert(!packed.files.some(file => file.path.startsWith('aimodels/')), 'Submodule source must stay out of the package');
   writeFileSync(join(temporary, 'package.json'), JSON.stringify({ private: true, type: 'module' }));
   // This consumer has neither a submodule nor a separately installed aimodels package.
-  execFileSync('npm', ['install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', join(temporary, packed.filename)], {
+  execFileSync(...npm(['install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', join(temporary, packed.filename)], {
     cwd: temporary, stdio: 'inherit',
-  });
+  }));
   const installed = JSON.parse(readFileSync(join(temporary, 'package-lock.json'), 'utf8'));
   assert(!installed.packages['node_modules/aimodels'], 'AIWrapper must not fetch aimodels from npm');
   execFileSync(process.execPath, ['--input-type=module', '-e', `
