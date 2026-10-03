@@ -18,14 +18,20 @@ jobs:
           node-version: '20'
           cache: npm
       - run: npm ci
+      - name: Committed catalog matches the submodule
+        run: |
+          npm run aimodels:build
+          test -z "$(git status --porcelain -- src/aimodels)" || {
+            git status --short -- src/aimodels
+            echo 'src/aimodels/ is stale; run npm run aimodels:build and commit it' >&2
+            exit 1
+          }
       - run: npm run check
 
   playground:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: recursive
       - uses: actions/setup-node@v6
         with:
           node-version: '20'

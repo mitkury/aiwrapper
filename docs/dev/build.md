@@ -1,17 +1,18 @@
 # Build
 
-AIWrapper is an ESM package for Node.js 20+ and modern browsers. Initialize the
-pinned catalog and install dependencies before the first build:
+AIWrapper is an ESM package for Node.js 20+ and modern browsers. Install
+dependencies before the first build:
 
 ```sh
-git submodule update --init --recursive
 npm ci
 npm run build
 ```
 
-The build validates, tests, and builds AIModels, refreshes the generated
-`src/aimodels/`, compiles AIWrapper into a fresh `dist/`, then copies the catalog
-and its license to `dist/aimodels/`. See [AIModels](aimodels.md) for catalog edits.
+The build compiles AIWrapper into a fresh `dist/` with TypeScript, then copies
+the committed catalog in `src/aimodels/` to `dist/aimodels/`. It needs neither
+the `aimodels/` submodule nor a shell, so it runs the same on Windows. See
+[AIModels](aimodels.md) for regenerating the catalog.
+
 Only the catalog is bundled; AIWrapper uses TypeScript compilation without
 import rewriting. Keep explicit `.js` extensions in relative source imports.
 

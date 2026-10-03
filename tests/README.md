@@ -13,7 +13,7 @@ checks end in `.integration.test.ts` and are excluded from that default suite.
 | `npm run test:lang`, `test:tools`, `test:agents`, `test:speech` | Build, then the named suite, including live tests |
 | `npm run test:img-in`, `test:img-out` | Image input or output checks |
 | `npm run check` | Build, unit tests, and a clean package-consumer check |
-| `npm run check:playground` | Catalog build, playground type check and production build |
+| `npm run check:playground` | Playground type check and production build |
 
 Integration tests use real, potentially billable calls. Missing credentials
 skip the corresponding tests; invalid or expired credentials cause failures.

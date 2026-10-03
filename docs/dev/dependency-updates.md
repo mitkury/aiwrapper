@@ -12,8 +12,8 @@ exact commit; a legacy `version` only wakes the main-branch check.
 
 The updater skips repeated, older, and documentation-only revisions. Dirty or
 diverged submodules stop the update. Changes to catalog data, runtime, build
-inputs, or license advance the pin, bump AIWrapper's patch version, and run
-package and playground checks. It then atomically pushes the default branch
+inputs, or license advance the pin, regenerate `src/aimodels/`, bump
+AIWrapper's patch version, and run package and playground checks. It then atomically pushes the default branch
 and release tag; concurrent branch changes cause the push to fail.
 
 It explicitly dispatches [publish.yml](../../.github/workflows/publish.yml) at

@@ -9,5 +9,5 @@ Run `npm run check` before committing build, package, or CI changes. Run
 Commands, provider filters, and live-test requirements are in the
 [testing guide](../../../tests/README.md).
 
-Edit model data in the `aimodels/` submodule and refresh it with
-`npm run aimodels:build`; see [AIModels](../aimodels.md).
+Edit model data in the `aimodels/` submodule, regenerate the committed catalog
+with `npm run aimodels:build`, and commit both; see [AIModels](../aimodels.md).

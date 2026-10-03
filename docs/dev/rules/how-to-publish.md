@@ -7,8 +7,7 @@ trusted publisher for `mitkury/aiwrapper`, workflow file `publish.yml`, with
 `npm publish` allowed. The workflow uses short-lived OIDC credentials and does
 not use an `NPM_TOKEN` secret. See [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/).
 
-1. Initialize the pinned catalog with `git submodule update --init --recursive`,
-   then check the package: `npm run check`
+1. Check the package: `npm run check`
 2. Commit changes with the right prefix
 3. Push changes: `git push`
 4. Create the patch release: `npm version patch`
