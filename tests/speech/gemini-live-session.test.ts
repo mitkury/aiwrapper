@@ -262,6 +262,36 @@ describe("Gemini Live application integration", () => {
     ]);
   });
 
+  it("preserves sparse provider observations without creating speech or response events", async () => {
+    const socket = new Socket();
+    const events: LiveLangEvent[] = [];
+    await connect(socket, { onEvent: event => events.push(event) });
+    socket.receive({ voiceActivity: { voiceActivityType: "ACTIVITY_START" } });
+    socket.receive({ voiceActivity: { voiceActivityType: "ACTIVITY_END" } });
+    socket.receive({ serverContent: { waitingForInput: true } });
+    socket.receive({ serverContent: {} });
+    socket.receive({ voiceActivity: { voiceActivityType: "TYPE_UNSPECIFIED" },
+      serverContent: { waitingForInput: "true" } });
+    socket.receive({ serverContent: { generationComplete: true, interactionStatus: "IDLE" } });
+    await settle();
+    expect(events).toEqual([
+      { type: "provider-state", inputActivity: "start" },
+      { type: "provider-state", inputActivity: "end" },
+      { type: "provider-state", waitingForInput: true },
+    ]);
+    socket.receive({ serverContent: {
+      waitingForInput: false,
+      modelTurn: { parts: [{ text: "Hello" }] }, turnComplete: true,
+    } });
+    await settle();
+    expect(events.slice(3)).toEqual([
+      { type: "response-start" },
+      { type: "output-transcript", transcript: { type: "delta", text: "Hello" }, source: "text" },
+      { type: "provider-state", waitingForInput: false },
+      { type: "response-end" },
+    ]);
+  });
+
   it("rejects manual tools for unsupported providers before opening a socket", async () => {
     const factory = vi.fn();
     await expect(LiveLang.xai({ apiKey: "test", createWebSocket: factory })

@@ -197,6 +197,10 @@ OpenAI does not expose Gemini's resumption or compression controls.
 | `connection-closed` | Provider close details: `code`, `reason`, `wasClean` |
 | `response-interrupted` | Clear playback, including for tool-only turns |
 | `response-end` | Finish turn bookkeeping, including turns with no media |
+| `provider-state` | Sparse diagnostic observations: `waitingForInput` and `inputActivity` (start/end) |
+
+Provider observations do not start or interrupt a response. Missing fields mean
+no observation, not false; hosts can log state changes without logging media.
 
 Remote close also emits `error`; avoid starting two reconnect attempts.
 Gemini `output-transcript` events with `source: "text"` are generated text,

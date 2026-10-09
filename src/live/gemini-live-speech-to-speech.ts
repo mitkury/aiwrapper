@@ -399,8 +399,15 @@ class GeminiLiveSpeechToSpeechSession {
           outputTranscription?: { text?: unknown };
           turnComplete?: unknown;
           interrupted?: unknown;
+          waitingForInput?: unknown;
         }
       | undefined;
+    // Keep sparse provider observations separate from playback/turn events:
+    // diagnosing a pause must not change interruption or turn ownership.
+    const voice = message.voiceActivity as { voiceActivityType?: unknown } | undefined;
+    const inputActivity = voice?.voiceActivityType === "ACTIVITY_START" ? "start"
+      : voice?.voiceActivityType === "ACTIVITY_END" ? "end" : undefined;
+    if (inputActivity) this.session.onEvent?.({ type: "provider-state", inputActivity });
     if (!content) return;
 
     if (content.interrupted === true) {
@@ -445,6 +452,9 @@ class GeminiLiveSpeechToSpeechSession {
       });
     }
 
+    if (typeof content.waitingForInput === "boolean") {
+      this.session.onEvent?.({ type: "provider-state", waitingForInput: content.waitingForInput });
+    }
     if (content.turnComplete === true) {
       this.session.onEvent?.({ type: "response-end" });
       this.responseActive = false;
