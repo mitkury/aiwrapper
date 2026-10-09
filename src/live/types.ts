@@ -20,6 +20,8 @@ export type SpeechToSpeechEvent =
   | { type: "response-start" }
   | { type: "response-end" }
   | { type: "response-interrupted" }
+  /** Optional provider observations for diagnostics; absence does not imply a state change. */
+  | { type: "provider-state"; waitingForInput?: boolean; inputActivity?: "start" | "end" }
   | { type: "tool-call"; call: ToolRequest }
   | { type: "tool-result"; result: LangToolExecutionResult }
   | { type: "tool-calls-canceled"; callIds: string[] }
