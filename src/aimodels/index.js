@@ -1036,6 +1036,28 @@ var models = {
     ],
     "creatorId": "deepseek"
   },
+  "gemini-4-argon": {
+    "id": "gemini-4-argon",
+    "name": "Gemini 4 Argon",
+    "license": "proprietary",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "img-in",
+      "json-out",
+      "fn-out",
+      "reason",
+      "audio-in",
+      "video-in"
+    ],
+    "context": {
+      "type": "token",
+      "total": 1048576
+    },
+    "releasedAt": "2026-10-13",
+    "creatorId": "google"
+  },
   "gemini-3.8-live": {
     "id": "gemini-3.8-live",
     "name": "Gemini 3.8 Live",
