@@ -1,12 +1,6 @@
 import { httpRequestWithRetry as fetch } from "../http-request.js";
-import {
-  assertPcmFrame,
-  encodeMonoPcmAsWav,
-  linkAbortSignal,
-  throwIfAborted,
-} from "./audio.js";
+import { BufferedTranscriptionSession } from "./buffered-transcription.js";
 import type {
-  PcmAudioFrame,
   SpeechToTextProvider,
   SpeechToTextSession,
   SpeechToTextSessionOptions,
@@ -56,128 +50,43 @@ export class OpenAISpeechToText implements SpeechToTextProvider {
   async createSession(
     options: SpeechToTextSessionOptions = {},
   ): Promise<SpeechToTextSession> {
-    return new OpenAISpeechToTextSession(this.options, options);
-  }
-}
-
-class OpenAISpeechToTextSession implements SpeechToTextSession {
-  private readonly chunks: Int16Array[] = [];
-  private readonly controller = new AbortController();
-  private readonly unlinkAbort: () => void;
-  private sampleRate?: number;
-  private audioBytes = 0;
-  private state: "open" | "finishing" | "finished" | "closed" = "open";
-
-  constructor(
-    private readonly provider: OpenAISpeechToTextConfig,
-    private readonly session: SpeechToTextSessionOptions,
-  ) {
-    this.unlinkAbort = linkAbortSignal(session.signal, this.controller);
+    return new BufferedTranscriptionSession({
+      name: "OpenAI",
+      maxAudioBytes: this.options.maxAudioBytes,
+      transcribe: (wav, signal) => this.transcribe(wav, signal),
+    }, options);
   }
 
-  async appendAudio(frame: PcmAudioFrame): Promise<void> {
-    this.assertOpen();
-    throwIfAborted(this.controller.signal);
-    assertPcmFrame(frame);
+  private async transcribe(wav: Blob, signal: AbortSignal): Promise<TranscriptionResult> {
+    const form = new FormData();
+    form.append("file", wav, "audio.wav");
+    form.append("model", this.options.model);
+    if (this.options.prompt) form.append("prompt", this.options.prompt);
+    if (this.options.language) form.append("language", this.options.language);
 
-    if (this.sampleRate !== undefined && frame.sampleRate !== this.sampleRate) {
-      throw new Error(
-        `OpenAI transcription session started at ${this.sampleRate} Hz and cannot accept ${frame.sampleRate} Hz without resampling`,
-      );
+    const response = await fetch(`${this.options.baseURL}/audio/transcriptions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.options.apiKey}`,
+        ...this.options.headers,
+      },
+      body: form,
+      signal,
+    });
+    const data = await response.json() as {
+      text?: unknown;
+      languages?: unknown;
+      language?: unknown;
+    };
+    if (typeof data.text !== "string") {
+      throw new Error("OpenAI transcription response did not include text");
     }
 
-    const nextBytes = this.audioBytes + frame.samples.byteLength;
-    if (nextBytes + 44 > this.provider.maxAudioBytes) {
-      throw new RangeError(
-        `OpenAI transcription audio exceeds the configured ${this.provider.maxAudioBytes}-byte limit`,
-      );
-    }
-
-    this.sampleRate ??= frame.sampleRate;
-    this.audioBytes = nextBytes;
-    this.chunks.push(new Int16Array(frame.samples));
-  }
-
-  async finish(): Promise<TranscriptionResult> {
-    return this.transcribe(true);
-  }
-
-  async commit(): Promise<TranscriptionResult> {
-    return this.transcribe(false);
-  }
-
-  private async transcribe(final: boolean): Promise<TranscriptionResult> {
-    this.assertOpen();
-    if (this.sampleRate === undefined || this.audioBytes === 0) {
-      throw new Error("Cannot transcribe an empty audio session");
-    }
-    this.state = "finishing";
-    throwIfAborted(this.controller.signal);
-
-    try {
-      const form = new FormData();
-      form.append(
-        "file",
-        encodeMonoPcmAsWav(this.chunks, this.sampleRate),
-        "audio.wav",
-      );
-      form.append("model", this.provider.model);
-      if (this.provider.prompt) form.append("prompt", this.provider.prompt);
-      if (this.provider.language) form.append("language", this.provider.language);
-
-      const response = await fetch(`${this.provider.baseURL}/audio/transcriptions`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.provider.apiKey}`,
-          ...this.provider.headers,
-        },
-        body: form,
-        signal: this.controller.signal,
-      });
-      const data = await response.json() as {
-        text?: unknown;
-        languages?: unknown;
-        language?: unknown;
-      };
-      if (typeof data.text !== "string") {
-        throw new Error("OpenAI transcription response did not include text");
-      }
-
-      const languages = normalizeLanguages(data.languages, data.language);
-      const result: TranscriptionResult = {
-        text: data.text,
-        ...(languages ? { languages } : {}),
-      };
-      this.session.onTranscript?.({ type: "final", ...result });
-      if (final) {
-        this.state = "finished";
-      } else {
-        this.chunks.length = 0;
-        this.sampleRate = undefined;
-        this.audioBytes = 0;
-        this.state = "open";
-      }
-      return result;
-    } catch (error) {
-      if (!final) this.state = "open";
-      throw error;
-    } finally {
-      if (final) this.unlinkAbort();
-    }
-  }
-
-  async close(): Promise<void> {
-    if (this.state === "closed") return;
-    this.state = "closed";
-    this.controller.abort();
-    this.unlinkAbort();
-    this.chunks.length = 0;
-  }
-
-  private assertOpen(): void {
-    if (this.state !== "open") {
-      throw new Error(`Speech-to-text session is ${this.state}`);
-    }
+    const languages = normalizeLanguages(data.languages, data.language);
+    return {
+      text: data.text,
+      ...(languages ? { languages } : {}),
+    };
   }
 }
 

@@ -32,6 +32,7 @@ Keep long-lived credentials on a server and account for provider CORS rules.
 | Factory | Behavior |
 | --- | --- |
 | `SpeechToText.openai()` | Buffers an utterance and sends WAV to file transcription; bounded by `maxAudioBytes` |
+| `SpeechToText.google()` | Buffers an utterance and sends it inline to a Gemini model (default `gemini-3.5-transcribe`); `transcribe(blob)` takes a recorded file as is |
 | `SpeechToText.openaiRealtime()` | Streams 24 kHz PCM over a persistent connection |
 | `SpeechToText.deepgramFlux()` | Streams PCM with provider turn detection |
 | `SpeechToText.elevenlabsRealtime()` | Streams PCM with manual or VAD commit strategy |
@@ -62,6 +63,14 @@ Final transcript events may repeat an `id`; replace that entry instead of
 appending a duplicate. Pass an `AbortSignal` to `createSession()` to cancel.
 The shared STT contract has no asynchronous error callback; operations reject
 when the connection fails.
+
+To transcribe a recording that is already a file (a browser's WebM or M4A),
+skip the PCM session:
+
+```ts
+const stt = SpeechToText.google({ apiKey: process.env.GOOGLE_API_KEY! });
+const { text } = await stt.transcribe(recording, { mimeType: "audio/webm" });
+```
 
 For OpenAI's `gpt-live-transcribe`, select `turnDetection: { type: "local_vad" }`.
 This adapter sends `turn_detection: null`, maps `language` to `languages`, and

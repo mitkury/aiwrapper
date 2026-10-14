@@ -3,6 +3,10 @@ import {
   type OpenAISpeechToTextOptions,
 } from "./openai-speech-to-text.js";
 import {
+  GoogleSpeechToText,
+  type GoogleSpeechToTextOptions,
+} from "./google-speech-to-text.js";
+import {
   OpenAITextToSpeech,
   type OpenAITextToSpeechOptions,
 } from "./openai-text-to-speech.js";
@@ -32,6 +36,10 @@ import {
 export abstract class SpeechToText {
   static openai(options: OpenAISpeechToTextOptions): OpenAISpeechToText {
     return new OpenAISpeechToText(options);
+  }
+
+  static google(options: GoogleSpeechToTextOptions): GoogleSpeechToText {
+    return new GoogleSpeechToText(options);
   }
 
   static openaiRealtime(
@@ -76,6 +84,7 @@ export abstract class TextToSpeech {
 export * from "./types.js";
 export * from "./realtime-websocket.js";
 export * from "./openai-speech-to-text.js";
+export * from "./google-speech-to-text.js";
 export * from "./openai-realtime-speech-to-text.js";
 export * from "./deepgram-flux-speech-to-text.js";
 export * from "./elevenlabs-realtime-speech-to-text.js";

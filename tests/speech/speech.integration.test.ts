@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
 import {
   ElevenLabsTextToSpeech,
+  GoogleSpeechToText,
   OpenAIRealtimeSpeechToText,
   OpenAISpeechToText,
   OpenAITextToSpeech,
@@ -17,6 +19,7 @@ const providerSelected = (provider: string): boolean =>
   selectedProviders.size === 0 || selectedProviders.has(provider);
 
 const openAIKey = process.env.OPENAI_API_KEY;
+const googleKey = process.env.GOOGLE_API_KEY;
 const elevenLabsKey = process.env.ELEVENLABS_API_KEY;
 const elevenLabsVoiceId = process.env.ELEVENLABS_VOICE_ID;
 
@@ -94,3 +97,21 @@ describe.skipIf(
     expect(hasSignal).toBe(true);
   });
 });
+
+describe.skipIf(!googleKey || !providerSelected("google"))(
+  "Google speech integration",
+  () => {
+    it("transcribes the hello fixture", async () => {
+      const bytes = await readFile(new URL("./fixtures/hello.pcm", import.meta.url));
+      const samples = Int16Array.from({ length: bytes.length / 2 }, (_, index) => bytes.readInt16LE(index * 2));
+      const session = await new GoogleSpeechToText({ apiKey: googleKey! }).createSession();
+      try {
+        await session.appendAudio({ encoding: "pcm_s16le", channels: 1, sampleRate: 16000, samples });
+        const result = await session.finish();
+        expect(result.text.toLowerCase()).toContain("hello");
+      } finally {
+        await session.close();
+      }
+    });
+  },
+);

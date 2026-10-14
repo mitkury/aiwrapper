@@ -4,6 +4,7 @@ import {
   ElevenLabsTextToSpeech,
   ElevenLabsRealtimeSpeechToText,
   DeepgramFluxSpeechToText,
+  GoogleSpeechToText,
   MockSpeechToText,
   MockTextToSpeech,
   OpenAIRealtimeSpeechToText,
@@ -276,6 +277,46 @@ describe("OpenAI speech to text", () => {
     await expect(session.appendAudio(frame([2], 24000))).rejects.toThrow(
       "cannot accept 24000 Hz without resampling",
     );
+  });
+});
+
+describe("Google speech to text", () => {
+  it("sends the utterance inline as WAV and reads the transcription part", async () => {
+    let request: { url: string; body: any; headers: Headers } | undefined;
+    setHttpRequestImpl(async (url, options) => {
+      request = { url: String(url), body: JSON.parse(String(options?.body)), headers: new Headers(options?.headers) };
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ audioTranscription: { text: "hello there" } }] } }],
+      }), { headers: { "Content-Type": "application/json" } });
+    });
+    const events: unknown[] = [];
+    const session = await new GoogleSpeechToText({ apiKey: "test" }).createSession({
+      onTranscript: (event) => events.push(event),
+    });
+    await session.appendAudio(frame([0x1234, -2], 16000));
+
+    expect(await session.finish()).toEqual({ text: "hello there" });
+    expect(request?.url).toBe("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-transcribe:generateContent");
+    expect(request?.headers.get("x-goog-api-key")).toBe("test");
+    const audio = request?.body.contents[0].parts[0].inlineData;
+    expect(audio.mimeType).toBe("audio/wav");
+    expect(atob(audio.data).slice(0, 4)).toBe("RIFF");
+    expect(events).toEqual([{ type: "final", text: "hello there" }]);
+  });
+
+  it("transcribes a recorded file as is, with text answers from general models", async () => {
+    let inlineData: { mimeType: string; data: string } | undefined;
+    setHttpRequestImpl(async (_url, options) => {
+      inlineData = JSON.parse(String(options?.body)).contents[0].parts[0].inlineData;
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: " Make a space. " }] } }],
+      }), { headers: { "Content-Type": "application/json" } });
+    });
+    const provider = new GoogleSpeechToText({ apiKey: "test", model: "gemini-3.8-flash" });
+    const recording = new Blob([new Uint8Array([1, 2, 3])], { type: "audio/webm;codecs=opus" });
+
+    expect(await provider.transcribe(recording)).toEqual({ text: "Make a space." });
+    expect(inlineData).toEqual({ mimeType: "audio/webm", data: "AQID" });
   });
 });
 
