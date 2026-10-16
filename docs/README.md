@@ -2,6 +2,7 @@
 
 ## Using AIWrapper
 
+- [Native Rust runtime](native.md): embedding, transport injection, compression, sandbox, compatibility
 - [Quick start](../README.md)
 - [Language providers](language-provider.md): text, structured output, images, provider setup
 - [Agents and tools](agent.md): tool loops, results, events, cancellation
@@ -18,7 +19,9 @@
 - [Dependency updates](dev/dependency-updates.md)
 - [Agent workflows](dev/actions-for-agents/README.md) and [development rules](dev/rules)
 
-## Proposed, not implemented
+## Proposals and remaining work
+
+- [Complete the native Rust runtime](dev/proposals/native-rust.md)
 
 - [Pluggable interruption detection](dev/proposals/interruption-detection.md)
 - [Speaker verification and extraction](dev/proposals/speaker-verification-and-extraction.md)

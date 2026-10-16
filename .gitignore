@@ -16,3 +16,5 @@ dist/
 dev_tests/
 test-results/
 playwright-report/
+
+/target/

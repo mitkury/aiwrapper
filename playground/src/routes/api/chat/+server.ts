@@ -1,3 +1,5 @@
+import { env } from '$env/dynamic/private';
+import { nativeChat } from '$lib/server/native-chat';
 import { ChatAgent, LangMessages } from 'aiwrapper';
 import { json } from '@sveltejs/kit';
 import { getProviderConfig, isProviderId } from '$lib/provider-config';
@@ -32,6 +34,16 @@ export const POST: RequestHandler = async ({ request }) => {
 		return json(
 			{ error: `${getProviderConfig(providerId).label} is not configured in .env` },
 			{ status: 503 }
+		);
+	}
+	if (env.AIWRAPPER_RUNTIME === 'rust') {
+		return nativeChat(
+			{
+				provider: providerId,
+				model: body.model.trim() || languageConfig()[providerId].model,
+				messages: body.messages
+			},
+			request.signal
 		);
 	}
 	const provider = getProviderConfig(providerId);
