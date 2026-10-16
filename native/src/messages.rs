@@ -122,10 +122,13 @@ impl Conversation {
     }
     /// Reject incomplete/duplicate pairs instead of inventing successful tool outcomes.
     pub fn validate(&self) -> Result<()> {
-        use std::collections::HashSet;
-        let mut pending = HashSet::new();
+        use std::collections::{HashMap, HashSet};
+        let mut pending = HashMap::new();
         let mut seen = HashSet::new();
         for message in &self.messages {
+            if message.role == Role::ToolResults && message.items.is_empty() {
+                return Err(Error::Invalid("tool result message is empty".into()));
+            }
             if message.role != Role::ToolResults && !pending.is_empty() {
                 return Err(Error::Invalid(
                     "unresolved tool calls before the next message".into(),
@@ -143,16 +146,25 @@ impl Conversation {
                             || call_id.is_empty()
                             || name.is_empty()
                             || !arguments.is_object()
-                            || !seen.insert(call_id.clone())
+                            || !seen.insert(call_id)
                         {
                             return Err(Error::Invalid("invalid or duplicate tool call".into()));
                         }
-                        pending.insert(call_id.clone());
+                        pending.insert(call_id, name);
                     }
-                    Item::ToolResult { call_id, .. } => {
-                        if message.role != Role::ToolResults || !pending.remove(call_id) {
-                            return Err(Error::Invalid("tool result has no matching call".into()));
+                    Item::ToolResult { call_id, name, .. } => {
+                        if message.role != Role::ToolResults
+                            || pending.remove(call_id) != Some(name)
+                        {
+                            return Err(Error::Invalid(
+                                "tool result must match a pending call id and name".into(),
+                            ));
                         }
+                    }
+                    _ if message.role == Role::ToolResults => {
+                        return Err(Error::Invalid(
+                            "tool result messages may contain only tool results".into(),
+                        ));
                     }
                     Item::Image { url, base64, .. } if url.is_some() == base64.is_some() => {
                         return Err(Error::Invalid(

@@ -120,15 +120,18 @@ impl ChatAgent {
                     });
                 })
                 .await?;
-            if messages.len() == index {
-                messages.push(response.clone());
-            } else {
-                messages[index] = response.clone();
+            if messages.get(index) != Some(&response) {
+                if messages.len() == index {
+                    messages.push(response.clone());
+                } else {
+                    messages[index] = response.clone();
+                }
+                on_event(AgentEvent::Streaming {
+                    message: response.clone(),
+                    index,
+                });
             }
-            on_event(AgentEvent::Streaming {
-                message: response.clone(),
-                index,
-            });
+            crate::error::check_cancel(&options.cancellation)?;
             if response.role != Role::Assistant {
                 return Err(Error::Protocol(
                     "provider returned a non-assistant message".into(),
@@ -218,7 +221,7 @@ impl ChatAgent {
                     message: self.conversation.messages[index].clone(),
                     index,
                 });
-                if cancelled {
+                if cancelled || options.cancellation.is_cancelled() {
                     return Err(Error::Cancelled);
                 }
             }

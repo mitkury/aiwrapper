@@ -52,3 +52,24 @@ it('closes the response stream when the incoming request is aborted', async () =
 	expect(child.kill).toHaveBeenCalledOnce();
 	child.emit('close', 0);
 });
+
+it('does not submit input for a request that was already aborted', async () => {
+	const child = childProcess();
+	const controller = new AbortController();
+	controller.abort();
+	const response = nativeChat(input, controller.signal);
+	await expect(response.text()).rejects.toMatchObject({ name: 'AbortError' });
+	expect(child.stdin.read()).toBeNull();
+	expect(child.kill).toHaveBeenCalledOnce();
+	child.emit('close', null, 'SIGTERM');
+});
+
+it('reports unexpected signal termination as failure', async () => {
+	const child = childProcess();
+	const controller = new AbortController();
+	const response = nativeChat(input, controller.signal);
+	child.emit('close', null, 'SIGKILL');
+	expect(await response.text()).toContain('Native runtime exited unsuccessfully.');
+	controller.abort();
+	expect(child.kill).not.toHaveBeenCalled();
+});

@@ -16,18 +16,24 @@ pub struct CompressionCheckpoint {
 
 /// An approximation, not a tokenizer. Includes tool schemas and a fixed image allowance.
 pub fn estimate_tokens(conversation: &Conversation, tools: &[ToolDefinition]) -> usize {
-    let mut count = conversation.instructions.len().div_ceil(3)
-        + serde_json::to_vec(tools).map_or(0, |v| v.len().div_ceil(3));
-    for message in &conversation.messages {
-        count += 8;
-        for item in &message.items {
-            count += match item {
-                Item::Image { .. } => 4096,
-                _ => serde_json::to_vec(item).map_or(0, |v| v.len().div_ceil(3)),
-            };
-        }
-    }
-    count
+    conversation.instructions.len().div_ceil(3)
+        + serde_json::to_vec(tools).map_or(0, |v| v.len().div_ceil(3))
+        + conversation
+            .messages
+            .iter()
+            .map(message_tokens)
+            .sum::<usize>()
+}
+
+fn message_tokens(message: &Message) -> usize {
+    8 + message
+        .items
+        .iter()
+        .map(|item| match item {
+            Item::Image { .. } => 4096,
+            _ => serde_json::to_vec(item).map_or(0, |v| v.len().div_ceil(3)),
+        })
+        .sum::<usize>()
 }
 
 pub type CheckpointWriter =
@@ -72,13 +78,21 @@ impl Compression {
         {
             return Err(Error::Compression("invalid token budgets".into()));
         }
+        let summary_tokens = u32::try_from(self.summary_tokens)
+            .map_err(|_| Error::Compression("summary token budget exceeds u32".into()))?;
         if options.body.contains_key("previous_response_id") {
             return Err(Error::Compression(
                 "server-side response chains cannot be combined with local compression".into(),
             ));
         }
         if let Some(checkpoint) = &self.checkpoint
-            && (checkpoint.through_message_count > history.messages.len()
+            && (checkpoint.summary.trim().is_empty()
+                || checkpoint.through_message_count == 0
+                || checkpoint.through_message_count > history.messages.len()
+                || history
+                    .messages
+                    .get(checkpoint.through_message_count)
+                    .is_some_and(|m| m.role == Role::ToolResults)
                 || checkpoint.prefix_sha256
                     != fingerprint(&history.messages[..checkpoint.through_message_count])?)
         {
@@ -117,6 +131,12 @@ impl Compression {
             .as_ref()
             .map_or(0, |c| c.through_message_count);
         let mut cut = start;
+        let costs: Vec<_> = history.messages[start..]
+            .iter()
+            .map(message_tokens)
+            .collect();
+        let mut remaining_tokens =
+            estimate_tokens(&Conversation::default(), &[]) + costs.iter().sum::<usize>();
         // Cut only between complete call/result groups. Keep the latest user verbatim even in a long tool loop.
         while cut < history.messages.len() {
             let mut end = cut + 1;
@@ -126,12 +146,9 @@ impl Compression {
             if Some(cut) == latest_user && end == history.messages.len() {
                 break;
             }
+            remaining_tokens -= costs[cut - start..end - start].iter().sum::<usize>();
             cut = end;
-            let remaining = Conversation {
-                messages: history.messages[cut..].to_vec(),
-                ..Conversation::default()
-            };
-            if estimate_tokens(&remaining, &[]) <= self.recent_tokens {
+            if remaining_tokens <= self.recent_tokens {
                 break;
             }
         }
@@ -175,12 +192,15 @@ impl Compression {
             .checked_sub(overhead)
             .filter(|v| *v >= 128)
             .ok_or_else(|| Error::Compression("insufficient summary input budget".into()))?
-            * 3;
+            .saturating_mul(3);
         let mut summary = String::new();
         let mut remaining = transcript.as_str();
         let summary_options = ChatOptions {
             cancellation: options.cancellation.clone(),
-            max_tokens: Some(self.summary_tokens as u32),
+            tools: Some(vec![]),
+            headers: options.headers.clone(),
+            max_retries: options.max_retries,
+            max_tokens: Some(summary_tokens),
             ..ChatOptions::default()
         };
         while !remaining.is_empty() {

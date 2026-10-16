@@ -21,57 +21,52 @@ export function nativeChat(
 		env: { ...process.env, ...env }
 	});
 	let finished = false;
-	let cancelled = false;
 	let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
 	const encoder = new TextEncoder();
-	const stop = () => {
+	const stop = (error?: Error) => {
 		if (finished) return;
-		cancelled = true;
 		finished = true;
+		signal.removeEventListener('abort', abort);
 		child.kill();
-		streamController?.error(new DOMException('Native chat aborted', 'AbortError'));
+		if (error) streamController?.error(error);
 	};
+	const abort = () => stop(new DOMException('Native chat aborted', 'AbortError'));
 	// Errors are sent as JSON on stdout by the adapter. Drain stderr without
 	// exposing process environment or provider diagnostic output to the browser.
 	child.stderr.resume();
 	const stream = new ReadableStream<Uint8Array>({
 		start(controller) {
 			streamController = controller;
-			signal.addEventListener('abort', stop, { once: true });
+			signal.addEventListener('abort', abort, { once: true });
 			const close = (error?: string) => {
 				if (finished) return;
 				finished = true;
-				signal.removeEventListener('abort', stop);
-				if (!cancelled) {
-					if (error)
-						controller.enqueue(encoder.encode(JSON.stringify({ done: true, error }) + '\n'));
-					controller.close();
-				}
+				signal.removeEventListener('abort', abort);
+				if (error)
+					controller.enqueue(encoder.encode(JSON.stringify({ done: true, error }) + '\n'));
+				controller.close();
 			};
 			child.stdout.on('data', (data: Buffer) => {
-				if (!cancelled && !finished) {
+				if (!finished) {
 					controller.enqueue(new Uint8Array(data));
 					if ((controller.desiredSize ?? 0) <= 0) child.stdout.pause();
 				}
 			});
 			child.on('error', () => close('Native runtime could not start. Run npm run native:build.'));
 			child.on('close', (code) =>
-				close(code ? 'Native runtime exited unsuccessfully.' : undefined)
+				close(code === 0 ? undefined : 'Native runtime exited unsuccessfully.')
 			);
 			child.stdin.on('error', () => {
 				/* Process exit is handled above. */
 			});
-			if (signal.aborted) stop();
+			if (signal.aborted) abort();
 			else child.stdin.end(JSON.stringify(body));
 		},
 		pull() {
 			child.stdout.resume();
 		},
 		cancel() {
-			cancelled = true;
-			finished = true;
-			child.kill();
-			signal.removeEventListener('abort', stop);
+			stop();
 		}
 	});
 	return new Response(stream, {

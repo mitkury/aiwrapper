@@ -112,10 +112,12 @@ or a tool side effect.
 
 Checkpoints contain the summary, cut position, before/after estimates and a
 SHA-256 digest of the covered history. Restoring a checkpoint against edited or
-unrelated history fails. A configured persistence callback must succeed before
-the in-memory checkpoint advances. Without a callback checkpoints remain in
-memory. Persist history and checkpoints together in the host; the crate does
-not choose a storage format beyond its serializable values.
+unrelated history fails, as do empty summaries and cut positions inside a tool
+group. Summary requests retain the caller's headers and retry policy while
+disabling tools and structured output. A configured persistence callback must
+succeed before the in-memory checkpoint advances. Without a callback checkpoints
+remain in memory. Persist history and checkpoints together in the host; the crate
+does not choose a storage format beyond its serializable values.
 
 Compression adds model calls and is opt-in. Context-overflow errors do not
 trigger hidden retries. Provider-owned live compression is separate: pass

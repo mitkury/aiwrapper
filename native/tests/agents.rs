@@ -10,7 +10,7 @@ fn add_tool(counter: Arc<AtomicUsize>) -> Tool {
     Tool::new(
         "add",
         "Add",
-        json!({"type":"object","properties":{"a":{"type":"number"},"b":{"type":"number"}},"required":["a","b"]}),
+        json!({"type":"object","properties":{"a":{"type":"integer"},"b":{"type":"integer"}},"required":["a","b"]}),
         move |args, _| {
             counter.fetch_add(1, Ordering::SeqCst);
             async move {
@@ -189,6 +189,20 @@ async fn compression_preserves_transcript_latest_input_and_validates_checkpoint(
         compression.checkpoint.as_ref().unwrap().tokens_before
             > compression.checkpoint.as_ref().unwrap().tokens_after
     );
+    // A persisted checkpoint can be restored without making another summary call.
+    compression.checkpoint = Some(
+        serde_json::from_str(
+            &serde_json::to_string(compression.checkpoint.as_ref().unwrap()).unwrap(),
+        )
+        .unwrap(),
+    );
+    assert_eq!(
+        compression
+            .prepare(&MockLang::new([]), &original, &ChatOptions::default())
+            .await
+            .unwrap(),
+        projected
+    );
     let mut changed = original.clone();
     changed.messages[0] = Message::user("edited");
     assert!(
@@ -313,4 +327,140 @@ async fn oversized_latest_input_fails_before_requesting_a_summary() {
         .unwrap_err();
     assert!(matches!(error, Error::Compression(_)));
     assert!(compression.checkpoint.is_none());
+}
+
+#[tokio::test]
+async fn cancellation_on_final_output_is_not_reported_as_success() {
+    let mut agent = ChatAgent::new(Arc::new(MockLang::new([Message::assistant("partial")])));
+    let options = ChatOptions::default();
+    let mut events = vec![];
+    let result = agent
+        .run(vec![Message::user("Hi")], &options, &mut |event| {
+            if matches!(event, AgentEvent::Streaming { .. }) {
+                options.cancellation.cancel();
+            }
+            events.push(event);
+        })
+        .await;
+    assert!(matches!(result, Err(Error::Cancelled)));
+    assert_eq!(agent.conversation.answer(), "partial");
+    assert!(agent.conversation.aborted);
+    assert!(!agent.conversation.finished);
+    assert!(events.iter().any(|e| matches!(e, AgentEvent::Aborted)));
+    assert!(!events.iter().any(|e| matches!(e, AgentEvent::Finished)));
+}
+
+#[tokio::test]
+async fn final_snapshot_is_emitted_only_when_it_changes() {
+    let mut agent = ChatAgent::new(Arc::new(MockLang::new([Message::assistant("Done")])));
+    let mut snapshots = vec![];
+    agent
+        .run(
+            vec![Message::user("Hi")],
+            &ChatOptions::default(),
+            &mut |event| {
+                if let AgentEvent::Streaming { message, .. } = event {
+                    snapshots.push(message);
+                }
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(snapshots, vec![Message::assistant("Done")]);
+}
+
+#[tokio::test]
+async fn cancellation_during_last_tool_preserves_result_and_beats_iteration_limit() {
+    let mut agent = ChatAgent::new(Arc::new(MockLang::new([common::tool()])));
+    agent.max_iterations = 1;
+    agent.tools = vec![Tool::new("add", "Add", json!({}), |_, ctx| async move {
+        ctx.cancellation.cancel();
+        Ok(json!(5))
+    })];
+    assert!(matches!(
+        agent
+            .run(
+                vec![Message::user("Hi")],
+                &ChatOptions::default(),
+                &mut |_| {}
+            )
+            .await,
+        Err(Error::Cancelled)
+    ));
+    agent.conversation.validate().unwrap();
+    assert!(
+        matches!(&agent.conversation.messages.last().unwrap().items[0], Item::ToolResult { result, .. } if result == &json!(5))
+    );
+}
+
+#[tokio::test]
+async fn restored_checkpoint_cannot_split_a_tool_group_or_erase_history_with_empty_summary() {
+    use sha2::{Digest, Sha256};
+    let mut original = Conversation::new("Add");
+    original.messages.push(common::tool());
+    original.messages.push(Message::new(
+        Role::ToolResults,
+        vec![Item::ToolResult {
+            call_id: "call1".into(),
+            name: "add".into(),
+            result: json!(5),
+        }],
+    ));
+    original.validate().unwrap();
+    for (cut, summary) in [(2, "Added numbers"), (3, "  "), (0, "No history")] {
+        let mut compression = Compression::new(1024).unwrap();
+        compression.checkpoint = Some(CompressionCheckpoint {
+            summary: summary.into(),
+            through_message_count: cut,
+            prefix_sha256: format!(
+                "{:x}",
+                Sha256::digest(serde_json::to_vec(&original.messages[..cut]).unwrap())
+            ),
+            tokens_before: 0,
+            tokens_after: 0,
+        });
+        assert!(matches!(
+            compression
+                .prepare(&MockLang::new([]), &original, &ChatOptions::default())
+                .await,
+            Err(Error::Compression(_))
+        ));
+    }
+}
+
+#[tokio::test]
+async fn compression_keeps_request_headers_and_retry_policy_but_disables_tools() {
+    use async_trait::async_trait;
+    struct SummaryProvider;
+    #[async_trait]
+    impl LanguageProvider for SummaryProvider {
+        async fn complete(
+            &self,
+            context: &Conversation,
+            options: &ChatOptions,
+            _: &mut (dyn for<'m> FnMut(&'m Message) + Send),
+        ) -> Result<Message> {
+            context.validate()?;
+            assert_eq!(
+                options.headers.get("x-tenant").map(String::as_str),
+                Some("test")
+            );
+            assert_eq!(options.max_retries, 0);
+            assert_eq!(options.tools.as_ref().map(Vec::len), Some(0));
+            assert!(options.schema.is_none());
+            assert!(options.built_in_tools.is_empty());
+            Ok(Message::assistant("Summary"))
+        }
+    }
+    let options = ChatOptions {
+        headers: std::collections::BTreeMap::from([("x-tenant".into(), "test".into())]),
+        max_retries: 0,
+        schema: Some(json!({"type":"object"})),
+        ..ChatOptions::default()
+    };
+    Compression::new(1024)
+        .unwrap()
+        .prepare(&SummaryProvider, &history(), &options)
+        .await
+        .unwrap();
 }
