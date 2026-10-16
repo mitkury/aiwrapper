@@ -89,3 +89,10 @@ host and launch this playground with native chat. Credentials still come from
 the server `.env`. Chat uses the Rust crate; speech and live pages retain their
 TypeScript implementation. See the [native guide](../docs/native.md) for transport
 injection, compression, examples and current feature coverage.
+
+For offline chat and real local tool execution, run
+`AIWRAPPER_NATIVE_MOCK=1 npm run sandbox:native`. Ordinary messages receive
+streamed echoes. Send `tool: add {"a":2,"b":3}` or `tool: get_time {}` to
+exercise the agent loop. Keep `AIWRAPPER_COMPRESSION_TOKENS` unset here; the
+[programmable mock tests](../native/tests/mock_compression.rs) exercise compression
+with explicit summary fixtures.

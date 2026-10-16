@@ -3,7 +3,7 @@ import { nativeChat } from '$lib/server/native-chat';
 import { ChatAgent, LangMessages } from 'aiwrapper';
 import { json } from '@sveltejs/kit';
 import { getProviderConfig, isProviderId } from '$lib/provider-config';
-import { createServerLanguageProvider, languageConfig } from '$lib/server/language';
+import { createServerLanguageProvider, chatConfig } from '$lib/server/language';
 import type { ChatEvent, ChatMessage } from '$lib/chat';
 import type { RequestHandler } from './$types';
 
@@ -30,7 +30,8 @@ export const POST: RequestHandler = async ({ request }) => {
 	) {
 		return json({ error: 'A valid provider, model, and messages are required' }, { status: 400 });
 	}
-	if (!languageConfig()[providerId].configured) {
+	const config = chatConfig()[providerId];
+	if (!config.configured) {
 		return json(
 			{ error: `${getProviderConfig(providerId).label} is not configured in .env` },
 			{ status: 503 }
@@ -40,7 +41,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		return nativeChat(
 			{
 				provider: providerId,
-				model: body.model.trim() || languageConfig()[providerId].model,
+				model: body.model.trim() || config.model,
 				messages: body.messages
 			},
 			request.signal

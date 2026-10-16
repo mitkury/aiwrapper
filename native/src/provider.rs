@@ -292,37 +292,6 @@ impl LanguageProvider for Lang {
     }
 }
 
-/// A deterministic provider for offline embedding and tests.
-pub struct MockLang {
-    replies: std::sync::Mutex<std::collections::VecDeque<Message>>,
-}
-impl MockLang {
-    pub fn new(replies: impl IntoIterator<Item = Message>) -> Self {
-        Self {
-            replies: std::sync::Mutex::new(replies.into_iter().collect()),
-        }
-    }
-}
-#[async_trait]
-impl LanguageProvider for MockLang {
-    async fn complete(
-        &self,
-        _conversation: &Conversation,
-        options: &ChatOptions,
-        on_update: &mut (dyn for<'m> FnMut(&'m Message) + Send),
-    ) -> Result<Message> {
-        crate::error::check_cancel(&options.cancellation)?;
-        let message = self
-            .replies
-            .lock()
-            .map_err(|_| Error::Protocol("mock lock poisoned".into()))?
-            .pop_front()
-            .ok_or_else(|| Error::Protocol("mock replies exhausted".into()))?;
-        on_update(&message);
-        Ok(message)
-    }
-}
-
 pub(crate) fn output_text(value: &Value) -> String {
     value
         .as_str()

@@ -271,6 +271,58 @@ remain the provider's responsibility.
 
 ## Development
 
+### Offline mock providers
+
+`MockLang::new(replies)` consumes a fixed queue and fails when it is exhausted.
+`MockLang::interactive()` instead echoes the current input and understands
+`tool: <name> <JSON object>`. It requests only offered tools, leaves execution to
+`ChatAgent`, and replies with the actual results, including errors. It does not
+interpret commands inside tool output. Separate conversations can share it;
+restoring saved history does not require restoring provider state.
+
+```rust,no_run
+use aiwrapper::*;
+use std::sync::Arc;
+# async fn example() -> Result<()> {
+let mut agent = ChatAgent::new(Arc::new(MockLang::interactive()));
+agent.tools.push(Tool::new("echo", "Echo inputs", serde_json::json!({"type":"object"}),
+    |arguments, _| async move { Ok(arguments) }));
+agent.run(vec![Message::user("tool: echo {\"text\":\"hello\"}")],
+    &ChatOptions::default(), &mut |_| {}).await?;
+# Ok(()) }
+```
+
+For compression, structured output, errors or a task that needs several tool
+turns, use `MockLang::from_fn(|conversation, options| -> Result<Message> { ... })`.
+The callback sees the actual projected context and request options; it can assert
+what was retained and decide its next reply from tool results and summaries.
+All mock modes stream text in Unicode-safe increments and honor cancellation.
+Structured answers are checked against the requested schema. The synchronous
+callback performs no I/O; capture a mutex or atomics for test recording.
+
+The interactive mode deliberately rejects summary and structured-output requests.
+Supply explicit fixtures with `from_fn` instead of treating an echo as a summary.
+The [compression scenarios](../native/tests/mock_compression.rs) simulate a task
+that completes numbered reads. Each large tool result forces bounded summaries;
+the next read must follow the progress retained in the projected context. Tests
+cover repeated compression, Unicode and escaped data, saved-history restart,
+failed persistence, cancellation and failure halfway through summarization.
+They verify compression mechanics and exact-once tool execution in those
+scenarios; they do not evaluate a real model's summary quality.
+
+Run just the mock scenarios with:
+
+```sh
+cargo test --locked -p aiwrapper --test mock --test mock_compression
+```
+
+For manual offline chat, run `AIWRAPPER_NATIVE_MOCK=1 npm run sandbox:native`
+and send `tool: add {"a":2,"b":3}`. Leave
+`AIWRAPPER_COMPRESSION_TOKENS` unset in this interactive mode; compression uses
+the programmable fixtures above. No API key is needed for the native process.
+
+### Checks
+
 ```sh
 npm run native:check
 npm run native:build

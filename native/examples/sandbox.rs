@@ -65,9 +65,7 @@ async fn run() -> Result<()> {
     }
     let provider: Arc<dyn LanguageProvider> =
         if env("AIWRAPPER_NATIVE_MOCK").as_deref() == Some("1") {
-            Arc::new(MockLang::new([Message::assistant(
-                "Hello from native Rust.",
-            )]))
+            Arc::new(MockLang::interactive())
         } else {
             Arc::new(Lang::new(config)?)
         };

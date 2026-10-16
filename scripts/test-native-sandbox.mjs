@@ -5,7 +5,8 @@ import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 
 // Exercises the actual example process, reqwest HTTP transport, streamed tool
-// assembly, handler execution and continuation. No credentials or remote calls.
+// assembly, handler execution and continuation, plus the interactive mock across
+// separate process invocations. No credentials or remote calls.
 const requests = [];
 const server = createServer(async (request, response) => {
   let input = '';
@@ -27,33 +28,52 @@ const server = createServer(async (request, response) => {
 server.listen(0, '127.0.0.1');
 await once(server, 'listening');
 const executable = fileURLToPath(new URL('../target/debug/examples/' + (process.platform === 'win32' ? 'sandbox.exe' : 'sandbox'), import.meta.url));
-const child = spawn(executable, [], {
-  stdio: ['pipe', 'pipe', 'pipe'],
-  env: { ...process.env, AIWRAPPER_NATIVE_MOCK: '0', AIWRAPPER_COMPRESSION_TOKENS: '', OPENAI_COMPATIBLE_BASE_URL: `http://127.0.0.1:${server.address().port}/v1` }
-});
-let output = '';
-let stderr = '';
-child.stdout.setEncoding('utf8').on('data', data => { output += data; });
-child.stderr.setEncoding('utf8').on('data', data => { stderr += data; });
-const timeout = setTimeout(() => child.kill(), 15_000);
+async function ask(messages, mock = false) {
+  const child = spawn(executable, [], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, AIWRAPPER_NATIVE_MOCK: mock ? '1' : '0', AIWRAPPER_COMPRESSION_TOKENS: '', OPENAI_COMPATIBLE_BASE_URL: `http://127.0.0.1:${server.address().port}/v1` }
+  });
+  let output = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8').on('data', data => { output += data; });
+  child.stderr.setEncoding('utf8').on('data', data => { stderr += data; });
+  const timeout = setTimeout(() => child.kill(), 15_000);
+  try {
+    child.stdin.end(JSON.stringify({ provider: 'openai-compatible', model: 'fixture', messages }));
+    const [code] = await once(child, 'close');
+    assert.equal(code, 0, stderr);
+    const events = output.trim().split('\n').map(JSON.parse);
+    const last = events.at(-1);
+    assert.equal(last.done, true);
+    assert.equal(last.error, null);
+    assert(events.length > 2, 'expected streaming updates');
+    return last.messages;
+  } finally {
+    clearTimeout(timeout);
+    child.kill();
+  }
+}
+const user = text => ({ role: 'user', items: [{ type: 'text', text }] });
 try {
-  child.stdin.end(JSON.stringify({ provider: 'openai-compatible', model: 'fixture', messages: [{ role: 'user', items: [{ type: 'text', text: 'Add 2 and 3' }] }] }));
-  const [code] = await once(child, 'close');
-  assert.equal(code, 0, stderr);
-  const events = output.trim().split('\n').map(JSON.parse);
-  const last = events.at(-1);
-  assert.equal(last.done, true);
-  assert.equal(last.error, null);
-  assert.equal(last.messages.at(-1).items[0].text, '5 🦀');
-  assert.deepEqual(last.messages.map(message => message.role), ['user', 'assistant', 'tool-results', 'assistant']);
+  const messages = await ask([user('Add 2 and 3')]);
+  assert.equal(messages.at(-1).items[0].text, '5 🦀');
+  assert.deepEqual(messages.map(message => message.role), ['user', 'assistant', 'tool-results', 'assistant']);
   assert.equal(requests.length, 2);
   assert.equal(requests[1].messages.at(-1).content, '5.0');
   assert.equal(requests[1].messages.at(-1).tool_call_id, 'sum');
-  assert(events.length > 2, 'expected streaming updates');
-  console.log('Native sandbox: process → HTTP → tool → continuation → NDJSON passed.');
+  let mocked = await ask([user('tool: add {"a":2,"b":3}')], true);
+  assert.equal(mocked[2].items[0].result, 5);
+  assert.match(mocked.at(-1).items[0].text, /Tool result: add\n5/);
+  mocked = await ask([...mocked, user('tool: add {"a":7,"b":4}')], true);
+  const results = mocked.filter(message => message.role === 'tool-results').flatMap(message => message.items);
+  assert.deepEqual(results.map(item => item.result), [5, 11]);
+  assert.notEqual(results[0].callId, results[1].callId);
+  const prompt = 'Unicode 🦀 '.repeat(12);
+  mocked = await ask([...mocked, user(prompt)], true);
+  assert.equal(mocked.at(-1).items[0].text, `Mock reply: ${prompt}`);
+  assert.equal(requests.length, 2, 'interactive mock must never call HTTP');
+  console.log('Native sandbox: HTTP tool loop, mock tools across restarts, and streamed replies passed.');
 } finally {
-  clearTimeout(timeout);
-  child.kill();
   server.closeAllConnections();
   server.close();
 }
