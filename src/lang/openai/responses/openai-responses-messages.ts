@@ -131,7 +131,12 @@ export function transformMessageToResponsesItems(message: LangMessage): any[] {
 
       case 'tool':
         flushContent();
-        responseItems.push({
+        responseItems.push(msgItem.name === 'apply_patch' ? {
+          type: 'apply_patch_call',
+          call_id: msgItem.callId,
+          operation: msgItem.arguments.operation,
+          status: msgItem.arguments.status ?? 'completed',
+        } : {
           type: 'function_call',
           call_id: msgItem.callId,
           name: msgItem.name,

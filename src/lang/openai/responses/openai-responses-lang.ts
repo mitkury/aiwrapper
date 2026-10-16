@@ -101,7 +101,8 @@ export class OpenAIResponsesLang extends LanguageProvider {
       ...{ stream: true },
       ...bodyPart,
       ...(instructions ? { instructions } : {}),
-      ...{ truncation: "auto" },
+      // Let callers handle overflow instead of silently dropping earlier context.
+      truncation: "disabled",
       ...structuredOutput,
       ...options?.providerSpecificBody,
     };

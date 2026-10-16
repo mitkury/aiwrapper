@@ -93,6 +93,8 @@ Use [multimodal tool results](agent.md#image-tool-results) to return images from
 handlers.
 
 `Lang.openai()` uses Responses; `Lang.openaiLike()` uses Chat Completions.
+Responses rejects context overflow by default. To let OpenAI drop older input,
+explicitly set `providerSpecificBody: { truncation: "auto" }`.
 Responses image generation uses the provider's `image_generation` built-in tool.
 AIWrapper exposes completed images through `assistantImages`; streamed partial
 previews are not exposed. The separate `Img` API handles image generation

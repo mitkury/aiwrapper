@@ -108,6 +108,18 @@ describe("provider streaming", () => {
     );
   });
 
+  it("disables Responses truncation by default and honors an explicit opt-in", async () => {
+    const requests: any[] = [];
+    setHttpRequestImpl(async (_url, options) => {
+      requests.push(JSON.parse(String(options.body)));
+      return new Response("", { headers: { "Content-Type": "text/event-stream" } });
+    });
+    const lang = new OpenAILang({ apiKey: "test" });
+    await lang.ask("Hello");
+    await lang.ask("Hello", { providerSpecificBody: { truncation: "auto" } });
+    expect(requests.map(request => request.truncation)).toEqual(["disabled", "auto"]);
+  });
+
   it("sends raw JSON Schema in the OpenAI Responses text format", async () => {
     let requestBody: any;
     setHttpRequestImpl(async (_url, options) => {

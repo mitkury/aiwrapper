@@ -59,6 +59,29 @@ describe('OpenAI Responses message conversion', () => {
     ]);
   });
 
+  it.each(['completed', 'failed'])('replays native patch calls with their %s outcomes', (status) => {
+    const operation = { type: 'update_file', path: 'notes.txt', diff: '@@\n-old\n+new' };
+    const messages = new LangMessages([
+      new LangMessage('assistant', [
+        { type: 'text', text: 'Updating the notes.' },
+        { type: 'tool', name: 'apply_patch', callId: 'patch_1', arguments: { operation, status: 'completed' } },
+      ]),
+      new LangMessage('tool-results', [{
+        type: 'tool-result', name: 'apply_patch', callId: 'patch_1',
+        result: { status, output: status === 'completed' ? 'Updated notes.txt' : 'Missing file' },
+      }]),
+    ]);
+
+    expect(transformMessagesToResponsesInput(messages)).toEqual([
+      { role: 'assistant', content: [{ type: 'output_text', text: 'Updating the notes.' }] },
+      { type: 'apply_patch_call', call_id: 'patch_1', operation, status: 'completed' },
+      {
+        type: 'apply_patch_call_output', call_id: 'patch_1', status,
+        output: status === 'completed' ? 'Updated notes.txt' : 'Missing file',
+      },
+    ]);
+  });
+
   it('replays assistant images without requiring prompt metadata', () => {
     const message = new LangMessage('assistant', [
       { type: 'image', base64: 'aGVsbG8=', mimeType: 'image/png' },

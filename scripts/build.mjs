@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const catalog = `${root}aimodels/js`;
@@ -35,7 +36,8 @@ cpSync(`${root}aimodels/LICENSE`, `${generated}/LICENSE`);
 
 if (!catalogOnly) {
   rmSync(`${root}dist`, { recursive: true, force: true });
-  run(process.execPath, ['node_modules/typescript/bin/tsc', '--project', 'tsconfig.json']);
+  const require = createRequire(import.meta.url);
+  run(process.execPath, [require.resolve('typescript/bin/tsc'), '--project', 'tsconfig.json']);
   // tsc resolves the generated declarations; the upstream ESM bundle is copied intact.
   cpSync(generated, `${root}dist/aimodels`, { recursive: true });
 }
