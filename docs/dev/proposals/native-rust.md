@@ -47,24 +47,17 @@ image tool results, provider-owned tools or live interruption semantics.
    all listeners, session registries and browser transport outside the library.
    Chat already exercises the native runtime through the existing host route.
 
-## Tighten conversation replay and live turn ownership
+## Tighten conversation replay
 
-Two design issues need a focused follow-up before broader adoption:
+Conversation replay needs a focused follow-up before broader adoption:
 
-- Assistant messages contain both neutral items and raw provider replay data in
-  `meta`. The raw form preserves signatures and encrypted reasoning, but currently
-  takes precedence even after a caller edits the neutral items. This gives one
-  message two competing sources of truth. First detect edited messages and reject
-  stale replay data explicitly; then retain only the opaque provider fields that
-  cannot be reconstructed. Cover edits, serialization and signed tool replay
-  before changing the persisted format.
-- Live send and receive halves do not share response lifecycle state. An explicit
-  cancellation does not suppress audio already in flight, and fast tool results
-  can request a new OpenAI response before the preceding response has ended.
-  First capture both sequences in deterministic fixtures, then share the minimal
-  active-response and interruption state. Queue response creation until the
-  provider confirms the preceding response has ended. Keep playback buffers and
-  tool execution in the host; avoid a general event-bus abstraction.
+Assistant messages contain both neutral items and raw provider replay data in
+`meta`. The raw form preserves signatures and encrypted reasoning, but currently
+takes precedence even after a caller edits the neutral items. This gives one
+message two competing sources of truth. First detect edited messages and reject
+stale replay data explicitly; then retain only the opaque provider fields that
+cannot be reconstructed. Cover edits, serialization and signed tool replay
+before changing the persisted format.
 
 ## Compression belongs in the reusable runtime
 

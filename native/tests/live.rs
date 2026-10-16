@@ -11,13 +11,362 @@ use std::{
 struct SocketFixture {
     sent: Arc<Mutex<Vec<Value>>>,
     events: Vec<Value>,
+    stay_open: bool,
+    fail_writes_after_setup: bool,
 }
 impl SocketFixture {
     fn new(events: Vec<Value>) -> Self {
         Self {
             sent: Arc::new(Mutex::new(vec![])),
             events,
+            stay_open: false,
+            fail_writes_after_setup: false,
         }
+    }
+    fn count(&self, kind: &str) -> usize {
+        self.sent
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|v| v["type"] == kind)
+            .count()
+    }
+}
+
+fn tool_call(id: &str) -> Value {
+    json!({"type":"response.function_call_arguments.done","call_id":id,"name":"add","arguments":"{}"})
+}
+fn tool_result(id: &str) -> LiveToolResult {
+    LiveToolResult {
+        call_id: id.into(),
+        name: "add".into(),
+        result: json!(3),
+    }
+}
+async fn openai_session(events: Vec<Value>) -> (LiveSession, SocketFixture) {
+    let fixture = SocketFixture::new(
+        std::iter::once(json!({"type":"session.updated"}))
+            .chain(events)
+            .collect(),
+    );
+    let session = LiveConfig::new(LiveProvider::Openai, "test", "key")
+        .connect_with(&fixture)
+        .await
+        .unwrap();
+    (session, fixture)
+}
+
+#[tokio::test]
+async fn fast_tool_results_wait_for_done_and_all_calls_before_continuing() {
+    let (mut session, fixture) = openai_session(vec![
+        json!({"type":"response.created"}),
+        tool_call("a"),
+        tool_call("b"),
+        json!({"type":"response.done","response":{"status":"completed","output":[
+            {"type":"function_call","call_id":"a","name":"add","arguments":"{}"},
+            {"type":"function_call","call_id":"b","name":"add","arguments":"{}"}
+        ]}}),
+    ])
+    .await;
+    assert!(matches!(
+        session.receiver.next_event().await.unwrap(),
+        Some(LiveEvent::ResponseStarted)
+    ));
+    assert!(matches!(
+        session.receiver.next_event().await.unwrap(),
+        Some(LiveEvent::ToolCall { .. })
+    ));
+    session
+        .sender
+        .send_tool_results(&[tool_result("a")])
+        .await
+        .unwrap();
+    assert_eq!(fixture.count("response.create"), 0);
+    assert!(matches!(
+        session.receiver.next_event().await.unwrap(),
+        Some(LiveEvent::ToolCall { .. })
+    ));
+    assert!(matches!(
+        session.receiver.next_event().await.unwrap(),
+        Some(LiveEvent::ResponseEnded)
+    ));
+    assert_eq!(fixture.count("response.create"), 0);
+    session
+        .sender
+        .send_tool_results(&[tool_result("b")])
+        .await
+        .unwrap();
+    assert_eq!(fixture.count("response.create"), 1);
+    assert!(
+        session
+            .sender
+            .send_tool_results(&[tool_result("b")])
+            .await
+            .is_err()
+    );
+    assert_eq!(fixture.count("conversation.item.create"), 2);
+}
+
+#[tokio::test]
+async fn done_discovers_calls_and_concurrent_results_resume_once() {
+    let (mut session, fixture) = openai_session(vec![
+        json!({"type":"response.created"}),
+        json!({"type":"response.done","response":{"status":"completed","output":[
+            {"type":"function_call","call_id":"a","name":"add","arguments":"{}"},
+            {"type":"function_call","call_id":"b","name":"add","arguments":"{}"}
+        ]}}),
+    ])
+    .await;
+    for _ in 0..4 {
+        session.receiver.next_event().await.unwrap().unwrap();
+    }
+    let other = session.sender.clone();
+    let a = [tool_result("a")];
+    let b = [tool_result("b")];
+    let (a, b) = tokio::join!(
+        session.sender.send_tool_results(&a),
+        other.send_tool_results(&b)
+    );
+    a.unwrap();
+    b.unwrap();
+    assert_eq!(fixture.count("response.create"), 1);
+}
+
+#[tokio::test]
+async fn explicit_interrupt_before_created_suppresses_output_and_cancels_once() {
+    let (mut session, fixture) = openai_session(vec![
+        json!({"type":"response.created"}),
+        json!({"type":"response.output_audio.delta","delta":"AQD//w=="}),
+        tool_call("late"),
+        json!({"type":"response.done","response":{"status":"cancelled"}}),
+    ])
+    .await;
+    session.sender.interrupt().await.unwrap(); // Idle is harmless.
+    assert_eq!(fixture.count("response.cancel"), 0);
+    session
+        .sender
+        .send_text("Hello", Role::User, true)
+        .await
+        .unwrap();
+    session.sender.interrupt().await.unwrap();
+    session.sender.interrupt().await.unwrap();
+    assert_eq!(fixture.count("response.cancel"), 1);
+    assert!(matches!(
+        session.receiver.next_event().await.unwrap(),
+        Some(LiveEvent::Interrupted)
+    ));
+    assert!(matches!(
+        session.receiver.next_event().await.unwrap(),
+        Some(LiveEvent::ResponseEnded)
+    ));
+    session
+        .sender
+        .send_tool_results(&[tool_result("late")])
+        .await
+        .unwrap();
+    assert_eq!(fixture.count("response.create"), 1);
+}
+
+#[tokio::test]
+async fn new_text_cancels_active_response_and_waits_before_starting_another() {
+    let (mut session, fixture) = openai_session(vec![
+        json!({"type":"response.created"}),
+        tool_call("a"),
+        json!({"type":"response.output_audio.delta","delta":"AQD//w=="}),
+        json!({"type":"response.done","response":{"status":"cancelled"}}),
+        json!({"type":"error","error":{"code":"response_cancel_not_active"}}),
+        json!({"type":"response.created"}),
+        json!({"type":"response.output_audio.delta","delta":"AQD//w=="}),
+    ])
+    .await;
+    session.receiver.next_event().await.unwrap();
+    session.receiver.next_event().await.unwrap();
+    session
+        .sender
+        .send_text("New question", Role::User, true)
+        .await
+        .unwrap();
+    assert_eq!(fixture.count("response.cancel"), 1);
+    assert_eq!(fixture.count("response.create"), 0);
+    assert!(matches!(
+        session.receiver.next_event().await.unwrap(),
+        Some(LiveEvent::Interrupted)
+    ));
+    assert!(matches!(
+        session.receiver.next_event().await.unwrap(),
+        Some(LiveEvent::ToolsCancelled { .. })
+    ));
+    session
+        .sender
+        .send_tool_results(&[tool_result("a")])
+        .await
+        .unwrap();
+    assert_eq!(fixture.count("response.create"), 0);
+    assert!(matches!(
+        session.receiver.next_event().await.unwrap(),
+        Some(LiveEvent::ResponseEnded)
+    ));
+    assert_eq!(fixture.count("response.create"), 1);
+    assert!(matches!(
+        session.receiver.next_event().await.unwrap(),
+        Some(LiveEvent::ResponseStarted)
+    ));
+    assert!(matches!(
+        session.receiver.next_event().await.unwrap(),
+        Some(LiveEvent::Audio { .. })
+    ));
+}
+
+#[tokio::test]
+async fn invalid_tool_result_batches_send_nothing() {
+    let (mut session, fixture) =
+        openai_session(vec![json!({"type":"response.created"}), tool_call("a")]).await;
+    session.receiver.next_event().await.unwrap();
+    session.receiver.next_event().await.unwrap();
+    for batch in [
+        vec![tool_result("a"), tool_result("unknown")],
+        vec![tool_result("a"), tool_result("a")],
+        vec![LiveToolResult {
+            name: "wrong".into(),
+            ..tool_result("a")
+        }],
+    ] {
+        assert!(session.sender.send_tool_results(&batch).await.is_err());
+    }
+    assert_eq!(fixture.count("conversation.item.create"), 0);
+}
+
+#[tokio::test]
+async fn fast_results_continue_on_done_and_later_turns_start_normally() {
+    let (mut session, fixture) = openai_session(vec![
+        json!({"type":"response.created"}),
+        tool_call("a"),
+        json!({"type":"response.done","response":{"status":"completed"}}),
+        json!({"type":"response.created"}),
+        json!({"type":"response.done","response":{"status":"completed"}}),
+    ])
+    .await;
+    session.receiver.next_event().await.unwrap();
+    session.receiver.next_event().await.unwrap();
+    session
+        .sender
+        .send_tool_results(&[tool_result("a")])
+        .await
+        .unwrap();
+    assert_eq!(fixture.count("response.create"), 0);
+    assert!(matches!(
+        session.receiver.next_event().await.unwrap(),
+        Some(LiveEvent::ResponseEnded)
+    ));
+    assert_eq!(fixture.count("response.create"), 1);
+    assert!(matches!(
+        session.receiver.next_event().await.unwrap(),
+        Some(LiveEvent::ResponseStarted)
+    ));
+    assert!(matches!(
+        session.receiver.next_event().await.unwrap(),
+        Some(LiveEvent::ResponseEnded)
+    ));
+    assert_eq!(fixture.count("response.create"), 1);
+    session
+        .sender
+        .send_text("Next question", Role::User, true)
+        .await
+        .unwrap();
+    assert_eq!(fixture.count("response.create"), 2);
+    assert_eq!(fixture.count("response.cancel"), 0);
+}
+
+#[tokio::test]
+async fn interrupt_wakes_a_waiting_receiver_and_clears_undelivered_tool_calls() {
+    let mut fixture = SocketFixture::new(vec![
+        json!({"type":"session.updated"}),
+        json!({"type":"response.created"}),
+    ]);
+    fixture.stay_open = true;
+    let mut session = LiveConfig::new(LiveProvider::Openai, "test", "key")
+        .connect_with(&fixture)
+        .await
+        .unwrap();
+    session.receiver.next_event().await.unwrap();
+    let (event, result) = tokio::join!(
+        tokio::time::timeout(Duration::from_secs(1), session.receiver.next_event()),
+        async {
+            tokio::task::yield_now().await;
+            session.sender.interrupt().await
+        }
+    );
+    result.unwrap();
+    assert!(matches!(
+        event.unwrap().unwrap(),
+        Some(LiveEvent::Interrupted)
+    ));
+
+    let (mut session, fixture) = openai_session(vec![
+        json!({"type":"response.created"}),
+        json!({"type":"response.done","response":{"status":"completed","output":[
+            {"type":"function_call","call_id":"a","name":"add","arguments":"{}"},
+            {"type":"function_call","call_id":"b","name":"add","arguments":"{}"}
+        ]}}),
+    ])
+    .await;
+    session.receiver.next_event().await.unwrap();
+    assert!(
+        matches!(session.receiver.next_event().await.unwrap(), Some(LiveEvent::ToolCall { call_id, .. }) if call_id == "a")
+    );
+    session.sender.interrupt().await.unwrap();
+    // Generation already ended, so cancellation is local and b is never delivered.
+    assert_eq!(fixture.count("response.cancel"), 0);
+    assert!(matches!(
+        session.receiver.next_event().await.unwrap(),
+        Some(LiveEvent::ResponseEnded)
+    ));
+    assert!(matches!(
+        session.receiver.next_event().await.unwrap(),
+        Some(LiveEvent::Interrupted)
+    ));
+    assert!(
+        matches!(session.receiver.next_event().await.unwrap(), Some(LiveEvent::ToolsCancelled { call_ids }) if call_ids == vec!["a", "b"])
+    );
+    session
+        .sender
+        .send_tool_results(&[tool_result("a")])
+        .await
+        .unwrap();
+    assert_eq!(fixture.count("response.create"), 0);
+}
+
+#[tokio::test]
+async fn remote_close_and_protocol_errors_stop_both_halves() {
+    for event in [
+        json!({"__closed":true,"code":1000,"reason":"bye"}),
+        json!({"error":{"message":"invalid session"}}),
+        json!({"type":"response.output_audio.delta","delta":"invalid!"}),
+        json!({"type":"response.done","response":{"status":"failed","status_details":{"error":"failed"}}}),
+    ] {
+        let closed = event["__closed"] == true;
+        let (mut session, fixture) = openai_session(vec![event]).await;
+        let result = session.receiver.next_event().await;
+        if closed {
+            assert!(matches!(
+                result.unwrap(),
+                Some(LiveEvent::Closed {
+                    code: Some(1000),
+                    ..
+                })
+            ));
+        } else {
+            assert!(result.is_err());
+        }
+        assert!(
+            session
+                .sender
+                .send_text("Too late", Role::User, true)
+                .await
+                .is_err()
+        );
+        assert!(session.receiver.next_event().await.unwrap().is_none());
+        assert_eq!(fixture.count("response.create"), 0);
     }
 }
 #[async_trait]
@@ -28,16 +377,26 @@ impl LiveTransport for SocketFixture {
         _headers: BTreeMap<String, String>,
     ) -> Result<LiveSocket> {
         let sent = self.sent.clone();
+        let fail_writes = self.fail_writes_after_setup;
         let sender = futures_util::sink::unfold(
             sent,
-            |sent: Arc<Mutex<Vec<Value>>>, value: Value| async move {
+            move |sent: Arc<Mutex<Vec<Value>>>, value: Value| async move {
+                if fail_writes && !sent.lock().unwrap().is_empty() {
+                    return Err(Error::Protocol("fixture send failed".into()));
+                }
                 sent.lock().unwrap().push(value);
                 Ok::<_, Error>(sent)
             },
         );
         Ok(LiveSocket {
             sender: Box::pin(sender),
-            receiver: futures_util::stream::iter(self.events.clone().into_iter().map(Ok)).boxed(),
+            receiver: futures_util::stream::iter(self.events.clone().into_iter().map(Ok))
+                .chain(if self.stay_open {
+                    futures_util::stream::pending().boxed()
+                } else {
+                    futures_util::stream::empty().boxed()
+                })
+                .boxed(),
         })
     }
 }
@@ -137,9 +496,9 @@ async fn openai_deduplicates_calls_suppresses_interrupted_audio_and_truncates() 
     let fixture = SocketFixture::new(vec![
         json!({"type":"session.created"}),
         json!({"type":"session.updated"}),
+        json!({"type":"response.created"}),
         call.clone(),
         call,
-        json!({"type":"response.created"}),
         json!({"type":"input_audio_buffer.speech_started"}),
         json!({"type":"response.output_audio.delta","delta":"AQD//w=="}),
         json!({"type":"response.done","response":{"status":"cancelled"}}),
@@ -150,11 +509,11 @@ async fn openai_deduplicates_calls_suppresses_interrupted_audio_and_truncates() 
         .unwrap();
     assert!(matches!(
         session.receiver.next_event().await.unwrap(),
-        Some(LiveEvent::ToolCall { .. })
+        Some(LiveEvent::ResponseStarted)
     ));
     assert!(matches!(
         session.receiver.next_event().await.unwrap(),
-        Some(LiveEvent::ResponseStarted)
+        Some(LiveEvent::ToolCall { .. })
     ));
     assert!(matches!(
         session.receiver.next_event().await.unwrap(),
@@ -163,6 +522,10 @@ async fn openai_deduplicates_calls_suppresses_interrupted_audio_and_truncates() 
     assert!(matches!(
         session.receiver.next_event().await.unwrap(),
         Some(LiveEvent::Interrupted)
+    ));
+    assert!(matches!(
+        session.receiver.next_event().await.unwrap(),
+        Some(LiveEvent::ToolsCancelled { .. })
     ));
     assert!(matches!(
         session.receiver.next_event().await.unwrap(),
@@ -247,11 +610,40 @@ async fn closing_a_session_does_not_cancel_the_hosts_parent_token() {
     let mut config = LiveConfig::new(LiveProvider::Google, "test", "key");
     config.cancellation = parent.clone();
     let fixture = SocketFixture::new(vec![json!({"setupComplete":{}})]);
-    let session = config.connect_with(&fixture).await.unwrap();
+    let mut session = config.connect_with(&fixture).await.unwrap();
     session.sender.close().await.unwrap();
     assert!(!parent.is_cancelled());
     assert!(matches!(
         session.sender.send_text("Hi", Role::User, true).await,
         Err(Error::Cancelled)
     ));
+    assert!(session.receiver.next_event().await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn send_failure_wakes_the_receiver_and_stops_sender_clones() {
+    let mut fixture = SocketFixture::new(vec![json!({"type":"session.updated"})]);
+    fixture.stay_open = true;
+    fixture.fail_writes_after_setup = true;
+    let mut session = LiveConfig::new(LiveProvider::Openai, "test", "key")
+        .connect_with(&fixture)
+        .await
+        .unwrap();
+    let sender = session.sender.clone();
+    let (event, result) = tokio::join!(
+        tokio::time::timeout(Duration::from_secs(1), session.receiver.next_event()),
+        async {
+            tokio::task::yield_now().await;
+            sender.send_text("Hello", Role::User, true).await
+        }
+    );
+    assert!(result.is_err());
+    assert!(event.unwrap().unwrap().is_none());
+    assert!(
+        session
+            .sender
+            .send_text("Too late", Role::User, true)
+            .await
+            .is_err()
+    );
 }

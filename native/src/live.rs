@@ -13,7 +13,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 use tokio_tungstenite::tungstenite::{Message as WsMessage, client::IntoClientRequest};
 
 type JsonSink = Pin<Box<dyn Sink<Value, Error = Error> + Send>>;
@@ -168,24 +168,29 @@ impl LiveConfig {
                 }
                 queued.push_back(value);
             }
-            let cancelled_calls = Arc::new(Mutex::new(HashSet::new()));
+            let connection = Arc::new(LiveConnection {
+                state: Mutex::new(LiveState {
+                    sender: socket.sender,
+                    phase: ResponsePhase::Idle,
+                    interrupted: false,
+                    pending_response: false,
+                    has_tools: false,
+                    calls: BTreeMap::new(),
+                    events: VecDeque::new(),
+                    closed: false,
+                }),
+                cancellation: self.cancellation.clone(),
+                changed: Notify::new(),
+            });
             let sender = LiveSender {
                 provider: self.provider,
-                sender: Arc::new(Mutex::new(socket.sender)),
-                cancellation: self.cancellation.clone(),
-                cancelled_calls: cancelled_calls.clone(),
+                connection: connection.clone(),
             };
             let receiver = LiveReceiver {
                 provider: self.provider,
                 receiver: socket.receiver,
-                cancellation: self.cancellation.clone(),
+                connection,
                 queued,
-                events: VecDeque::new(),
-                seen_calls: HashSet::new(),
-                cancelled_calls,
-                closed: false,
-                active: false,
-                suppress_audio: false,
             };
             Ok(LiveSession { sender, receiver })
         };
@@ -204,9 +209,7 @@ pub struct LiveSession {
 #[derive(Clone)]
 pub struct LiveSender {
     provider: LiveProvider,
-    sender: Arc<Mutex<JsonSink>>,
-    cancellation: CancellationToken,
-    cancelled_calls: Arc<Mutex<HashSet<String>>>,
+    connection: Arc<LiveConnection>,
 }
 impl LiveSender {
     pub fn input_sample_rate(&self) -> u32 {
@@ -217,11 +220,12 @@ impl LiveSender {
         }
     }
     async fn send(&self, value: Value) -> Result<()> {
-        tokio::select! {
-            biased;
-            _ = self.cancellation.cancelled() => Err(Error::Cancelled),
-            result = async { self.sender.lock().await.send(value).await } => result,
-        }
+        self.connection
+            .state
+            .lock()
+            .await
+            .send(value, &self.connection.cancellation)
+            .await
     }
     pub async fn append_audio(&self, frame: &PcmFrame) -> Result<()> {
         frame.validate()?;
@@ -259,9 +263,15 @@ impl LiveSender {
         if self.provider == LiveProvider::Google {
             self.send(json!({"clientContent":{"turns":[{"role":if role==Role::Assistant {"model"} else {"user"},"parts":[{"text":text}]}],"turnComplete":turn_complete}})).await
         } else {
-            self.send(json!({"type":"conversation.item.create","item":{"type":"message","role":if role==Role::Assistant {"assistant"} else {"user"},"content":[{"type":if role==Role::Assistant {"output_text"} else {"input_text"},"text":text}]}})).await?;
+            let mut state = self.connection.state.lock().await;
+            state.send(json!({"type":"conversation.item.create","item":{"type":"message","role":if role==Role::Assistant {"assistant"} else {"user"},"content":[{"type":if role==Role::Assistant {"output_text"} else {"input_text"},"text":text}]}}), &self.connection.cancellation).await?;
             if turn_complete {
-                self.send(json!({"type":"response.create"})).await?;
+                state.pending_response = true;
+                state.interrupt(true, &self.connection.cancellation).await?;
+                state
+                    .continue_response(&self.connection.cancellation)
+                    .await?;
+                self.connection.changed.notify_one();
             }
             Ok(())
         }
@@ -287,22 +297,47 @@ impl LiveSender {
                 ));
             }
         }
-        let cancelled = self.cancelled_calls.lock().await.clone();
+        let mut state = self.connection.state.lock().await;
+        crate::error::check_cancel(&self.connection.cancellation)?;
+        // Validate the whole batch before writing anything, including across sender clones.
+        let mut ids = HashSet::new();
+        for result in results {
+            if !ids.insert(&result.call_id) {
+                return Err(Error::Invalid("duplicate live tool result in batch".into()));
+            }
+            match state.calls.get(&result.call_id) {
+                Some(ToolState::Cancelled) => continue,
+                Some(ToolState::Pending(name)) if name == &result.name => {}
+                _ => {
+                    return Err(Error::Invalid(
+                        "live tool result must match a pending call id and name".into(),
+                    ));
+                }
+            }
+        }
         let active: Vec<_> = results
             .iter()
-            .filter(|r| !cancelled.contains(&r.call_id))
+            .filter(|r| !matches!(state.calls.get(&r.call_id), Some(ToolState::Cancelled)))
             .collect();
         if active.is_empty() {
             return Ok(());
         }
         if self.provider == LiveProvider::Google {
-            self.send(json!({"toolResponse":{"functionResponses":active.iter().map(|r|json!({"id":r.call_id,"name":r.name,"response":if r.result.is_object() {r.result.clone()} else {json!({"result":r.result})}})).collect::<Vec<_>>()}})).await
+            state.send(json!({"toolResponse":{"functionResponses":active.iter().map(|r|json!({"id":r.call_id,"name":r.name,"response":if r.result.is_object() {r.result.clone()} else {json!({"result":r.result})}})).collect::<Vec<_>>()}}), &self.connection.cancellation).await?;
         } else {
-            for r in active {
-                self.send(json!({"type":"conversation.item.create","item":{"type":"function_call_output","call_id":r.call_id,"output":r.result.to_string()}})).await?;
+            for r in &active {
+                state.send(json!({"type":"conversation.item.create","item":{"type":"function_call_output","call_id":r.call_id,"output":r.result.to_string()}}), &self.connection.cancellation).await?;
             }
-            self.send(json!({"type":"response.create"})).await
         }
+        for result in active {
+            state.calls.insert(result.call_id.clone(), ToolState::Sent);
+        }
+        if self.provider == LiveProvider::Openai {
+            state
+                .continue_response(&self.connection.cancellation)
+                .await?;
+        }
+        Ok(())
     }
     pub async fn interrupt(&self) -> Result<()> {
         if self.provider == LiveProvider::Google {
@@ -310,7 +345,12 @@ impl LiveSender {
                 "Gemini interruptions follow input activity detection".into(),
             ));
         }
-        self.send(json!({"type":"response.cancel"})).await
+        let mut state = self.connection.state.lock().await;
+        crate::error::check_cancel(&self.connection.cancellation)?;
+        state.pending_response = false;
+        state.interrupt(true, &self.connection.cancellation).await?;
+        self.connection.changed.notify_one();
+        Ok(())
     }
     pub async fn truncate_audio(
         &self,
@@ -326,11 +366,15 @@ impl LiveSender {
         self.send(json!({"type":"conversation.item.truncate","item_id":item_id,"content_index":content_index,"audio_end_ms":played_ms})).await
     }
     pub async fn close(&self) -> Result<()> {
+        // Wake blocked readers/writers before waiting for the transport's close handshake.
+        self.connection.cancellation.cancel();
         let result = tokio::time::timeout(Duration::from_secs(2), async {
-            self.sender.lock().await.close().await
+            let mut state = self.connection.state.lock().await;
+            state.closed = true;
+            state.events.clear();
+            state.sender.close().await
         })
         .await;
-        self.cancellation.cancel();
         result.map_err(|_| Error::Protocol("WebSocket close timed out".into()))?
     }
 }
@@ -382,57 +426,173 @@ pub enum LiveEvent {
         reason: Option<String>,
     },
 }
+// One lock orders state changes with socket writes. There is no background task:
+// the host must keep polling the receiver while sending input and running tools.
+struct LiveConnection {
+    state: Mutex<LiveState>,
+    cancellation: CancellationToken,
+    changed: Notify,
+}
+#[derive(PartialEq, Eq)]
+enum ResponsePhase {
+    Idle,
+    Requested,
+    Active,
+}
+enum ToolState {
+    Pending(String),
+    Sent,
+    Cancelled,
+}
+struct LiveState {
+    sender: JsonSink,
+    phase: ResponsePhase,
+    interrupted: bool,
+    pending_response: bool,
+    has_tools: bool,
+    calls: BTreeMap<String, ToolState>,
+    events: VecDeque<LiveEvent>,
+    closed: bool,
+}
 pub struct LiveReceiver {
     provider: LiveProvider,
     receiver: BoxStream<'static, Result<Value>>,
-    cancellation: CancellationToken,
+    connection: Arc<LiveConnection>,
     queued: VecDeque<Value>,
-    events: VecDeque<LiveEvent>,
-    seen_calls: HashSet<String>,
-    cancelled_calls: Arc<Mutex<HashSet<String>>>,
-    closed: bool,
-    active: bool,
-    suppress_audio: bool,
 }
 impl LiveReceiver {
     pub async fn next_event(&mut self) -> Result<Option<LiveEvent>> {
+        let result = self.receive().await;
+        if result.is_err() {
+            self.connection.cancellation.cancel();
+            let mut state = self.connection.state.lock().await;
+            state.closed = true;
+            state.events.clear();
+        }
+        result
+    }
+    async fn receive(&mut self) -> Result<Option<LiveEvent>> {
         loop {
-            crate::error::check_cancel(&self.cancellation)?;
-            if let Some(event) = self.events.pop_front() {
-                return Ok(Some(event));
-            }
-            if self.closed {
-                return Ok(None);
+            {
+                let mut state = self.connection.state.lock().await;
+                if !state.closed {
+                    crate::error::check_cancel(&self.connection.cancellation)?;
+                }
+                if let Some(event) = state.events.pop_front() {
+                    return Ok(Some(event));
+                }
+                if state.closed {
+                    return Ok(None);
+                }
             }
             let value = if let Some(value) = self.queued.pop_front() {
                 value
             } else {
                 tokio::select! {
                     biased;
-                    _ = self.cancellation.cancelled() => return Err(Error::Cancelled),
+                    _ = self.connection.cancellation.cancelled() => continue,
+                    _ = self.connection.changed.notified() => continue,
                     value = self.receiver.next() => match value {Some(v)=>v?,None=>json!({"__closed":true})},
                 }
             };
+            let mut state = self.connection.state.lock().await;
+            crate::error::check_cancel(&self.connection.cancellation)?;
             if let Some(error) = value.get("error") {
+                // Generation can finish on the server while cancellation is in flight.
+                // Its response.done still governs continuation; this error is harmless.
+                if self.provider == LiveProvider::Openai
+                    && error["code"] == "response_cancel_not_active"
+                {
+                    continue;
+                }
                 return Err(Error::Protocol(error.to_string()));
             }
             if value["__closed"] == true {
-                self.closed = true;
-                self.events.push_back(LiveEvent::Closed {
-                    code: value["code"].as_u64().map(|v| v as u16),
+                state.closed = true;
+                self.connection.cancellation.cancel();
+                state.events.push_back(LiveEvent::Closed {
+                    code: value["code"].as_u64().and_then(|v| v.try_into().ok()),
                     reason: value["reason"].as_str().map(str::to_owned),
                 });
             } else if self.provider == LiveProvider::Google {
-                self.google(value).await?;
+                state.google(value)?;
             } else {
-                self.openai(value)?;
+                state.openai(value, &self.connection.cancellation).await?;
             }
         }
     }
-    fn audio(&mut self, data: &str, value: &Value) -> Result<()> {
-        if self.suppress_audio {
+}
+impl LiveState {
+    async fn send(&mut self, value: Value, cancellation: &CancellationToken) -> Result<()> {
+        let result = tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => Err(Error::Cancelled),
+            result = self.sender.send(value) => result,
+        };
+        if result.is_err() {
+            self.closed = true;
+            self.events.clear();
+            cancellation.cancel();
+        }
+        result
+    }
+    async fn continue_response(&mut self, cancellation: &CancellationToken) -> Result<()> {
+        let tools_ready = self.has_tools
+            && !self.interrupted
+            && !self
+                .calls
+                .values()
+                .any(|call| matches!(call, ToolState::Pending(_)));
+        if self.phase == ResponsePhase::Idle && (self.pending_response || tools_ready) {
+            self.send(json!({"type":"response.create"}), cancellation)
+                .await?;
+            self.phase = ResponsePhase::Requested;
+            self.pending_response = false;
+            self.has_tools = false;
+            self.interrupted = false;
+        }
+        Ok(())
+    }
+    fn cancel_tools(&mut self) {
+        let mut ids = Vec::new();
+        for (id, call) in &mut self.calls {
+            if matches!(call, ToolState::Pending(_)) {
+                *call = ToolState::Cancelled;
+                ids.push(id.clone());
+            }
+        }
+        if !ids.is_empty() {
+            self.events
+                .push_back(LiveEvent::ToolsCancelled { call_ids: ids });
+        }
+    }
+    async fn interrupt(
+        &mut self,
+        send_cancel: bool,
+        cancellation: &CancellationToken,
+    ) -> Result<()> {
+        if self.interrupted || (self.phase == ResponsePhase::Idle && !self.has_tools) {
             return Ok(());
         }
+        self.interrupted = true;
+        self.has_tools = false;
+        self.events.retain(|event| {
+            !matches!(
+                event,
+                LiveEvent::Audio { .. }
+                    | LiveEvent::Transcript { input: false, .. }
+                    | LiveEvent::ToolCall { .. }
+            )
+        });
+        self.events.push_back(LiveEvent::Interrupted);
+        self.cancel_tools();
+        if send_cancel && self.phase != ResponsePhase::Idle {
+            self.send(json!({"type":"response.cancel"}), cancellation)
+                .await?;
+        }
+        Ok(())
+    }
+    fn audio(&mut self, data: &str, value: &Value) -> Result<()> {
         let bytes = STANDARD
             .decode(data)
             .map_err(|_| Error::Protocol("invalid base64 audio".into()))?;
@@ -456,7 +616,10 @@ impl LiveReceiver {
         if id.is_empty() || name.is_empty() || !arguments.is_object() {
             return Err(Error::Protocol("malformed live tool call".into()));
         }
-        if self.seen_calls.insert(id.into()) {
+        if !self.calls.contains_key(id) {
+            self.calls
+                .insert(id.into(), ToolState::Pending(name.into()));
+            self.has_tools = true;
             self.events.push_back(LiveEvent::ToolCall {
                 call_id: id.into(),
                 name: name.into(),
@@ -465,7 +628,7 @@ impl LiveReceiver {
         }
         Ok(())
     }
-    async fn google(&mut self, value: Value) -> Result<()> {
+    fn google(&mut self, value: Value) -> Result<()> {
         if let Some(update) = value.get("sessionResumptionUpdate") {
             self.events.push_back(LiveEvent::Resumption {
                 resumable: update["resumable"] == true,
@@ -482,14 +645,16 @@ impl LiveReceiver {
                 .iter()
                 .filter_map(|v| v.as_str().map(str::to_owned))
                 .collect();
-            self.cancelled_calls.lock().await.extend(ids.clone());
+            for id in &ids {
+                self.calls.insert(id.clone(), ToolState::Cancelled);
+            }
             self.events
                 .push_back(LiveEvent::ToolsCancelled { call_ids: ids });
         }
         if let Some(calls) = value["toolCall"]["functionCalls"].as_array() {
             for c in calls {
                 let id = c["id"].as_str().unwrap_or("");
-                if !self.cancelled_calls.lock().await.contains(id) {
+                if !matches!(self.calls.get(id), Some(ToolState::Cancelled)) {
                     self.call(
                         id,
                         c["name"].as_str().unwrap_or(""),
@@ -500,7 +665,7 @@ impl LiveReceiver {
         }
         let content = &value["serverContent"];
         if content["interrupted"] == true {
-            self.active = false;
+            self.phase = ResponsePhase::Idle;
             self.events.push_back(LiveEvent::Interrupted);
         }
         for (key, input) in [("inputTranscription", true), ("outputTranscription", false)] {
@@ -514,9 +679,9 @@ impl LiveReceiver {
             }
         }
         if let Some(parts) = content["modelTurn"]["parts"].as_array() {
-            if !self.active {
+            if self.phase != ResponsePhase::Active {
                 self.events.push_back(LiveEvent::ResponseStarted);
-                self.active = true;
+                self.phase = ResponsePhase::Active;
             }
             for part in parts {
                 if let Some(data) = part["inlineData"]["data"].as_str() {
@@ -541,50 +706,70 @@ impl LiveReceiver {
             });
         }
         if content["turnComplete"] == true {
-            self.active = false;
+            self.phase = ResponsePhase::Idle;
             self.events.push_back(LiveEvent::ResponseEnded);
         }
         Ok(())
     }
-    fn openai(&mut self, value: Value) -> Result<()> {
+    fn openai_call(&mut self, item: &Value) -> Result<()> {
+        let id = item["call_id"].as_str().unwrap_or("");
+        if self.interrupted {
+            self.calls.insert(id.into(), ToolState::Cancelled);
+            return Ok(());
+        }
+        self.call(
+            id,
+            item["name"].as_str().unwrap_or(""),
+            serde_json::from_str(item["arguments"].as_str().unwrap_or("{}"))?,
+        )
+    }
+    async fn openai(&mut self, value: Value, cancellation: &CancellationToken) -> Result<()> {
         let kind = value["type"].as_str().unwrap_or("");
         match kind {
             "response.created" => {
-                self.active = true;
-                self.suppress_audio = false;
-                self.events.push_back(LiveEvent::ResponseStarted);
+                if self.phase == ResponsePhase::Active {
+                    return Err(Error::Protocol("overlapping live responses".into()));
+                }
+                if self.phase != ResponsePhase::Requested {
+                    self.cancel_tools();
+                    self.interrupted = false;
+                }
+                self.phase = ResponsePhase::Active;
+                self.has_tools = false;
+                if !self.interrupted {
+                    self.events.push_back(LiveEvent::ResponseStarted);
+                }
             }
-            "response.output_audio.delta" | "response.audio.delta" => {
+            "response.output_audio.delta" | "response.audio.delta" if !self.interrupted => {
                 self.audio(value["delta"].as_str().unwrap_or(""), &value)?
             }
             "input_audio_buffer.speech_started" => {
                 self.events.push_back(LiveEvent::SpeechStarted);
-                if self.active {
-                    self.suppress_audio = true;
-                    self.events.push_back(LiveEvent::Interrupted);
-                }
+                // Server VAD owns the next response; do not race it with a queued text request.
+                self.pending_response = false;
+                self.interrupt(false, cancellation).await?;
             }
-            "response.function_call_arguments.done" => self.call(
-                value["call_id"].as_str().unwrap_or(""),
-                value["name"].as_str().unwrap_or(""),
-                serde_json::from_str(value["arguments"].as_str().unwrap_or("{}"))?,
-            )?,
+            "response.function_call_arguments.done" => self.openai_call(&value)?,
             "response.output_item.done" if value["item"]["type"] == "function_call" => {
-                let item = &value["item"];
-                self.call(
-                    item["call_id"].as_str().unwrap_or(""),
-                    item["name"].as_str().unwrap_or(""),
-                    serde_json::from_str(item["arguments"].as_str().unwrap_or("{}"))?,
-                )?;
+                self.openai_call(&value["item"])?;
             }
             "response.done" => {
-                self.active = false;
-                if value["response"]["status"] == "failed" {
+                let status = value["response"]["status"].as_str().unwrap_or("");
+                if status == "cancelled" || status == "failed" {
+                    self.interrupt(false, cancellation).await?;
+                } else if let Some(items) = value["response"]["output"].as_array() {
+                    for item in items.iter().filter(|item| item["type"] == "function_call") {
+                        self.openai_call(item)?;
+                    }
+                }
+                self.phase = ResponsePhase::Idle;
+                if status == "failed" {
                     return Err(Error::Protocol(
                         value["response"]["status_details"].to_string(),
                     ));
                 }
                 self.events.push_back(LiveEvent::ResponseEnded);
+                self.continue_response(cancellation).await?;
             }
             "conversation.item.input_audio_transcription.failed" => {
                 return Err(Error::Protocol(value.to_string()));
@@ -593,13 +778,17 @@ impl LiveReceiver {
                 || kind.contains("transcript")
                 || kind.starts_with("response.output_text.") =>
             {
+                let input = kind.starts_with("conversation.item.input");
+                if self.interrupted && !input {
+                    return Ok(());
+                }
                 if let Some(text) = value["delta"]
                     .as_str()
                     .or(value["transcript"].as_str())
                     .or(value["text"].as_str())
                 {
                     self.events.push_back(LiveEvent::Transcript {
-                        input: kind.starts_with("conversation.item.input"),
+                        input,
                         text: text.into(),
                         final_result: kind.ends_with(".done") || kind.ends_with(".completed"),
                         id: value["item_id"].as_str().map(str::to_owned),

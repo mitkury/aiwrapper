@@ -228,15 +228,35 @@ are mono signed 16-bit little-endian PCM: Gemini input is 16 kHz, OpenAI input
 Live tool results are JSON values; the native live adapter rejects multimodal
 `tool-content` results explicitly. Live tool execution is manual: respond to `ToolCall` with `send_tool_results`.
 Use registered `Tool::execute` handlers or the host's scheduler. Keep reading
-media while handlers run. Calls are deduplicated within a connection; the host
-owns durable deduplication across reconnects. Gemini cancellations suppress late
-results. Resumption and expiry events let the host rotate connections without
-the library inventing a reconnect policy.
+media while handlers run. Each result must match a pending call's ID and name;
+duplicate, unknown and mismatched results fail before writing the batch. Results
+for cancelled calls are ignored. Calls are deduplicated within a connection;
+the host owns durable deduplication across reconnects. Resumption and expiry
+events let the host rotate connections without the library inventing a reconnect
+policy.
+
+OpenAI tool results may arrive individually or together. The next response starts
+only after the current response ends and all its tools have results. Continue
+polling `next_event` during tool execution so these transitions can happen.
+`ResponseEnded` marks one provider response, including responses that request
+tools; it does not mean a whole tool conversation has finished. New completed
+text input interrupts the current response and starts another after it ends.
+The adapter follows OpenAI's [Realtime response lifecycle](https://developers.openai.com/api/docs/guides/realtime-conversations).
 
 OpenAI supports explicit interruption and audio truncation with the host's
 actual playback cursor. Gemini interruptions follow provider input-activity
-settings. Generated audio is not evidence of what the user heard. Hosts must
-clear queued playback and persist accurate interrupted history themselves.
+settings. Explicit OpenAI interruption is harmless when idle and suppresses
+subsequent audio, output transcripts and tool calls for the interrupted response.
+It emits `Interrupted` and `ToolsCancelled` for outstanding calls; hosts should
+stop those handlers where possible. Generated audio is not evidence of what the
+user heard. Hosts must clear queued playback and persist accurate interrupted
+history themselves.
+
+Remote closure emits `Closed` once, then `next_event` returns `None`. Transport
+and protocol failures terminate the session; the operation that detects one
+returns the error and both halves stop. The expected OpenAI error when a response
+finishes just before cancellation is ignored. Closing a session cancels its own
+work without cancelling the host's parent token. Reconnects remain a host choice.
 
 `Speech` supports OpenAI-compatible WAV transcription, Google synchronous
 transcription, OpenAI PCM synthesis and ElevenLabs PCM synthesis. TTS yields PCM
@@ -334,9 +354,13 @@ cargo test --locked --test live_provider -- --ignored
 Default tests are deterministic and do not require credentials. They cover all
 protocol families, injected networking, real loopback HTTP/WebSocket servers,
 schema validation, agent cancellation, compression failure and PCM framing.
-The ignored live test requires exported OpenAI, Google and Anthropic credentials
-and makes billable calls. It checks a real tool loop and structured output for
-each. Keep it separate from CI and releases.
+Live-session fixtures cover fast and concurrent tools, interruption before a
+response starts, late output, cancellation races and connection failures.
+The ignored provider tests require exported OpenAI, Google and Anthropic
+credentials and make billable calls. They check real tool loops and structured
+output. The ignored voice tests exercise consecutive OpenAI/Gemini turns and
+OpenAI tool continuation, interruption and recovery. Keep these separate from
+CI and releases.
 
 The Rust dependency replacements are `reqwest`/rustls for fetch, `serde` and
 `serde_json` for wire data, `jsonschema` for AJV, `tokio-tungstenite` for ws, and
