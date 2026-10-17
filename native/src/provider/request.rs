@@ -385,7 +385,9 @@ fn google_messages(conversation: &Conversation) -> Result<Vec<Value>> {
     let mut out = vec![];
     for m in &conversation.messages {
         if let Some(parts) = m.meta.as_ref().and_then(|m| m.get("googleParts")) {
-            out.push(json!({"role":"model","parts":parts}));
+            out.push(
+                json!({"role":if m.role == Role::Assistant {"model"} else {"user"},"parts":parts}),
+            );
             continue;
         }
         let mut content = vec![];

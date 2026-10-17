@@ -52,6 +52,38 @@ pub struct Compression {
 }
 
 impl Compression {
+    /// Whether the current projection reaches the configured input budget.
+    /// Full checkpoint validation still happens in `prepare` before inference.
+    pub fn needs_summary(&self, history: &Conversation, options: &ChatOptions) -> Result<bool> {
+        self.validate_checkpoint(history)?;
+        let context = project(history, self.checkpoint.as_ref());
+        Ok(estimate_tokens(&context, options.tool_definitions())
+            + serde_json::to_vec(&options.built_in_tools)?
+                .len()
+                .div_ceil(3)
+            >= self.input_tokens)
+    }
+    /// Validate a saved checkpoint against the exact source prefix. A host may
+    /// discard a stale checkpoint and summarize again; it must not apply it to
+    /// edited or differently reconstructed history.
+    pub fn validate_checkpoint(&self, history: &Conversation) -> Result<()> {
+        if let Some(checkpoint) = &self.checkpoint
+            && (checkpoint.summary.trim().is_empty()
+                || checkpoint.through_message_count == 0
+                || checkpoint.through_message_count > history.messages.len()
+                || history
+                    .messages
+                    .get(checkpoint.through_message_count)
+                    .is_some_and(|m| m.role == Role::ToolResults)
+                || checkpoint.prefix_sha256
+                    != fingerprint(&history.messages[..checkpoint.through_message_count])?)
+        {
+            return Err(Error::Compression(
+                "checkpoint does not match conversation history".into(),
+            ));
+        }
+        Ok(())
+    }
     pub fn new(input_tokens: usize) -> Result<Self> {
         if input_tokens < 1024 {
             return Err(Error::Invalid(
@@ -87,21 +119,7 @@ impl Compression {
                 "server-side response chains cannot be combined with local compression".into(),
             ));
         }
-        if let Some(checkpoint) = &self.checkpoint
-            && (checkpoint.summary.trim().is_empty()
-                || checkpoint.through_message_count == 0
-                || checkpoint.through_message_count > history.messages.len()
-                || history
-                    .messages
-                    .get(checkpoint.through_message_count)
-                    .is_some_and(|m| m.role == Role::ToolResults)
-                || checkpoint.prefix_sha256
-                    != fingerprint(&history.messages[..checkpoint.through_message_count])?)
-        {
-            return Err(Error::Compression(
-                "checkpoint does not match conversation history".into(),
-            ));
-        }
+        self.validate_checkpoint(history)?;
         let projected = project(history, self.checkpoint.as_ref());
         let built_in_tokens = serde_json::to_vec(&options.built_in_tools)?
             .len()

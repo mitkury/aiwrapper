@@ -16,6 +16,10 @@ use std::{
 use tokio::sync::{Mutex, Notify};
 use tokio_tungstenite::tungstenite::{Message as WsMessage, client::IntoClientRequest};
 
+#[path = "live-agent.rs"]
+mod agent;
+pub use agent::*;
+
 type JsonSink = Pin<Box<dyn Sink<Value, Error = Error> + Send>>;
 pub struct LiveSocket {
     pub sender: JsonSink,
@@ -88,6 +92,10 @@ pub struct LiveConfig {
     pub headers: BTreeMap<String, String>,
     pub cancellation: CancellationToken,
     pub connect_timeout: Duration,
+    /// Restore only state exported from the same Gemini resumption handle.
+    pub resumption: Option<LiveResumption>,
+    /// Gemini Live short-lived auth token, sent as access_token instead of key.
+    pub ephemeral: bool,
 }
 impl LiveConfig {
     pub fn new(
@@ -97,7 +105,7 @@ impl LiveConfig {
     ) -> Self {
         Self { provider,model:model.into(),api_key:api_key.into(),voice:if provider == LiveProvider::Google {"Kore"} else {"marin"}.into(),
             endpoint:if provider == LiveProvider::Google {"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"} else {"wss://api.openai.com/v1/realtime"}.into(),
-            instructions:String::new(),tools:vec![],settings:BTreeMap::new(),headers:BTreeMap::new(),cancellation:CancellationToken::new(),connect_timeout:Duration::from_secs(15) }
+            instructions:String::new(),tools:vec![],settings:BTreeMap::new(),headers:BTreeMap::new(),cancellation:CancellationToken::new(),connect_timeout:Duration::from_secs(15),resumption:None,ephemeral:false }
     }
     pub async fn connect(self) -> Result<LiveSession> {
         self.connect_with(&WebSocketTransport).await
@@ -112,9 +120,50 @@ impl LiveConfig {
         if !matches!(url.scheme(), "ws" | "wss") {
             return Err(Error::Invalid("live endpoint must be ws or wss".into()));
         }
+        let resumed_calls = match self.resumption {
+            Some(resumption)
+                if self.provider == LiveProvider::Google
+                    && self
+                        .settings
+                        .get("sessionResumption")
+                        .and_then(|v| v["handle"].as_str())
+                        == Some(resumption.handle.as_str()) =>
+            {
+                resumption.calls
+            }
+            Some(_) => {
+                return Err(Error::Invalid(
+                    "resumption state requires its original Gemini handle".into(),
+                ));
+            }
+            None => BTreeMap::new(),
+        };
+        if self.ephemeral && self.provider != LiveProvider::Google {
+            return Err(Error::Invalid(
+                "ephemeral mode applies only to Gemini; OpenAI uses bearer credentials".into(),
+            ));
+        }
+        if self.ephemeral
+            && url.host_str() == Some("generativelanguage.googleapis.com")
+            && url.path().ends_with(".BidiGenerateContent")
+        {
+            url.set_path(&format!("{}Constrained", url.path()));
+        }
+        let initial_handle = self
+            .settings
+            .get("sessionResumption")
+            .and_then(|v| v["handle"].as_str())
+            .map(str::to_owned);
         let mut headers = self.headers;
         if self.provider == LiveProvider::Google {
-            url.query_pairs_mut().append_pair("key", &self.api_key);
+            url.query_pairs_mut().append_pair(
+                if self.ephemeral {
+                    "access_token"
+                } else {
+                    "key"
+                },
+                &self.api_key,
+            );
         } else {
             url.query_pairs_mut().append_pair("model", &self.model);
             headers.insert("authorization".into(), format!("Bearer {}", self.api_key));
@@ -169,13 +218,15 @@ impl LiveConfig {
                 queued.push_back(value);
             }
             let connection = Arc::new(LiveConnection {
+                resumed_from: initial_handle.clone(),
                 state: Mutex::new(LiveState {
-                    sender: socket.sender,
+                    sender: Some(socket.sender),
                     phase: ResponsePhase::Idle,
                     interrupted: false,
                     pending_response: false,
                     has_tools: false,
-                    calls: BTreeMap::new(),
+                    calls: resumed_calls,
+                    resume_handle: initial_handle,
                     events: VecDeque::new(),
                     closed: false,
                 }),
@@ -191,8 +242,13 @@ impl LiveConfig {
                 receiver: socket.receiver,
                 connection,
                 queued,
+                processing: None,
             };
-            Ok(LiveSession { sender, receiver })
+            Ok(LiveSession {
+                sender,
+                receiver,
+                tools: self.tools,
+            })
         };
         tokio::select! {
             biased;
@@ -205,6 +261,7 @@ impl LiveConfig {
 pub struct LiveSession {
     pub sender: LiveSender,
     pub receiver: LiveReceiver,
+    tools: Vec<ToolDefinition>,
 }
 #[derive(Clone)]
 pub struct LiveSender {
@@ -276,6 +333,26 @@ impl LiveSender {
             Ok(())
         }
     }
+    /// User activity input; silent context uses send_text(..., false) instead.
+    pub async fn send_realtime_text(&self, text: &str) -> Result<()> {
+        if self.provider == LiveProvider::Google {
+            self.send(json!({"realtimeInput":{"text":text}})).await
+        } else {
+            self.send_text(text, Role::User, true).await
+        }
+    }
+    pub async fn resumption(&self) -> Option<LiveResumption> {
+        let state = self.connection.state.lock().await;
+        state.resume_handle.as_ref().map(|handle| LiveResumption {
+            handle: handle.clone(),
+            calls: state
+                .calls
+                .iter()
+                .filter(|(_, call)| !matches!(call, ToolState::Sent))
+                .map(|(id, call)| (id.clone(), call.clone()))
+                .collect(),
+        })
+    }
     pub async fn append_image(&self, data: &str, mime: &str) -> Result<()> {
         if !matches!(mime, "image/jpeg" | "image/png") {
             return Err(Error::Invalid("live image must be JPEG or PNG".into()));
@@ -290,9 +367,12 @@ impl LiveSender {
                     "live tool result requires a call id and name".into(),
                 ));
             }
+            for image in &result.images {
+                image.validate()?;
+            }
             if result.result["type"] == "tool-content" {
                 return Err(Error::Unsupported(
-                    "multimodal live tool results are not implemented; supply JSON tool results"
+                    "live results use JSON and an images list, not the text tool-content envelope"
                         .into(),
                 ));
             }
@@ -323,10 +403,25 @@ impl LiveSender {
             return Ok(());
         }
         if self.provider == LiveProvider::Google {
-            state.send(json!({"toolResponse":{"functionResponses":active.iter().map(|r|json!({"id":r.call_id,"name":r.name,"response":if r.result.is_object() {r.result.clone()} else {json!({"result":r.result})}})).collect::<Vec<_>>()}}), &self.connection.cancellation).await?;
+            let responses: Vec<_> = active.iter().map(|r| {
+                let mut response = json!({"id":r.call_id,"name":r.name,"response":if r.result.is_object() {r.result.clone()} else {json!({"result":r.result})}});
+                if !r.images.is_empty() {
+                    response["parts"] = json!(r.images.iter().map(|image| json!({"inlineData":{"mimeType":image.mime_type,"data":image.data}})).collect::<Vec<_>>());
+                }
+                response
+            }).collect();
+            state
+                .send(
+                    json!({"toolResponse":{"functionResponses":responses}}),
+                    &self.connection.cancellation,
+                )
+                .await?;
         } else {
             for r in &active {
                 state.send(json!({"type":"conversation.item.create","item":{"type":"function_call_output","call_id":r.call_id,"output":r.result.to_string()}}), &self.connection.cancellation).await?;
+                if !r.images.is_empty() {
+                    state.send(json!({"type":"conversation.item.create","item":{"type":"message","role":"user","content":r.images.iter().map(|image| json!({"type":"input_image","image_url":format!("data:{};base64,{}",image.mime_type,image.data)})).collect::<Vec<_>>()}}), &self.connection.cancellation).await?;
+                }
             }
         }
         for result in active {
@@ -372,7 +467,12 @@ impl LiveSender {
             let mut state = self.connection.state.lock().await;
             state.closed = true;
             state.events.clear();
-            state.sender.close().await
+            // Failed or cancelled writes consume the sink. Many Sink adapters
+            // cannot be polled again after an error, including for close.
+            match state.sender.take() {
+                Some(mut sender) => sender.close().await,
+                None => Ok(()),
+            }
         })
         .await;
         result.map_err(|_| Error::Protocol("WebSocket close timed out".into()))?
@@ -384,6 +484,33 @@ pub struct LiveToolResult {
     pub call_id: String,
     pub name: String,
     pub result: Value,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<LiveImage>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveImage {
+    pub data: String,
+    pub mime_type: String,
+}
+impl LiveImage {
+    fn validate(&self) -> Result<()> {
+        if !matches!(self.mime_type.as_str(), "image/jpeg" | "image/png")
+            || self.data.is_empty()
+            || STANDARD.decode(&self.data).is_err()
+        {
+            return Err(Error::Invalid(
+                "live image requires base64 JPEG or PNG data".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+/// Opaque replay state exported by a sender. A fresh connection cannot import it.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LiveResumption {
+    handle: String,
+    calls: BTreeMap<String, ToolState>,
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -398,8 +525,15 @@ pub enum LiveEvent {
         text: String,
         final_result: bool,
         id: Option<String>,
+        text_output: bool,
     },
-    SpeechStarted,
+    SpeechStarted {
+        id: Option<String>,
+    },
+    TranscriptionFailed {
+        id: Option<String>,
+        error: Value,
+    },
     ResponseStarted,
     ResponseEnded,
     Interrupted,
@@ -429,6 +563,7 @@ pub enum LiveEvent {
 // One lock orders state changes with socket writes. There is no background task:
 // the host must keep polling the receiver while sending input and running tools.
 struct LiveConnection {
+    resumed_from: Option<String>,
     state: Mutex<LiveState>,
     cancellation: CancellationToken,
     changed: Notify,
@@ -439,18 +574,20 @@ enum ResponsePhase {
     Requested,
     Active,
 }
+#[derive(Clone, Debug, Serialize, Deserialize)]
 enum ToolState {
     Pending(String),
     Sent,
     Cancelled,
 }
 struct LiveState {
-    sender: JsonSink,
+    sender: Option<JsonSink>,
     phase: ResponsePhase,
     interrupted: bool,
     pending_response: bool,
     has_tools: bool,
     calls: BTreeMap<String, ToolState>,
+    resume_handle: Option<String>,
     events: VecDeque<LiveEvent>,
     closed: bool,
 }
@@ -459,80 +596,149 @@ pub struct LiveReceiver {
     receiver: BoxStream<'static, Result<Value>>,
     connection: Arc<LiveConnection>,
     queued: VecDeque<Value>,
+    // Retain a consumed message while waiting for a concurrent send or provider
+    // continuation. Cancelling a poll must not discard part of the protocol.
+    processing: Option<tokio::task::JoinHandle<Result<()>>>,
 }
 impl LiveReceiver {
-    pub async fn next_event(&mut self) -> Result<Option<LiveEvent>> {
-        let result = self.receive().await;
-        if result.is_err() {
-            self.connection.cancellation.cancel();
-            let mut state = self.connection.state.lock().await;
-            state.closed = true;
-            state.events.clear();
-        }
-        result
+    /// Drain the normalized events from one provider message as an ordered batch.
+    /// Useful when an application forwards events across a process boundary and
+    /// needs to preserve tool batches and transcript/response boundaries.
+    pub async fn next_events(&mut self) -> Result<Option<Vec<LiveEvent>>> {
+        self.receive(true).await
     }
-    async fn receive(&mut self) -> Result<Option<LiveEvent>> {
+    async fn drain_received(&mut self) -> Result<Vec<LiveEvent>> {
+        if let Some(processing) = &mut self.processing {
+            let result = processing.await;
+            self.processing = None;
+            result
+                .map_err(|error| Error::Protocol(format!("live receive task failed: {error}")))??;
+        }
+        Ok(self
+            .connection
+            .state
+            .lock()
+            .await
+            .events
+            .drain(..)
+            .collect())
+    }
+    pub async fn next_event(&mut self) -> Result<Option<LiveEvent>> {
+        Ok(self
+            .receive(false)
+            .await?
+            .and_then(|mut events| events.pop()))
+    }
+    async fn receive(&mut self, batch: bool) -> Result<Option<Vec<LiveEvent>>> {
         loop {
+            if let Some(processing) = &mut self.processing {
+                let result = processing.await;
+                self.processing = None;
+                result.map_err(|error| {
+                    Error::Protocol(format!("live receive task failed: {error}"))
+                })??;
+            }
             {
                 let mut state = self.connection.state.lock().await;
                 if !state.closed {
                     crate::error::check_cancel(&self.connection.cancellation)?;
                 }
-                if let Some(event) = state.events.pop_front() {
-                    return Ok(Some(event));
+                if !state.events.is_empty() {
+                    // Remove and return under one lock, with no intervening
+                    // await after consuming an event.
+                    let count = if batch { state.events.len() } else { 1 };
+                    return Ok(Some(state.events.drain(..count).collect()));
                 }
                 if state.closed {
                     return Ok(None);
                 }
             }
             let value = if let Some(value) = self.queued.pop_front() {
-                value
+                Ok(value)
             } else {
                 tokio::select! {
                     biased;
                     _ = self.connection.cancellation.cancelled() => continue,
                     _ = self.connection.changed.notified() => continue,
-                    value = self.receiver.next() => match value {Some(v)=>v?,None=>json!({"__closed":true})},
+                    value = self.receiver.next() => value.unwrap_or_else(|| Ok(json!({"__closed":true}))),
                 }
             };
-            let mut state = self.connection.state.lock().await;
-            crate::error::check_cancel(&self.connection.cancellation)?;
-            if let Some(error) = value.get("error") {
-                // Generation can finish on the server while cancellation is in flight.
-                // Its response.done still governs continuation; this error is harmless.
-                if self.provider == LiveProvider::Openai
-                    && error["code"] == "response_cancel_not_active"
-                {
-                    continue;
+            let connection = self.connection.clone();
+            let provider = self.provider;
+            self.processing = Some(tokio::spawn(async move {
+                let mut state = connection.state.lock().await;
+                let result = async {
+                    crate::error::check_cancel(&connection.cancellation)?;
+                    let value = value?;
+                    if let Some(error) = value.get("error").filter(|_| {
+                        provider != LiveProvider::Openai
+                            || value["type"] != "conversation.item.input_audio_transcription.failed"
+                    }) {
+                        // A response may end while cancellation is in flight.
+                        if provider == LiveProvider::Openai
+                            && error["code"] == "response_cancel_not_active"
+                        {
+                            return Ok(());
+                        }
+                        return Err(Error::Protocol(error.to_string()));
+                    }
+                    if value["__closed"] == true {
+                        state.closed = true;
+                        connection.cancellation.cancel();
+                        state.events.push_back(LiveEvent::Closed {
+                            code: value["code"].as_u64().and_then(|v| v.try_into().ok()),
+                            reason: value["reason"].as_str().map(str::to_owned),
+                        });
+                        Ok(())
+                    } else if provider == LiveProvider::Google {
+                        state.google(value)
+                    } else {
+                        state.openai(value, &connection.cancellation).await
+                    }
                 }
-                return Err(Error::Protocol(error.to_string()));
-            }
-            if value["__closed"] == true {
-                state.closed = true;
-                self.connection.cancellation.cancel();
-                state.events.push_back(LiveEvent::Closed {
-                    code: value["code"].as_u64().and_then(|v| v.try_into().ok()),
-                    reason: value["reason"].as_str().map(str::to_owned),
-                });
-            } else if self.provider == LiveProvider::Google {
-                state.google(value)?;
-            } else {
-                state.openai(value, &self.connection.cancellation).await?;
-            }
+                .await;
+                if result.is_err() {
+                    connection.cancellation.cancel();
+                    state.closed = true;
+                    state.events.clear();
+                }
+                result
+            }));
         }
     }
 }
+
+impl Drop for LiveReceiver {
+    fn drop(&mut self) {
+        self.connection.cancellation.cancel();
+        if let Some(processing) = self.processing.take() {
+            processing.abort();
+        }
+    }
+}
+
 impl LiveState {
     async fn send(&mut self, value: Value, cancellation: &CancellationToken) -> Result<()> {
+        crate::error::check_cancel(cancellation)?;
+        let mut sender = self
+            .sender
+            .take()
+            .ok_or_else(|| Error::Protocol("live connection is closed".into()))?;
+        // A host may drop this future on its own deadline. Keep the connection
+        // closed unless the entire write succeeds, and wake the receiver on drop.
+        self.closed = true;
+        let guard = cancellation.clone().drop_guard();
         let result = tokio::select! {
             biased;
             _ = cancellation.cancelled() => Err(Error::Cancelled),
-            result = self.sender.send(value) => result,
+            result = sender.send(value) => result,
         };
-        if result.is_err() {
-            self.closed = true;
+        if result.is_ok() {
+            self.sender = Some(sender);
+            self.closed = false;
+            guard.disarm();
+        } else {
             self.events.clear();
-            cancellation.cancel();
         }
         result
     }
@@ -630,6 +836,15 @@ impl LiveState {
     }
     fn google(&mut self, value: Value) -> Result<()> {
         if let Some(update) = value.get("sessionResumptionUpdate") {
+            self.resume_handle = if update["resumable"] == true {
+                update["newHandle"]
+                    .as_str()
+                    .filter(|h| !h.is_empty())
+                    .map(str::to_owned)
+                    .or(self.resume_handle.take())
+            } else {
+                None
+            };
             self.events.push_back(LiveEvent::Resumption {
                 resumable: update["resumable"] == true,
                 handle: update["newHandle"].as_str().map(str::to_owned),
@@ -675,6 +890,7 @@ impl LiveState {
                     text: text.into(),
                     final_result: content[key]["finished"] == true,
                     id: None,
+                    text_output: false,
                 });
             }
         }
@@ -696,9 +912,13 @@ impl LiveState {
                         text: text.into(),
                         final_result: false,
                         id: None,
+                        text_output: true,
                     });
                 }
             }
+        }
+        if let Some(activity) = value["voiceActivity"]["voiceActivityType"].as_str() {
+            self.events.push_back(LiveEvent::ProviderState { state: json!({"inputActivity":match activity { "ACTIVITY_START" => "start", "ACTIVITY_END" => "end", _ => activity }}) });
         }
         if content.get("waitingForInput").is_some() {
             self.events.push_back(LiveEvent::ProviderState {
@@ -744,7 +964,9 @@ impl LiveState {
                 self.audio(value["delta"].as_str().unwrap_or(""), &value)?
             }
             "input_audio_buffer.speech_started" => {
-                self.events.push_back(LiveEvent::SpeechStarted);
+                self.events.push_back(LiveEvent::SpeechStarted {
+                    id: value["item_id"].as_str().map(str::to_owned),
+                });
                 // Server VAD owns the next response; do not race it with a queued text request.
                 self.pending_response = false;
                 self.interrupt(false, cancellation).await?;
@@ -772,7 +994,10 @@ impl LiveState {
                 self.continue_response(cancellation).await?;
             }
             "conversation.item.input_audio_transcription.failed" => {
-                return Err(Error::Protocol(value.to_string()));
+                self.events.push_back(LiveEvent::TranscriptionFailed {
+                    id: value["item_id"].as_str().map(str::to_owned),
+                    error: value["error"].clone(),
+                });
             }
             _ if kind.contains("transcription")
                 || kind.contains("transcript")
@@ -792,6 +1017,7 @@ impl LiveState {
                         text: text.into(),
                         final_result: kind.ends_with(".done") || kind.ends_with(".completed"),
                         id: value["item_id"].as_str().map(str::to_owned),
+                        text_output: kind.starts_with("response.output_text."),
                     });
                 }
             }

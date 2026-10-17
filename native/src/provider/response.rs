@@ -1,8 +1,5 @@
 use super::*;
 use crate::{Item, Role};
-use std::sync::atomic::{AtomicU64, Ordering};
-
-static TURN_ID: AtomicU64 = AtomicU64::new(1);
 
 pub(super) struct Decoder {
     provider: Provider,
@@ -12,7 +9,7 @@ pub(super) struct Decoder {
     blocks: BTreeMap<usize, Value>,
     arguments: BTreeMap<usize, String>,
     google_parts: Vec<Value>,
-    turn: u64,
+    turn: uuid::Uuid,
 }
 
 impl Decoder {
@@ -25,7 +22,7 @@ impl Decoder {
             blocks: BTreeMap::new(),
             arguments: BTreeMap::new(),
             google_parts: vec![],
-            turn: TURN_ID.fetch_add(1, Ordering::Relaxed),
+            turn: uuid::Uuid::new_v4(),
         }
     }
     pub fn push(

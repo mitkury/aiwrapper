@@ -71,6 +71,14 @@ running tool future on cancellation because it may have performed a side effect;
 handlers must cooperate. Unresolved calls require explicit results before
 resumption. AIWrapper never silently replays a tool or invents its outcome.
 
+Set `agent.refresh_tools` to an async callback when declarations and handlers
+can change between rounds. It runs before each model request and compression
+budget calculation. `agent.on_message` is an async persistence boundary: it
+receives a completed assistant message before any tools run, and the accumulated
+tool-result message after each outcome. Its index identifies the message in the
+conversation. A write failure stops further side effects and inference. Streaming
+events remain synchronous snapshots, not text deltas.
+
 `ChatOptions.tools = Some(vec![])` disables tools for one run. `None` uses agent
 registrations. `schema` accepts JSON Schema; final JSON is parsed and validated.
 Malformed JSON is an error rather than a guessed repair. Anthropic uses
@@ -225,15 +233,88 @@ Clone the sender for a microphone task while another task reads events. Frames
 are mono signed 16-bit little-endian PCM: Gemini input is 16 kHz, OpenAI input
 24 kHz, and output is 24 kHz. The host resamples and owns device playback.
 
-Live tool results are JSON values; the native live adapter rejects multimodal
-`tool-content` results explicitly. Live tool execution is manual: respond to `ToolCall` with `send_tool_results`.
-Use registered `Tool::execute` handlers or the host's scheduler. Keep reading
-media while handlers run. Each result must match a pending call's ID and name;
-duplicate, unknown and mismatched results fail before writing the batch. Results
-for cancelled calls are ignored. Calls are deduplicated within a connection;
-the host owns durable deduplication across reconnects. Resumption and expiry
+Live tool results contain JSON plus an optional `images: Vec<LiveImage>`.
+Use base64 JPEG/PNG bytes. Gemini keeps images inside their function response;
+OpenAI sends them as an adjacent user image item before continuing. Cancelled
+results suppress both JSON and images. The text API’s `tool-content` envelope
+is not a live result format. `LiveSession` leaves execution to the host: respond to `ToolCall` with
+`send_tool_results`, while keeping the receiver polled. Results must match
+pending call IDs and names; cancelled calls suppress both JSON and images.
+Duplicate, unknown or mismatched results fail before writing the batch.
+
+For automatic tool execution, use one `LiveAgent` per logical conversation:
+
+```rust,ignore
+let tools = vec![Tool::new("lookup", "Look up an item", schema, handler)];
+config.tools = tools.iter().map(|tool| tool.definition.clone()).collect();
+let session = config.connect().await?;
+let mut agent = LiveAgent::new(session, tools, LiveAgentOptions::default())?;
+let sender = agent.sender(); // May be cloned into microphone/camera tasks.
+while let Some(events) = agent.next_events().await? {
+    for event in events {
+        // Model events include audio and response lifecycle. ToolResult and
+        // ToolDeliveryFailed report execution and delivery separately.
+        handle_event(event);
+    }
+}
+agent.close().await?;
+```
+
+The agent uses one ordered worker and a bounded queue. Slow tools leave incoming
+model events available. Only registered handlers that were offered on the current
+connection can run. Arguments are validated before execution. Cancellation stops
+queued work cooperatively and never invents an outcome for a running handler.
+`on_tool_call` records each accepted request on the worker before validation and
+execution. `on_tool_result` receives a `LiveToolOutcome`: the generation, full result and
+explicit `Success`, `Error` or `Cancelled` execution status. Status is separate
+from JSON content and delivery; successful data may itself contain an `error`
+field. The callback persists the outcome before delivery, including work
+that completed after cancellation. Persistence failure stops further execution.
+The model result budget does not truncate the persisted outcome. Handlers may
+return the shared `tool-content` envelope; the agent separates its text and images
+into a live result and preserves their delivery/cancellation association.
+
+Receiver polling is cancellation-safe: a consumed provider message continues
+processing even when another task wins the caller's select. Dropping the receiver
+cancels its connection and any pending processing.
+Failed or abandoned writes also close the connection and discard the sink.
+Sender clones then fail promptly; repeated cleanup does not poll a failed sink.
+
+The host connects a replacement while continuing to poll the current agent, then
+calls `agent.replace(session, tools)`. Forward its returned events as final events
+from the retired connection. Matching Gemini resumption retains outstanding work
+and retries undelivered results without running handlers again. A fresh connection
+cancels old work and fences late results. Call IDs belong to a provider conversation: matching resumption retains their
+namespace, while a fresh connection advances `generation`. Persistence callbacks
+and tool-completion events include that generation so hosts can keep identical
+IDs from different conversations separate. Within one generation, seen calls
+are never executed twice. Durable deduplication across restarts belongs to the host.
+Old sender clones remain tied to their old connection. Obtain `agent.sender()`
+after replacement for new input. The library does not choose reconnect timing or
+retry a failed setup. `ResponseEnded` ends one provider response; tools may still
+be running before the conversational turn is complete.
+Connection loss is reported even while a tool is pending. `pending_tool_count()`
+includes unfinished work from retired generations. `is_stopped()` distinguishes
+an executor/persistence failure, which cannot recover through replacement, from
+a provider disconnect.
+
+Resumption and expiry
 events let the host rotate connections without the library inventing a reconnect
-policy.
+policy. Export `sender.resumption().await` with the provider handle and supply
+it as `LiveConfig.resumption` only when resuming that same handle. It carries
+pending and cancelled calls; completed calls can reach the host’s durable
+result cache again. Fresh connections reject unrelated results.
+
+Use `send_text(context, Role::User, false)` for silent history/context.
+`send_realtime_text(input)` instead sends user activity. `SpeechStarted` retains
+the provider’s utterance ID; `TranscriptionFailed` is a nonfatal event.
+`next_events()` drains the events from one provider message together when
+forwarding them over another transport.
+
+Set `LiveConfig.ephemeral = true` for a provisioned Gemini token. The default
+endpoint uses the constrained Live method and `access_token` authentication.
+The host still owns provisioning, expiration, permissions and reconnect policy.
+Custom transport headers and endpoints support private proxies.
 
 OpenAI tool results may arrive individually or together. The next response starts
 only after the current response ends and all its tools have results. Continue
@@ -259,7 +340,7 @@ finishes just before cancellation is ignored. Closing a session cancels its own
 work without cancelling the host's parent token. Reconnects remain a host choice.
 
 `Speech` supports OpenAI-compatible WAV transcription, Google synchronous
-transcription, OpenAI PCM synthesis and ElevenLabs PCM synthesis. TTS yields PCM
+transcription, encoded-clip Gemini transcription (`transcribe_gemini`), OpenAI PCM synthesis and ElevenLabs PCM synthesis. TTS yields PCM
 frames with sample boundaries preserved across HTTP chunks. Use explicit model,
 voice and language selections. The library does not include media-device access.
 

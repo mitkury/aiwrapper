@@ -106,6 +106,7 @@ async fn openai_live_tools_interrupt_and_next_turn() {
                             call_id,
                             name,
                             result: json!({"sum":sum}),
+                            images: vec![],
                         }])
                         .await
                         .unwrap();

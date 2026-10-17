@@ -1,4 +1,5 @@
 use crate::*;
+use futures_util::future::BoxFuture;
 use serde::Serialize;
 use serde_json::json;
 use std::sync::Arc;
@@ -9,11 +10,21 @@ pub enum AgentEvent {
     State { running: bool },
     Streaming { message: Message, index: usize },
     ToolResult { message: Message, index: usize },
+    Compressing,
     Compressed { checkpoint: CompressionCheckpoint },
     Finished,
     Aborted,
     Error { message: String },
 }
+
+/// Re-evaluate available handlers before every model round. Called before
+/// compression so the budget includes the tools actually offered to the model.
+pub type ToolResolver = Arc<dyn Fn() -> BoxFuture<'static, Result<Vec<Tool>>> + Send + Sync>;
+/// Persist a completed model message or an accumulated tool-result message.
+/// Repeated writes at the same index replace that projection, not the source log.
+/// A failure stops the agent before starting further tools or inference.
+pub type MessageWriter =
+    Arc<dyn Fn(Message, usize) -> BoxFuture<'static, Result<()>> + Send + Sync>;
 
 /// One mutable agent per conversation. Rust's exclusive borrow prevents concurrent runs.
 /// A shared provider/client can serve many independent agents.
@@ -23,6 +34,8 @@ pub struct ChatAgent {
     pub tools: Vec<Tool>,
     pub max_iterations: usize,
     pub compression: Option<Compression>,
+    pub refresh_tools: Option<ToolResolver>,
+    pub on_message: Option<MessageWriter>,
 }
 
 impl ChatAgent {
@@ -33,6 +46,8 @@ impl ChatAgent {
             tools: vec![],
             max_iterations: 8,
             compression: None,
+            refresh_tools: None,
+            on_message: None,
         }
     }
     pub async fn run(
@@ -45,16 +60,7 @@ impl ChatAgent {
             return Err(Error::Invalid("max_iterations must be positive".into()));
         }
         crate::error::check_cancel(&options.cancellation)?;
-        let mut names = std::collections::HashSet::new();
-        for tool in &self.tools {
-            if tool.definition.name.is_empty() || !names.insert(&tool.definition.name) {
-                return Err(Error::Invalid(
-                    "tool names must be non-empty and unique".into(),
-                ));
-            }
-            jsonschema::validator_for(&tool.definition.parameters)
-                .map_err(|e| Error::Schema(e.to_string()))?;
-        }
+        validate_tools(&self.tools)?;
         self.conversation.messages.extend(input);
         self.conversation.finished = false;
         self.conversation.aborted = false;
@@ -82,16 +88,23 @@ impl ChatAgent {
         options: &ChatOptions,
         on_event: &mut (dyn FnMut(AgentEvent) + Send),
     ) -> Result<()> {
-        let mut options = options.clone();
-        // An explicitly supplied tool definition list restricts which registered handlers are offered.
-        if options.tools.is_none() {
-            options.tools = Some(self.tools.iter().map(|t| t.definition.clone()).collect());
-        }
         for _ in 0..self.max_iterations {
             crate::error::check_cancel(&options.cancellation)?;
+            if let Some(refresh) = &self.refresh_tools {
+                self.tools = refresh().await?;
+                validate_tools(&self.tools)?;
+            }
+            let mut options = options.clone();
+            // An explicit list restricts even dynamically registered handlers.
+            if options.tools.is_none() {
+                options.tools = Some(self.tools.iter().map(|t| t.definition.clone()).collect());
+            }
             self.conversation.validate()?;
             let context = if let Some(compression) = &mut self.compression {
                 let previous = compression.checkpoint.clone();
+                if compression.needs_summary(&self.conversation, &options)? {
+                    on_event(AgentEvent::Compressing);
+                }
                 let context = compression
                     .prepare(self.provider.as_ref(), &self.conversation, &options)
                     .await?;
@@ -136,6 +149,9 @@ impl ChatAgent {
                 return Err(Error::Protocol(
                     "provider returned a non-assistant message".into(),
                 ));
+            }
+            if let Some(save) = &self.on_message {
+                save(response.clone(), index).await?;
             }
             let calls: Vec<_> = response
                 .items
@@ -217,6 +233,9 @@ impl ChatAgent {
                         .push(Message::new(Role::ToolResults, vec![item]));
                 }
                 let index = self.conversation.messages.len() - 1;
+                if let Some(save) = &self.on_message {
+                    save(self.conversation.messages[index].clone(), index).await?;
+                }
                 on_event(AgentEvent::ToolResult {
                     message: self.conversation.messages[index].clone(),
                     index,
@@ -228,4 +247,18 @@ impl ChatAgent {
         }
         Err(Error::IterationLimit(self.max_iterations))
     }
+}
+
+pub(crate) fn validate_tools(tools: &[Tool]) -> Result<()> {
+    let mut names = std::collections::HashSet::new();
+    for tool in tools {
+        if tool.definition.name.is_empty() || !names.insert(&tool.definition.name) {
+            return Err(Error::Invalid(
+                "tool names must be non-empty and unique".into(),
+            ));
+        }
+        jsonschema::validator_for(&tool.definition.parameters)
+            .map_err(|e| Error::Schema(e.to_string()))?;
+    }
+    Ok(())
 }

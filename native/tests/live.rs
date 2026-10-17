@@ -13,6 +13,8 @@ struct SocketFixture {
     events: Vec<Value>,
     stay_open: bool,
     fail_writes_after_setup: bool,
+    block_writes_after_setup: bool,
+    connection: Mutex<Option<(String, BTreeMap<String, String>)>>,
 }
 impl SocketFixture {
     fn new(events: Vec<Value>) -> Self {
@@ -21,6 +23,8 @@ impl SocketFixture {
             events,
             stay_open: false,
             fail_writes_after_setup: false,
+            block_writes_after_setup: false,
+            connection: Mutex::new(None),
         }
     }
     fn count(&self, kind: &str) -> usize {
@@ -41,6 +45,7 @@ fn tool_result(id: &str) -> LiveToolResult {
         call_id: id.into(),
         name: "add".into(),
         result: json!(3),
+        images: vec![],
     }
 }
 async fn openai_session(events: Vec<Value>) -> (LiveSession, SocketFixture) {
@@ -371,18 +376,20 @@ async fn remote_close_and_protocol_errors_stop_both_halves() {
 }
 #[async_trait]
 impl LiveTransport for SocketFixture {
-    async fn connect(
-        &self,
-        _url: String,
-        _headers: BTreeMap<String, String>,
-    ) -> Result<LiveSocket> {
+    async fn connect(&self, url: String, headers: BTreeMap<String, String>) -> Result<LiveSocket> {
+        *self.connection.lock().unwrap() = Some((url, headers));
         let sent = self.sent.clone();
         let fail_writes = self.fail_writes_after_setup;
+        let block_writes = self.block_writes_after_setup;
         let sender = futures_util::sink::unfold(
             sent,
             move |sent: Arc<Mutex<Vec<Value>>>, value: Value| async move {
                 if fail_writes && !sent.lock().unwrap().is_empty() {
                     return Err(Error::Protocol("fixture send failed".into()));
+                }
+                let block = block_writes && !sent.lock().unwrap().is_empty();
+                if block {
+                    futures_util::future::pending::<()>().await;
                 }
                 sent.lock().unwrap().push(value);
                 Ok::<_, Error>(sent)
@@ -438,6 +445,7 @@ async fn google_waits_for_setup_then_sends_pcm_context_and_manual_results() {
             call_id: "c".into(),
             name: "add".into(),
             result: json!(3),
+            images: vec![],
         }])
         .await
         .unwrap();
@@ -482,6 +490,7 @@ async fn cancelled_google_tools_are_not_delivered_and_resumption_events_survive(
             call_id: "c".into(),
             name: "tool".into(),
             result: json!(true),
+            images: vec![],
         }])
         .await
         .unwrap();
@@ -517,7 +526,7 @@ async fn openai_deduplicates_calls_suppresses_interrupted_audio_and_truncates() 
     ));
     assert!(matches!(
         session.receiver.next_event().await.unwrap(),
-        Some(LiveEvent::SpeechStarted)
+        Some(LiveEvent::SpeechStarted { .. })
     ));
     assert!(matches!(
         session.receiver.next_event().await.unwrap(),
@@ -646,4 +655,255 @@ async fn send_failure_wakes_the_receiver_and_stops_sender_clones() {
             .await
             .is_err()
     );
+}
+
+#[tokio::test]
+async fn pending_tools_resume_with_their_handle_but_completed_calls_can_be_replayed() {
+    let fixture = SocketFixture::new(vec![
+        json!({"setupComplete":{}}),
+        json!({"toolCall":{"functionCalls":[{"id":"pending","name":"add","args":{}},{"id":"done","name":"add","args":{}}]}}),
+        json!({"sessionResumptionUpdate":{"resumable":true,"newHandle":"resume-1"}}),
+    ]);
+    let mut session = LiveConfig::new(LiveProvider::Google, "test", "key")
+        .connect_with(&fixture)
+        .await
+        .unwrap();
+    assert_eq!(
+        session.receiver.next_events().await.unwrap().unwrap().len(),
+        2
+    );
+    session
+        .sender
+        .send_tool_results(&[tool_result("done")])
+        .await
+        .unwrap();
+    session.receiver.next_event().await.unwrap();
+    let snapshot = session.sender.resumption().await.unwrap();
+    let encoded = serde_json::to_value(&snapshot).unwrap();
+    assert!(encoded["calls"].get("pending").is_some());
+    assert!(encoded["calls"].get("done").is_none());
+    session.sender.close().await.unwrap();
+
+    let resumed = SocketFixture::new(vec![
+        json!({"setupComplete":{}}),
+        json!({"toolCall":{"functionCalls":[{"id":"pending","name":"add","args":{}},{"id":"done","name":"add","args":{}}]}}),
+    ]);
+    let mut config = LiveConfig::new(LiveProvider::Google, "test", "key");
+    config.resumption = Some(snapshot.clone());
+    assert!(config.connect_with(&resumed).await.is_err());
+    let mut config = LiveConfig::new(LiveProvider::Google, "test", "key");
+    config.resumption = Some(snapshot.clone());
+    config
+        .settings
+        .insert("sessionResumption".into(), json!({"handle":"different"}));
+    assert!(config.connect_with(&resumed).await.is_err());
+    let mut config = LiveConfig::new(LiveProvider::Google, "test", "key");
+    config.resumption = Some(snapshot.clone());
+    config
+        .settings
+        .insert("sessionResumption".into(), json!({"handle":"resume-1"}));
+    let mut session = config.connect_with(&resumed).await.unwrap();
+    let events = session.receiver.next_events().await.unwrap().unwrap();
+    assert_eq!(
+        events.len(),
+        1,
+        "pending calls stay with their original executor"
+    );
+    assert!(matches!(&events[0], LiveEvent::ToolCall {call_id,..} if call_id == "done"));
+    session
+        .sender
+        .send_tool_results(&[tool_result("pending"), tool_result("done")])
+        .await
+        .unwrap();
+    assert_eq!(
+        resumed.sent.lock().unwrap()[1]["toolResponse"]["functionResponses"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+
+    let fresh = SocketFixture::new(vec![json!({"setupComplete":{}})]);
+    let session = LiveConfig::new(LiveProvider::Google, "test", "key")
+        .connect_with(&fresh)
+        .await
+        .unwrap();
+    assert!(
+        session
+            .sender
+            .send_tool_results(&[tool_result("pending")])
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn result_images_follow_their_call_and_cancelled_images_are_never_sent() {
+    for provider in [LiveProvider::Google, LiveProvider::Openai] {
+        let events = if provider == LiveProvider::Google {
+            vec![
+                json!({"setupComplete":{}}),
+                json!({"toolCall":{"functionCalls":[{"id":"picture","name":"add","args":{}}]}}),
+                json!({"toolCallCancellation":{"ids":["picture"]}}),
+            ]
+        } else {
+            vec![
+                json!({"type":"session.updated"}),
+                json!({"type":"response.created"}),
+                tool_call("picture"),
+                json!({"type":"input_audio_buffer.speech_started"}),
+            ]
+        };
+        let fixture = SocketFixture::new(events);
+        let mut session = LiveConfig::new(provider, "test", "key")
+            .connect_with(&fixture)
+            .await
+            .unwrap();
+        if provider == LiveProvider::Openai {
+            session.receiver.next_event().await.unwrap();
+        }
+        session.receiver.next_event().await.unwrap();
+        let mut result = tool_result("picture");
+        result.images.push(LiveImage {
+            data: "cGljdHVyZQ==".into(),
+            mime_type: "image/png".into(),
+        });
+        session
+            .sender
+            .send_tool_results(&[result.clone()])
+            .await
+            .unwrap();
+        let before = fixture.sent.lock().unwrap().clone();
+        if provider == LiveProvider::Google {
+            assert_eq!(
+                before[1]["toolResponse"]["functionResponses"][0]["id"],
+                "picture"
+            );
+            assert_eq!(
+                before[1]["toolResponse"]["functionResponses"][0]["parts"][0]["inlineData"]["data"],
+                result.images[0].data
+            );
+        } else {
+            assert_eq!(before[1]["item"]["call_id"], "picture");
+            assert_eq!(
+                before[2]["item"]["content"][0]["image_url"],
+                "data:image/png;base64,cGljdHVyZQ=="
+            );
+        }
+        // Already sent calls remain sent on OpenAI; exercise cancellation before delivery separately below.
+    }
+    let fixture = SocketFixture::new(vec![
+        json!({"setupComplete":{}}),
+        json!({"toolCallCancellation":{"ids":["picture"]}}),
+    ]);
+    let mut session = LiveConfig::new(LiveProvider::Google, "test", "key")
+        .connect_with(&fixture)
+        .await
+        .unwrap();
+    session.receiver.next_event().await.unwrap();
+    let mut result = tool_result("picture");
+    result.images.push(LiveImage {
+        data: "cGljdHVyZQ==".into(),
+        mime_type: "image/png".into(),
+    });
+    session.sender.send_tool_results(&[result]).await.unwrap();
+    assert_eq!(fixture.sent.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn transcript_failures_keep_utterance_identity_and_do_not_end_the_connection() {
+    let (mut session, _) = openai_session(vec![
+        json!({"type":"input_audio_buffer.speech_started","item_id":"utterance-1"}),
+        json!({"type":"conversation.item.input_audio_transcription.failed","item_id":"utterance-1","error":{"message":"audio unavailable"}}),
+        json!({"type":"conversation.item.input_audio_transcription.completed","item_id":"utterance-2","transcript":"still here"}),
+    ]).await;
+    assert!(
+        matches!(session.receiver.next_event().await.unwrap(), Some(LiveEvent::SpeechStarted {id:Some(id)}) if id == "utterance-1")
+    );
+    assert!(
+        matches!(session.receiver.next_event().await.unwrap(), Some(LiveEvent::TranscriptionFailed {id:Some(id),..}) if id == "utterance-1")
+    );
+    assert!(
+        matches!(session.receiver.next_event().await.unwrap(), Some(LiveEvent::Transcript {id:Some(id),text,..}) if id == "utterance-2" && text == "still here")
+    );
+}
+
+#[tokio::test]
+async fn realtime_input_and_silent_context_have_distinct_wire_messages() {
+    let fixture = SocketFixture::new(vec![json!({"setupComplete":{}})]);
+    let session = LiveConfig::new(LiveProvider::Google, "test", "key")
+        .connect_with(&fixture)
+        .await
+        .unwrap();
+    session
+        .sender
+        .send_text("background", Role::User, false)
+        .await
+        .unwrap();
+    session
+        .sender
+        .send_realtime_text("user activity")
+        .await
+        .unwrap();
+    let sent = fixture.sent.lock().unwrap();
+    assert_eq!(sent[1]["clientContent"]["turnComplete"], false);
+    assert_eq!(sent[2]["realtimeInput"]["text"], "user activity");
+}
+
+#[tokio::test]
+async fn live_credentials_and_proxy_headers_reach_the_injected_transport() {
+    let fixture = SocketFixture::new(vec![json!({"setupComplete":{}})]);
+    let mut config = LiveConfig::new(LiveProvider::Google, "test", "short-lived-token");
+    config.ephemeral = true;
+    config
+        .headers
+        .insert("x-proxy-session".into(), "session-scope".into());
+    let session = config.connect_with(&fixture).await.unwrap();
+    let (url, headers) = fixture.connection.lock().unwrap().clone().unwrap();
+    let url = reqwest::Url::parse(&url).unwrap();
+    assert!(url.path().ends_with(".BidiGenerateContentConstrained"));
+    assert!(
+        url.query_pairs()
+            .any(|(key, value)| key == "access_token" && value == "short-lived-token")
+    );
+    assert!(!url.query_pairs().any(|(key, _)| key == "key"));
+    assert_eq!(headers["x-proxy-session"], "session-scope");
+    session.sender.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn failed_or_abandoned_writes_never_poll_the_sink_again() {
+    for abandoned in [false, true] {
+        let mut fixture = SocketFixture::new(vec![json!({"setupComplete":{}})]);
+        fixture.stay_open = true;
+        fixture.fail_writes_after_setup = !abandoned;
+        fixture.block_writes_after_setup = abandoned;
+        let mut session = LiveConfig::new(LiveProvider::Google, "test", "key")
+            .connect_with(&fixture)
+            .await
+            .unwrap();
+        let sender = session.sender.clone();
+        let (write, received) = tokio::join!(
+            tokio::time::timeout(
+                Duration::from_millis(10),
+                sender.send_text("hello", Role::User, true)
+            ),
+            tokio::time::timeout(Duration::from_secs(1), session.receiver.next_event())
+        );
+        if abandoned {
+            assert!(write.is_err());
+        } else {
+            assert!(write.unwrap().is_err());
+        }
+        assert!(received.unwrap().unwrap().is_none());
+        assert!(
+            sender
+                .send_text("too late", Role::User, true)
+                .await
+                .is_err()
+        );
+        sender.close().await.unwrap();
+        session.sender.close().await.unwrap();
+        assert_eq!(fixture.sent.lock().unwrap().len(), 1);
+    }
 }

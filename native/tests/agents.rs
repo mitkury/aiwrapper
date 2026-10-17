@@ -21,6 +21,74 @@ fn add_tool(counter: Arc<AtomicUsize>) -> Tool {
         },
     )
 }
+
+#[tokio::test]
+async fn refreshed_handlers_and_persisted_messages_precede_the_next_round() {
+    let order = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let count = Arc::new(AtomicUsize::new(0));
+    let mut agent = ChatAgent::new(Arc::new(MockLang::new([
+        common::tool(),
+        Message::assistant("5"),
+    ])));
+    agent.refresh_tools = Some(Arc::new({
+        let order = order.clone();
+        move || {
+            order.lock().unwrap().push("refresh");
+            let count = count.clone();
+            Box::pin(async move { Ok(vec![add_tool(count)]) })
+        }
+    }));
+    agent.on_message = Some(Arc::new({
+        let order = order.clone();
+        move |message, _| {
+            let order = order.clone();
+            Box::pin(async move {
+                order
+                    .lock()
+                    .unwrap()
+                    .push(if message.role == Role::ToolResults {
+                        "result"
+                    } else {
+                        "response"
+                    });
+                Ok(())
+            })
+        }
+    }));
+    agent
+        .run(
+            vec![Message::user("add")],
+            &ChatOptions::default(),
+            &mut |_| {},
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        *order.lock().unwrap(),
+        ["refresh", "response", "result", "refresh", "response"]
+    );
+}
+
+#[tokio::test]
+async fn persistence_failure_prevents_side_effects_and_retains_provider_response() {
+    let count = Arc::new(AtomicUsize::new(0));
+    let mut agent = ChatAgent::new(Arc::new(MockLang::new([common::tool()])));
+    agent.tools = vec![add_tool(count.clone())];
+    agent.on_message = Some(Arc::new(|_, _| {
+        Box::pin(async { Err(Error::Protocol("storage unavailable".into())) })
+    }));
+    let error = agent
+        .run(
+            vec![Message::user("add")],
+            &ChatOptions::default(),
+            &mut |_| {},
+        )
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("storage unavailable"));
+    assert_eq!(count.load(Ordering::SeqCst), 0);
+    assert!(agent.conversation.messages.last().unwrap().has_tools());
+}
 #[tokio::test]
 async fn agent_executes_tools_once_and_persists_serializable_history() {
     let count = Arc::new(AtomicUsize::new(0));

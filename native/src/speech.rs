@@ -178,6 +178,65 @@ impl Speech {
             .collect::<Vec<_>>()
             .join(" "))
     }
+    /// Gemini file transcription. Accept the recorded encoding without a PCM
+    /// conversion; dedicated transcription models return audioTranscription.
+    pub async fn transcribe_gemini(
+        &self,
+        audio: &[u8],
+        mime_type: &str,
+        model: &str,
+        cancellation: &CancellationToken,
+    ) -> Result<String> {
+        if audio.is_empty() || audio.len() > 10 * 1024 * 1024 {
+            return Err(Error::Invalid(
+                "transcription requires 1 byte to 10 MiB of audio".into(),
+            ));
+        }
+        let mime_type = mime_type.split(';').next().unwrap_or("");
+        if !mime_type.starts_with("audio/")
+            || !model
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b"-_.".contains(&c))
+            || model.is_empty()
+        {
+            return Err(Error::Invalid(
+                "invalid transcription MIME type or model".into(),
+            ));
+        }
+        let body = json!({"contents":[{"role":"user","parts":[
+            {"inlineData":{"mimeType":mime_type,"data":STANDARD.encode(audio)}},
+            {"text":"Transcribe this audio verbatim. Reply with the transcript only."}
+        ]}]});
+        let response = self
+            .send(
+                &format!("/models/{model}:generateContent"),
+                serde_json::to_vec(&body)?,
+                BTreeMap::from([
+                    ("x-goog-api-key".into(), self.api_key.clone()),
+                    ("content-type".into(), "application/json".into()),
+                ]),
+                cancellation,
+            )
+            .await?;
+        let bytes = tokio::select! {
+            _ = cancellation.cancelled() => return Err(Error::Cancelled),
+            bytes = crate::transport::read_body(response, 8*1024*1024) => bytes?,
+        };
+        let value: Value = serde_json::from_slice(&bytes)?;
+        let parts = value["candidates"][0]["content"]["parts"]
+            .as_array()
+            .ok_or_else(|| Error::Protocol("transcription response did not include text".into()))?;
+        Ok(parts
+            .iter()
+            .filter_map(|part| {
+                part["audioTranscription"]["text"]
+                    .as_str()
+                    .or(part["text"].as_str())
+            })
+            .collect::<String>()
+            .trim()
+            .into())
+    }
     /// OpenAI PCM synthesis, mono 24 kHz. Drop the stream to cancel network I/O.
     pub async fn speak(
         &self,
