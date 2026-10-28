@@ -48,6 +48,12 @@ impl PcmFrame {
     }
 }
 
+/// A transcript and the provider's usage report for it, when sent.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Transcription {
+    pub text: String,
+    pub usage: Option<Value>,
+}
 pub struct Speech {
     transport: Arc<dyn HttpTransport>,
     pub api_key: String,
@@ -187,6 +193,18 @@ impl Speech {
         model: &str,
         cancellation: &CancellationToken,
     ) -> Result<String> {
+        self.transcribe_gemini_with_usage(audio, mime_type, model, cancellation)
+            .await
+            .map(|transcription| transcription.text)
+    }
+    /// [`Self::transcribe_gemini`] with the response's `usageMetadata`.
+    pub async fn transcribe_gemini_with_usage(
+        &self,
+        audio: &[u8],
+        mime_type: &str,
+        model: &str,
+        cancellation: &CancellationToken,
+    ) -> Result<Transcription> {
         if audio.is_empty() || audio.len() > 10 * 1024 * 1024 {
             return Err(Error::Invalid(
                 "transcription requires 1 byte to 10 MiB of audio".into(),
@@ -226,7 +244,7 @@ impl Speech {
         let parts = value["candidates"][0]["content"]["parts"]
             .as_array()
             .ok_or_else(|| Error::Protocol("transcription response did not include text".into()))?;
-        Ok(parts
+        let text = parts
             .iter()
             .filter_map(|part| {
                 part["audioTranscription"]["text"]
@@ -235,7 +253,11 @@ impl Speech {
             })
             .collect::<String>()
             .trim()
-            .into())
+            .into();
+        Ok(Transcription {
+            text,
+            usage: value.get("usageMetadata").filter(|u| u.is_object()).cloned(),
+        })
     }
     /// OpenAI PCM synthesis, mono 24 kHz. Drop the stream to cancel network I/O.
     pub async fn speak(

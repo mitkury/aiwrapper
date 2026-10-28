@@ -191,6 +191,10 @@ impl LiveConfig {
             }
             json!({"type":"session.update","session":session})
         };
+        let model = self.model.trim_start_matches("models/").to_string();
+        let transcription_model = setup["session"]["audio"]["input"]["transcription"]["model"]
+            .as_str()
+            .map(str::to_owned);
         let operation = async {
             let mut socket = transport.connect(url.to_string(), headers).await?;
             socket.sender.send(setup).await?;
@@ -229,6 +233,8 @@ impl LiveConfig {
                     resume_handle: initial_handle,
                     events: VecDeque::new(),
                     closed: false,
+                    model,
+                    transcription_model,
                 }),
                 cancellation: self.cancellation.clone(),
                 changed: Notify::new(),
@@ -555,6 +561,13 @@ pub enum LiveEvent {
     ProviderState {
         state: Value,
     },
+    /// Provider-reported usage, as sent: Gemini `usageMetadata` (one per billed
+    /// turn) or an OpenAI `response.usage` / input transcription `usage`.
+    /// `model` is the model the provider bills it to.
+    Usage {
+        model: String,
+        usage: Value,
+    },
     Closed {
         code: Option<u16>,
         reason: Option<String>,
@@ -590,6 +603,8 @@ struct LiveState {
     resume_handle: Option<String>,
     events: VecDeque<LiveEvent>,
     closed: bool,
+    model: String,
+    transcription_model: Option<String>,
 }
 pub struct LiveReceiver {
     provider: LiveProvider,
@@ -929,7 +944,16 @@ impl LiveState {
             self.phase = ResponsePhase::Idle;
             self.events.push_back(LiveEvent::ResponseEnded);
         }
+        if let Some(usage) = value.get("usageMetadata").filter(|u| u.is_object()) {
+            self.usage(None, usage);
+        }
         Ok(())
+    }
+    fn usage(&mut self, model: Option<String>, usage: &Value) {
+        self.events.push_back(LiveEvent::Usage {
+            model: model.unwrap_or_else(|| self.model.clone()),
+            usage: usage.clone(),
+        });
     }
     fn openai_call(&mut self, item: &Value) -> Result<()> {
         let id = item["call_id"].as_str().unwrap_or("");
@@ -976,6 +1000,10 @@ impl LiveState {
                 self.openai_call(&value["item"])?;
             }
             "response.done" => {
+                // Cancelled and failed responses are billed too.
+                if let Some(usage) = value["response"].get("usage").filter(|u| u.is_object()) {
+                    self.usage(None, usage);
+                }
                 let status = value["response"]["status"].as_str().unwrap_or("");
                 if status == "cancelled" || status == "failed" {
                     self.interrupt(false, cancellation).await?;
@@ -1004,6 +1032,11 @@ impl LiveState {
                 || kind.starts_with("response.output_text.") =>
             {
                 let input = kind.starts_with("conversation.item.input");
+                if kind == "conversation.item.input_audio_transcription.completed"
+                    && let Some(usage) = value.get("usage").filter(|u| u.is_object())
+                {
+                    self.usage(self.transcription_model.clone(), usage);
+                }
                 if self.interrupted && !input {
                     return Ok(());
                 }

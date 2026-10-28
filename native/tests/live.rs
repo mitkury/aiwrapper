@@ -907,3 +907,56 @@ async fn failed_or_abandoned_writes_never_poll_the_sink_again() {
         assert_eq!(fixture.sent.lock().unwrap().len(), 1);
     }
 }
+
+async fn usage_events(provider: LiveProvider, events: Vec<Value>) -> Vec<(String, Value)> {
+    let fixture = SocketFixture::new(events);
+    let mut session = LiveConfig::new(provider, "models/live-test", "key")
+        .connect_with(&fixture)
+        .await
+        .unwrap();
+    let mut usage = vec![];
+    while let Some(events) = session.receiver.next_events().await.unwrap() {
+        for event in events {
+            if let LiveEvent::Usage { model, usage: value } = event {
+                usage.push((model, value));
+            }
+        }
+    }
+    usage
+}
+#[tokio::test]
+async fn google_usage_metadata_is_reported_per_message_with_the_model() {
+    let usage = usage_events(LiveProvider::Google, vec![
+        json!({"setupComplete":{}}),
+        json!({"serverContent":{"turnComplete":true},"usageMetadata":{"promptTokenCount":10,"responseTokenCount":4}}),
+        json!({"serverContent":{"turnComplete":true}}),
+        json!({"usageMetadata":{"promptTokenCount":30,"responseTokenCount":6}}),
+    ])
+    .await;
+    assert_eq!(
+        usage,
+        vec![
+            ("live-test".to_string(), json!({"promptTokenCount":10,"responseTokenCount":4})),
+            ("live-test".to_string(), json!({"promptTokenCount":30,"responseTokenCount":6})),
+        ]
+    );
+}
+#[tokio::test]
+async fn openai_usage_covers_cancelled_responses_and_input_transcription() {
+    let usage = usage_events(LiveProvider::Openai, vec![
+        json!({"type":"session.updated"}),
+        json!({"type":"response.created"}),
+        json!({"type":"response.done","response":{"status":"cancelled","usage":{"input_tokens":5,"output_tokens":1}}}),
+        json!({"type":"conversation.item.input_audio_transcription.completed","item_id":"u","transcript":"hi","usage":{"type":"tokens","input_tokens":3,"output_tokens":1}}),
+        json!({"type":"response.created"}),
+        json!({"type":"response.done","response":{"status":"completed","usage":null}}),
+    ])
+    .await;
+    assert_eq!(
+        usage,
+        vec![
+            ("live-test".to_string(), json!({"input_tokens":5,"output_tokens":1})),
+            ("gpt-4o-mini-transcribe".to_string(), json!({"type":"tokens","input_tokens":3,"output_tokens":1})),
+        ]
+    );
+}
