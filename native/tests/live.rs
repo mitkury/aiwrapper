@@ -917,7 +917,11 @@ async fn usage_events(provider: LiveProvider, events: Vec<Value>) -> Vec<(String
     let mut usage = vec![];
     while let Some(events) = session.receiver.next_events().await.unwrap() {
         for event in events {
-            if let LiveEvent::Usage { model, usage: value } = event {
+            if let LiveEvent::Usage {
+                model,
+                usage: value,
+            } = event
+            {
                 usage.push((model, value));
             }
         }
@@ -936,8 +940,14 @@ async fn google_usage_metadata_is_reported_per_message_with_the_model() {
     assert_eq!(
         usage,
         vec![
-            ("live-test".to_string(), json!({"promptTokenCount":10,"responseTokenCount":4})),
-            ("live-test".to_string(), json!({"promptTokenCount":30,"responseTokenCount":6})),
+            (
+                "live-test".to_string(),
+                json!({"promptTokenCount":10,"responseTokenCount":4})
+            ),
+            (
+                "live-test".to_string(),
+                json!({"promptTokenCount":30,"responseTokenCount":6})
+            ),
         ]
     );
 }
@@ -955,8 +965,14 @@ async fn openai_usage_covers_cancelled_responses_and_input_transcription() {
     assert_eq!(
         usage,
         vec![
-            ("live-test".to_string(), json!({"input_tokens":5,"output_tokens":1})),
-            ("gpt-4o-mini-transcribe".to_string(), json!({"type":"tokens","input_tokens":3,"output_tokens":1})),
+            (
+                "live-test".to_string(),
+                json!({"input_tokens":5,"output_tokens":1})
+            ),
+            (
+                "gpt-4o-mini-transcribe".to_string(),
+                json!({"type":"tokens","input_tokens":3,"output_tokens":1})
+            ),
         ]
     );
 }

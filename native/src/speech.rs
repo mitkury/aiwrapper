@@ -256,7 +256,10 @@ impl Speech {
             .into();
         Ok(Transcription {
             text,
-            usage: value.get("usageMetadata").filter(|u| u.is_object()).cloned(),
+            usage: value
+                .get("usageMetadata")
+                .filter(|u| u.is_object())
+                .cloned(),
         })
     }
     /// OpenAI PCM synthesis, mono 24 kHz. Drop the stream to cancel network I/O.
