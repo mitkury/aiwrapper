@@ -19,6 +19,17 @@ fn counts(provider: &str, raw: Value) -> Value {
 fn provider_units_preserve_cache_modalities_reasoning_cost_and_unknowns() {
     assert_eq!(
         counts(
+            "bedrock",
+            json!({"inputTokens":10,"outputTokens":4,"cacheReadInputTokens":20,"cacheWriteInputTokens":30})
+        ),
+        json!({"inputTokens":60.0,"outputTokens":4.0,"cachedTokens":20.0,"cacheWriteTokens":30.0})
+    );
+    assert_eq!(
+        counts("openai-compatible", json!({"cost":5,"currency":"credits"})),
+        json!({})
+    );
+    assert_eq!(
+        counts(
             "google",
             json!({"promptTokenCount":100,"candidatesTokenCount":10,"thoughtsTokenCount":5,"cachedContentTokenCount":20,"promptTokensDetails":[{"modality":"AUDIO","tokenCount":40},{"modality":"VIDEO","tokenCount":30}]})
         ),

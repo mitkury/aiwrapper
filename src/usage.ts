@@ -15,7 +15,6 @@ export type UsageEvent = {
   rawUsage: Record<string, unknown>;
 };
 export type UsageHandler = (event: UsageEvent) => void | Promise<void>;
-export type UsageOptions = { onUsage?: UsageHandler };
 
 const object = (v: any): v is Record<string, any> => v !== null && typeof v === "object" && !Array.isArray(v);
 const number = (v: unknown): number | undefined => typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined;
@@ -50,11 +49,14 @@ export function normalizeUsage(provider: string, raw: Record<string, any>): Usag
     put("outputTokens", sum(delta?.output?.speechTokens, delta?.output?.textTokens));
     put("inputAudioTokens", delta?.input?.speechTokens);
     put("outputAudioTokens", delta?.output?.speechTokens);
-  } else if (provider === "anthropic") {
-    put("inputTokens", sum(raw.input_tokens, raw.cache_read_input_tokens, raw.cache_creation_input_tokens));
-    put("outputTokens", raw.output_tokens);
-    put("cachedTokens", raw.cache_read_input_tokens);
-    put("cacheWriteTokens", raw.cache_creation_input_tokens);
+  } else if (provider === "anthropic" || provider === "bedrock") {
+    const input = provider === "bedrock" ? raw.inputTokens : raw.input_tokens;
+    const read = provider === "bedrock" ? raw.cacheReadInputTokens : raw.cache_read_input_tokens;
+    const write = provider === "bedrock" ? raw.cacheWriteInputTokens : raw.cache_creation_input_tokens;
+    put("inputTokens", sum(input, read, write));
+    put("outputTokens", provider === "bedrock" ? raw.outputTokens : raw.output_tokens);
+    put("cachedTokens", read);
+    put("cacheWriteTokens", write);
   } else if (provider === "ollama") {
     put("inputTokens", raw.prompt_eval_count);
     put("outputTokens", raw.eval_count);
@@ -79,7 +81,7 @@ export function normalizeUsage(provider: string, raw: Record<string, any>): Usag
     put("characters", raw.characters ?? raw.characterCost);
   }
   if (provider !== "amazon") put("totalTokens", raw.total_tokens ?? raw.totalTokenCount ?? raw.totalTokens);
-  put("costUsd", raw.cost);
+  if (provider === "openrouter") put("costUsd", raw.cost);
   return out;
 }
 

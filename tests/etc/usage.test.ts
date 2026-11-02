@@ -27,6 +27,8 @@ describe("usage subscriptions", () => {
   });
   it("does not invent counts and understands duration, cost and Nova deltas", () => {
     expect(normalizeUsage("openai", { input_tokens: -2, output_tokens: "3" })).toEqual({});
+    expect(normalizeUsage("openai-compatible", { cost: 5, currency: "credits" })).toEqual({});
+    expect(normalizeUsage("bedrock", { inputTokens: 10, outputTokens: 4, totalTokens: 64, cacheReadInputTokens: 20, cacheWriteInputTokens: 30 })).toEqual({ inputTokens: 60, outputTokens: 4, totalTokens: 64, cachedTokens: 20, cacheWriteTokens: 30 });
     expect(normalizeUsage("openai", { type: "duration", seconds: 2.5 })).toEqual({ audioSeconds: 2.5 });
     expect(normalizeUsage("openrouter", { prompt_tokens: 4, completion_tokens: 2, cost: 0.003 })).toEqual({ inputTokens: 4, outputTokens: 2, costUsd: 0.003 });
     expect(normalizeUsage("amazon", { totalTokens: 900, details: { delta: { input: { speechTokens: 3, textTokens: 1 }, output: { speechTokens: 2 } } } })).toEqual({ inputTokens: 4, outputTokens: 2, inputAudioTokens: 3, outputAudioTokens: 2 });

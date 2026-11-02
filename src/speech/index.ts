@@ -92,4 +92,4 @@ export * from "./openai-text-to-speech.js";
 export * from "./elevenlabs-text-to-speech.js";
 export * from "./mock.js";
 
-export type { Usage, UsageEvent, UsageHandler, UsageOptions } from "../usage.js";
+export type { Usage, UsageEvent, UsageHandler } from "../usage.js";

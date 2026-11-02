@@ -59,8 +59,8 @@ transcription model.
 - `audioSeconds`, `characters`, and provider-reported `costUsd`.
 
 Missing fields mean **not reported**. Modality, cached and reasoning counts are
-subsets of totals, not extra tokens to add to them. Anthropic's input total
-includes its separately reported cache reads and writes; Cohere uses billed
+subsets of totals, not extra tokens to add to them. Anthropic and Bedrock input
+totals include their separately reported cache reads and writes; Cohere uses billed
 units. `rawUsage` keeps the original usage fields, including unfamiliar fields,
 so a consumer can audit or re-price a report. Rust exposes the normalized fields
 in `Usage.counts`; TypeScript exports the `Usage` type and `normalizeUsage` helper.
@@ -119,5 +119,6 @@ path per operation to avoid booking those reports again alongside the callback.
 
 Provider references: [Anthropic stream usage](https://platform.claude.com/docs/en/build-with-claude/streaming),
 [OpenRouter usage](https://openrouter.ai/docs/use-cases/usage-accounting),
+[Bedrock cache counts](https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html),
 [Nova Sonic events](https://docs.aws.amazon.com/nova/latest/nova2-userguide/sonic-output-events.html),
 [ElevenLabs response headers](https://elevenlabs.io/docs/api-reference/introduction#tracking-generation-costs).

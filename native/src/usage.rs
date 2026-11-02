@@ -146,19 +146,34 @@ pub fn normalize_usage(provider: &str, raw: &Value) -> Usage {
         {
             put("audioSeconds", Some(seconds));
         }
-    } else if provider == "anthropic" {
-        let read = n("cache_read_input_tokens");
-        let write = n("cache_creation_input_tokens");
+    } else if provider == "anthropic" || provider == "bedrock" {
+        let (input, output, read, write) = if provider == "bedrock" {
+            (
+                "inputTokens",
+                "outputTokens",
+                "cacheReadInputTokens",
+                "cacheWriteInputTokens",
+            )
+        } else {
+            (
+                "input_tokens",
+                "output_tokens",
+                "cache_read_input_tokens",
+                "cache_creation_input_tokens",
+            )
+        };
+        let read = n(read);
+        let write = n(write);
         put(
             "inputTokens",
-            match (n("input_tokens"), read, write) {
+            match (n(input), read, write) {
                 (None, None, None) => None,
                 (input, read, write) => {
                     Some(input.unwrap_or(0.0) + read.unwrap_or(0.0) + write.unwrap_or(0.0))
                 }
             },
         );
-        put("outputTokens", n("output_tokens"));
+        put("outputTokens", n(output));
         put("cachedTokens", read);
         put("cacheWriteTokens", write);
     } else if provider == "ollama" {
@@ -230,7 +245,9 @@ pub fn normalize_usage(provider: &str, raw: &Value) -> Usage {
             .or(n("totalTokenCount"))
             .or(n("totalTokens")),
     );
-    put("costUsd", n("cost"));
+    if provider == "openrouter" {
+        put("costUsd", n("cost"));
+    }
     Usage { counts }
 }
 

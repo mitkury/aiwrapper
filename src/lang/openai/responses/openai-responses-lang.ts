@@ -184,7 +184,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
       },
     };
 
-    const report = new UsageReport(options?.onUsage, "openai", this.model);
+    const report = new UsageReport(options?.onUsage, "openai", String(body.model ?? this.model));
     const streamHandler = new OpenAIResponseStreamHandler(msgCollection, options?.onResult);
     try {
       const response = await fetch(`${this.baseURL}/responses`, req);
