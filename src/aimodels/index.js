@@ -1,5 +1,44 @@
 // src/data.js
 var models = {
+  "claude-opus-5-5": {
+    "id": "claude-opus-5-5",
+    "name": "Claude Opus 5.5",
+    "license": "proprietary",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "img-in",
+      "json-out",
+      "fn-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 1e6,
+      "maxOutput": 128e3
+    },
+    "releasedAt": "2026-09-22",
+    "creatorId": "anthropic"
+  },
+  "claude-sonnet-5-5": {
+    "id": "claude-sonnet-5-5",
+    "extends": "claude-opus-5-5",
+    "overrides": {
+      "name": "Claude Sonnet 5.5"
+    },
+    "releasedAt": "2026-09-28",
+    "creatorId": "anthropic"
+  },
+  "claude-haiku-5-5": {
+    "id": "claude-haiku-5-5",
+    "extends": "claude-opus-5-5",
+    "overrides": {
+      "name": "Claude Haiku 5.5"
+    },
+    "releasedAt": "2026-10-07",
+    "creatorId": "anthropic"
+  },
   "claude-fable-5-1": {
     "id": "claude-fable-5-1",
     "name": "Claude Fable 5.1",
@@ -274,6 +313,26 @@ var models = {
     },
     "creatorId": "anthropic"
   },
+  "amazon.nova-2-5-sonic": {
+    "id": "amazon.nova-2-5-sonic",
+    "name": "Amazon Nova 2.5 Sonic",
+    "license": "proprietary",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "audio-in",
+      "audio-out",
+      "fn-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": 256e3,
+      "maxOutput": 64e3
+    },
+    "releasedAt": "2026-10-05",
+    "creatorId": "aws"
+  },
   "amazon.nova-2-lite-v1:0": {
     "id": "amazon.nova-2-lite-v1:0",
     "name": "Amazon Nova 2 Lite",
@@ -334,6 +393,58 @@ var models = {
     },
     "releasedAt": "2026-01-22",
     "creatorId": "baidu"
+  },
+  "embed-v5.0-pro": {
+    "id": "embed-v5.0-pro",
+    "name": "Cohere Embed 5 Pro",
+    "license": "proprietary",
+    "capabilities": [
+      "txt-in",
+      "img-in",
+      "vec-out"
+    ],
+    "context": {
+      "type": "embedding",
+      "total": 128e3,
+      "dimensions": 2048,
+      "embeddingType": "multimodal"
+    },
+    "releasedAt": "2026-09-30",
+    "creatorId": "cohere"
+  },
+  "embed-v5.0-fast": {
+    "id": "embed-v5.0-fast",
+    "extends": "embed-v5.0-pro",
+    "overrides": {
+      "name": "Cohere Embed 5 Fast"
+    },
+    "releasedAt": "2026-09-30",
+    "creatorId": "cohere"
+  },
+  "rerank-v5.0-pro": {
+    "id": "rerank-v5.0-pro",
+    "name": "Cohere Rerank 5 Pro",
+    "license": "proprietary",
+    "capabilities": [
+      "txt-in",
+      "txt-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": 32e3,
+      "maxOutput": null
+    },
+    "releasedAt": "2026-10-21",
+    "creatorId": "cohere"
+  },
+  "rerank-v5.0-fast": {
+    "id": "rerank-v5.0-fast",
+    "extends": "rerank-v5.0-pro",
+    "overrides": {
+      "name": "Cohere Rerank 5 Fast"
+    },
+    "releasedAt": "2026-10-21",
+    "creatorId": "cohere"
   },
   "north-small-translate-1-0": {
     "id": "north-small-translate-1-0",
@@ -1035,6 +1146,70 @@ var models = {
       "deepseek-reasoner-latest"
     ],
     "creatorId": "deepseek"
+  },
+  "gemini-nano-banana-2.1": {
+    "id": "gemini-nano-banana-2.1",
+    "name": "Gemini Nano Banana 2.1",
+    "license": "proprietary",
+    "capabilities": [
+      "txt-in",
+      "img-in",
+      "video-in",
+      "txt-out",
+      "img-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 131072,
+      "maxOutput": 32768
+    },
+    "releasedAt": "2026-10-06",
+    "creatorId": "google"
+  },
+  "gemini-3.8-flash-tts": {
+    "id": "gemini-3.8-flash-tts",
+    "name": "Gemini 3.8 Flash TTS",
+    "license": "proprietary",
+    "capabilities": [
+      "txt-in",
+      "audio-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": 8192,
+      "maxOutput": 16384
+    },
+    "releasedAt": "2026-09-22",
+    "creatorId": "google"
+  },
+  "gemini-3.8-flash-lite-tts": {
+    "id": "gemini-3.8-flash-lite-tts",
+    "extends": "gemini-3.8-flash-tts",
+    "overrides": {
+      "name": "Gemini 3.8 Flash-Lite TTS"
+    },
+    "releasedAt": "2026-09-22",
+    "creatorId": "google"
+  },
+  "google/embeddinggemma-2": {
+    "id": "google/embeddinggemma-2",
+    "name": "EmbeddingGemma 2",
+    "license": "apache-2.0",
+    "capabilities": [
+      "txt-in",
+      "img-in",
+      "audio-in",
+      "video-in",
+      "vec-out"
+    ],
+    "context": {
+      "type": "embedding",
+      "total": 8192,
+      "dimensions": 768,
+      "embeddingType": "multimodal"
+    },
+    "creatorId": "google"
   },
   "gemini-4-argon": {
     "id": "gemini-4-argon",
@@ -2185,6 +2360,17 @@ var models = {
     "releasedAt": "2026-03-31",
     "creatorId": "google"
   },
+  "kimi-k3.1-pro": {
+    "id": "kimi-k3.1-pro",
+    "extends": "kimi-k3",
+    "overrides": {
+      "name": "Kimi K3.1 Pro"
+    },
+    "aliases": [
+      "kimi-k3.1-pro-highspeed"
+    ],
+    "creatorId": "kimi"
+  },
   "kimi-k3": {
     "id": "kimi-k3",
     "name": "Kimi K3",
@@ -2342,6 +2528,49 @@ var models = {
       }
     },
     "creatorId": "kimi"
+  },
+  "muse-wonder-1.0": {
+    "id": "muse-wonder-1.0",
+    "name": "Muse Wonder 1.0",
+    "license": "proprietary",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "img-in",
+      "json-out",
+      "fn-out",
+      "reason",
+      "audio-in",
+      "video-in"
+    ],
+    "context": {
+      "type": "token",
+      "total": 1048576,
+      "maxOutput": null
+    },
+    "creatorId": "meta"
+  },
+  "meta-models/Muse-Spark-Open-816B-A42B": {
+    "id": "meta-models/Muse-Spark-Open-816B-A42B",
+    "name": "Muse Spark Open 816B A42B",
+    "license": "muse-model",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "img-in",
+      "fn-out",
+      "reason",
+      "audio-in",
+      "video-in"
+    ],
+    "context": {
+      "type": "token",
+      "total": 1048576,
+      "maxOutput": null
+    },
+    "creatorId": "meta"
   },
   "muse-spark-1.3": {
     "id": "muse-spark-1.3",
@@ -2732,6 +2961,27 @@ var models = {
     ],
     "creatorId": "meta"
   },
+  "MiniMax-M3.1-Flash": {
+    "id": "MiniMax-M3.1-Flash",
+    "name": "MiniMax M3.1 Flash",
+    "license": "minimax-community",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "img-in",
+      "video-in",
+      "fn-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 1e6,
+      "maxOutput": null
+    },
+    "releasedAt": "2026-10-19",
+    "creatorId": "minimax"
+  },
   "MiniMax-H3-Max": {
     "id": "MiniMax-H3-Max",
     "name": "MiniMax H3 Max",
@@ -2835,6 +3085,30 @@ var models = {
       "name": "MiniMax M2.5 Highspeed"
     },
     "creatorId": "minimax"
+  },
+  "mistral-large-4": {
+    "id": "mistral-large-4",
+    "name": "Mistral Large 4",
+    "license": "mistral-ecosystem",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "img-in",
+      "json-out",
+      "fn-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 1e6,
+      "maxOutput": null
+    },
+    "releasedAt": "2026-10-06",
+    "aliases": [
+      "mistral-large-4-0"
+    ],
+    "creatorId": "mistral"
   },
   "mistral-ocr-4-1": {
     "id": "mistral-ocr-4-1",
@@ -3117,6 +3391,64 @@ var models = {
     },
     "creatorId": "mistral"
   },
+  "nvidia/nemotron-3.5-super-vl-120b-a12b": {
+    "id": "nvidia/nemotron-3.5-super-vl-120b-a12b",
+    "name": "NVIDIA Nemotron 3.5 Super VL",
+    "license": "openmdw-1.1",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "img-in",
+      "video-in",
+      "fn-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 262144,
+      "maxOutput": null
+    },
+    "creatorId": "nvidia"
+  },
+  "nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB": {
+    "id": "nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB",
+    "name": "NVIDIA Nemotron 3.5 Bolt 74B A9B",
+    "license": "openmdw-1.1",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "img-in",
+      "video-in",
+      "fn-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 262144,
+      "maxOutput": null
+    },
+    "creatorId": "nvidia"
+  },
+  "nvidia/NVIDIA-Nemotron-Labs-Dory1.0-4B-BF16": {
+    "id": "nvidia/NVIDIA-Nemotron-Labs-Dory1.0-4B-BF16",
+    "name": "NVIDIA Nemotron Labs Dory 1.0 4B",
+    "license": "openmdw-1.1",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "fn-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 262144,
+      "maxOutput": null
+    },
+    "creatorId": "nvidia"
+  },
   "nvidia/nemotron-3.5-lightning-30b-a3b": {
     "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
     "name": "NVIDIA Nemotron 3.5 Lightning 30B A3B",
@@ -3196,6 +3528,42 @@ var models = {
     },
     "releasedAt": "2026-04-28",
     "creatorId": "nvidia"
+  },
+  "gpt-6.1-terra": {
+    "id": "gpt-6.1-terra",
+    "extends": "gpt-6-astra",
+    "overrides": {
+      "name": "GPT-6.1 Terra"
+    },
+    "releasedAt": "2026-10-26",
+    "creatorId": "openai"
+  },
+  "gpt-6.1-sol": {
+    "id": "gpt-6.1-sol",
+    "extends": "gpt-6-astra",
+    "overrides": {
+      "name": "GPT-6.1 Sol"
+    },
+    "releasedAt": "2026-09-29",
+    "creatorId": "openai"
+  },
+  "gpt-6-sol": {
+    "id": "gpt-6-sol",
+    "extends": "gpt-6-astra",
+    "overrides": {
+      "name": "GPT-6 Sol"
+    },
+    "releasedAt": "2026-09-22",
+    "creatorId": "openai"
+  },
+  "gpt-6-luna": {
+    "id": "gpt-6-luna",
+    "extends": "gpt-6-astra",
+    "overrides": {
+      "name": "GPT-6 Luna"
+    },
+    "releasedAt": "2026-09-22",
+    "creatorId": "openai"
   },
   "gpt-live-1": {
     "id": "gpt-live-1",
@@ -4148,6 +4516,46 @@ var models = {
     ],
     "creatorId": "openai"
   },
+  "qwen3.8-omni-flash": {
+    "id": "qwen3.8-omni-flash",
+    "name": "Qwen3.8 Omni Flash",
+    "license": "proprietary",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "img-in",
+      "fn-out",
+      "reason",
+      "audio-in",
+      "video-in"
+    ],
+    "context": {
+      "type": "token",
+      "total": 1048576,
+      "maxOutput": 131072
+    },
+    "creatorId": "qwen"
+  },
+  "qwen-audio-3.1-realtime-plus": {
+    "id": "qwen-audio-3.1-realtime-plus",
+    "name": "Qwen Audio 3.1 Realtime Plus",
+    "license": "proprietary",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "audio-in",
+      "audio-out",
+      "fn-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": 262144,
+      "maxOutput": 16384
+    },
+    "creatorId": "qwen"
+  },
   "qwen3.8-max": {
     "id": "qwen3.8-max",
     "name": "Qwen 3.8 Max",
@@ -4630,6 +5038,27 @@ var models = {
     },
     "creatorId": "qwen"
   },
+  "step-5-preview": {
+    "id": "step-5-preview",
+    "name": "Step 5 Preview",
+    "license": "stepfun-model-1.0",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "img-in",
+      "json-out",
+      "fn-out",
+      "reason",
+      "video-in"
+    ],
+    "context": {
+      "type": "token",
+      "total": 1e6,
+      "maxOutput": 64e3
+    },
+    "creatorId": "stepfun"
+  },
   "stepaudio-2.5-chat": {
     "id": "stepaudio-2.5-chat",
     "name": "StepAudio 2.5 Chat",
@@ -4804,6 +5233,62 @@ var models = {
     "releasedAt": "2026-07-15",
     "creatorId": "thinkingmachines"
   },
+  "grok-4.7": {
+    "id": "grok-4.7",
+    "name": "Grok 4.7",
+    "license": "proprietary",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "img-in",
+      "fn-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 5e5,
+      "maxOutput": null
+    },
+    "creatorId": "xai"
+  },
+  "grok-voice-3.0": {
+    "id": "grok-voice-3.0",
+    "name": "Grok Voice 3.0",
+    "license": "proprietary",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "audio-in",
+      "audio-out",
+      "fn-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": null,
+      "maxOutput": null
+    },
+    "aliases": [
+      "grok-voice-latest"
+    ],
+    "creatorId": "xai"
+  },
+  "grok-voice-transcribe-2.0": {
+    "id": "grok-voice-transcribe-2.0",
+    "name": "Grok Voice Transcribe 2.0",
+    "license": "proprietary",
+    "capabilities": [
+      "audio-in",
+      "txt-out"
+    ],
+    "context": {
+      "type": "audio-in",
+      "total": null,
+      "maxOutput": null
+    },
+    "creatorId": "xai"
+  },
   "grok-imagine-image-2.0": {
     "id": "grok-imagine-image-2.0",
     "name": "Grok Imagine Image 2.0",
@@ -4866,9 +5351,6 @@ var models = {
       "total": null,
       "maxOutput": null
     },
-    "aliases": [
-      "grok-voice-latest"
-    ],
     "releasedAt": "2026-07-29",
     "creatorId": "xai"
   },
@@ -5433,6 +5915,44 @@ var models = {
     "releasedAt": "2026-06-16",
     "creatorId": "xai"
   },
+  "mimo-v2.6-pro": {
+    "id": "mimo-v2.6-pro",
+    "name": "Xiaomi MiMo-V2.6-Pro",
+    "license": "proprietary",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "img-in",
+      "json-out",
+      "fn-out",
+      "reason",
+      "audio-in",
+      "video-in"
+    ],
+    "context": {
+      "type": "token",
+      "total": 1048576,
+      "maxOutput": 131072
+    },
+    "creatorId": "xiaomi"
+  },
+  "mimo-v2.6-flash": {
+    "id": "mimo-v2.6-flash",
+    "extends": "mimo-v2.6-pro",
+    "overrides": {
+      "name": "Xiaomi MiMo-V2.6-Flash"
+    },
+    "creatorId": "xiaomi"
+  },
+  "mimo-v2.6-pro-ultraspeed": {
+    "id": "mimo-v2.6-pro-ultraspeed",
+    "extends": "mimo-v2.6-pro",
+    "overrides": {
+      "name": "Xiaomi MiMo-V2.6-Pro-Ultraspeed"
+    },
+    "creatorId": "xiaomi"
+  },
   "mimo-v2.5-pro": {
     "id": "mimo-v2.5-pro",
     "name": "Xiaomi MiMo-V2.5-Pro",
@@ -5472,6 +5992,14 @@ var models = {
     },
     "releasedAt": "2026-04-23",
     "creatorId": "xiaomi"
+  },
+  "glm-5.3-flashx": {
+    "id": "glm-5.3-flashx",
+    "extends": "glm-5.3-flash",
+    "overrides": {
+      "name": "GLM-5.3-FlashX"
+    },
+    "creatorId": "zai"
   },
   "glm-5.3": {
     "id": "glm-5.3",
@@ -5625,10 +6153,16 @@ var providers = {
       {
         "creator": "anthropic",
         "include": [
+          "claude-haiku-5-5",
+          "claude-sonnet-5-5",
+          "claude-opus-5-5",
           "claude-opus-5"
         ],
         "idOverrides": {
-          "claude-opus-5": "anthropic.claude-opus-5"
+          "claude-opus-5": "anthropic.claude-opus-5",
+          "claude-opus-5-5": "anthropic.claude-opus-5-5",
+          "claude-sonnet-5-5": "anthropic.claude-sonnet-5-5",
+          "claude-haiku-5-5": "anthropic.claude-haiku-5-5"
         }
       }
     ]
@@ -5671,7 +6205,16 @@ var providers = {
     "name": "Google",
     "apiUrl": "https://generativelanguage.googleapis.com/v1",
     "apiDocsUrl": "https://ai.google.dev/docs",
-    "pricing": {}
+    "pricing": {},
+    "models": [
+      {
+        "creator": "google",
+        "include": "all",
+        "exclude": [
+          "google/embeddinggemma-2"
+        ]
+      }
+    ]
   },
   "groq": {
     "id": "groq",
@@ -5722,6 +6265,7 @@ var providers = {
       {
         "creator": "meta",
         "include": [
+          "muse-wonder-1.0",
           "muse-spark-1.3",
           "muse-image-1.0",
           "muse-voice-transcribe-1.0",
@@ -5750,7 +6294,17 @@ var providers = {
     "name": "NVIDIA NIM",
     "apiUrl": "https://integrate.api.nvidia.com/v1",
     "apiDocsUrl": "https://docs.api.nvidia.com/nim/reference/llm-apis",
-    "pricing": {}
+    "pricing": {},
+    "models": [
+      {
+        "creator": "nvidia",
+        "include": "all",
+        "exclude": [
+          "nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB",
+          "nvidia/NVIDIA-Nemotron-Labs-Dory1.0-4B-BF16"
+        ]
+      }
+    ]
   },
   "ollama": {
     "id": "ollama",
@@ -5783,6 +6337,10 @@ var providers = {
       {
         "creator": "openai",
         "include": [
+          "gpt-6-luna",
+          "gpt-6-sol",
+          "gpt-6.1-sol",
+          "gpt-6.1-terra",
           "gpt-6-astra",
           "gpt-5.6-sol",
           "gpt-5.6-terra",
@@ -5811,6 +6369,9 @@ var providers = {
       {
         "creator": "anthropic",
         "include": [
+          "claude-haiku-5-5",
+          "claude-sonnet-5-5",
+          "claude-opus-5-5",
           "claude-fable-5-1",
           "claude-opus-5",
           "claude-fable-5",
@@ -5838,12 +6399,17 @@ var providers = {
           "claude-opus-4-1-20250805": "anthropic/claude-opus-4.1",
           "claude-opus-4-20250514": "anthropic/claude-opus-4",
           "claude-sonnet-4-20250514": "anthropic/claude-sonnet-4",
-          "claude-sonnet-4-6": "anthropic/claude-sonnet-4.6"
+          "claude-sonnet-4-6": "anthropic/claude-sonnet-4.6",
+          "claude-opus-5-5": "anthropic/claude-opus-5.5",
+          "claude-sonnet-5-5": "anthropic/claude-sonnet-5.5",
+          "claude-haiku-5-5": "anthropic/claude-haiku-5.5"
         }
       },
       {
         "creator": "google",
         "include": [
+          "gemini-nano-banana-2.1",
+          "gemini-4-argon",
           "gemini-3.8-flash",
           "gemini-3.7-flash",
           "gemini-3.6-flash",
@@ -5877,6 +6443,8 @@ var providers = {
       {
         "creator": "meta",
         "include": [
+          "meta-models/Muse-Spark-Open-816B-A42B",
+          "muse-wonder-1.0",
           "muse-spark-1.1",
           "muse-spark-1.2",
           "muse-spark-1.3",
@@ -5884,21 +6452,26 @@ var providers = {
         ],
         "idPrefix": "meta/",
         "idOverrides": {
-          "meta-models/Muse-Glimmer-30B": "meta/muse-glimmer-30b"
+          "meta-models/Muse-Glimmer-30B": "meta/muse-glimmer-30b",
+          "muse-wonder-1.0": "meta/muse-wonder",
+          "meta-models/Muse-Spark-Open-816B-A42B": "meta/muse-spark-open"
         }
       },
       {
         "creator": "nvidia",
         "include": [
+          "nvidia/nemotron-3.5-super-vl-120b-a12b",
           "nvidia/nemotron-3.5-lightning-30b-a3b"
         ],
         "idOverrides": {
-          "nvidia/nemotron-3.5-lightning-30b-a3b": "nvidia/nemotron-3.5-lightning"
+          "nvidia/nemotron-3.5-lightning-30b-a3b": "nvidia/nemotron-3.5-lightning",
+          "nvidia/nemotron-3.5-super-vl-120b-a12b": "nvidia/nemotron-3.5-super-vl"
         }
       },
       {
         "creator": "qwen",
         "include": [
+          "qwen3.8-omni-flash",
           "qwen3.8-max-0902",
           "qwen3.8-flash",
           "Qwen/Qwen3.8-27B",
@@ -5924,6 +6497,7 @@ var providers = {
       {
         "creator": "zai",
         "include": [
+          "glm-5.3-flashx",
           "glm-5.3",
           "glm-5.3-flash"
         ],
@@ -5948,9 +6522,51 @@ var providers = {
       {
         "creator": "xai",
         "include": [
+          "grok-4.7",
           "grok-4.6"
         ],
         "idPrefix": "x-ai/"
+      },
+      {
+        "creator": "minimax",
+        "include": [
+          "MiniMax-M3.1-Flash"
+        ],
+        "idOverrides": {
+          "MiniMax-M3.1-Flash": "minimax/minimax-m3.1-flash"
+        }
+      },
+      {
+        "creator": "mistral",
+        "include": [
+          "mistral-large-4"
+        ],
+        "idOverrides": {
+          "mistral-large-4": "mistralai/mistral-large-4-0"
+        }
+      },
+      {
+        "creator": "xiaomi",
+        "include": [
+          "mimo-v2.6-pro-ultraspeed",
+          "mimo-v2.6-flash",
+          "mimo-v2.6-pro"
+        ],
+        "idPrefix": "xiaomi/"
+      },
+      {
+        "creator": "stepfun",
+        "include": [
+          "step-5-preview"
+        ],
+        "idPrefix": "stepfun/"
+      },
+      {
+        "creator": "kimi",
+        "include": [
+          "kimi-k3.1-pro"
+        ],
+        "idPrefix": "moonshotai/"
       }
     ]
   },
@@ -6076,7 +6692,17 @@ var providers = {
     "name": "Xiaomi MiMo",
     "apiUrl": "https://api.xiaomimimo.com/v1",
     "apiDocsUrl": "https://mimo.mi.com/docs/en-US/quick-start/summary/first-api-call",
-    "pricing": {}
+    "pricing": {},
+    "models": [
+      {
+        "creator": "xiaomi",
+        "include": "all",
+        "exclude": [
+          "mimo-v2.5-pro",
+          "mimo-v2.5"
+        ]
+      }
+    ]
   },
   "zai": {
     "id": "zai",
