@@ -90,7 +90,16 @@ export class UsageReport {
   private raw?: Record<string, unknown>;
   private requestId?: string;
   private finished = false;
-  constructor(private handler: UsageHandler | undefined, private provider: string, private model: string, private operation = "chat") {}
+  private handler: UsageHandler | undefined;
+  private provider: string;
+  private model: string;
+  private operation: string;
+  constructor(handler: UsageHandler | undefined, provider: string, model: string, operation = "chat") {
+    this.handler = handler;
+    this.provider = provider;
+    this.model = model;
+    this.operation = operation;
+  }
   observe(value: any): void {
     if (!this.handler || !object(value)) return;
     const response = value.response ?? value.message ?? value;

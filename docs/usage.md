@@ -113,10 +113,6 @@ customer identity or contact a billing service. OpenRouter's `usage.cost` is
 preserved as `costUsd`; other providers generally need a dated external price
 table. Preserve unknown prices as unknown rather than zero.
 
-The older Rust `LiveEvent::Usage`, completion metadata and
-`transcribe_gemini_with_usage` return value remain available. Use one accounting
-path per operation to avoid booking those reports again alongside the callback.
-
 Provider references: [Anthropic stream usage](https://platform.claude.com/docs/en/build-with-claude/streaming),
 [OpenRouter usage](https://openrouter.ai/docs/use-cases/usage-accounting),
 [Bedrock cache counts](https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html),

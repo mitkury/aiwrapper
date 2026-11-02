@@ -910,23 +910,18 @@ async fn failed_or_abandoned_writes_never_poll_the_sink_again() {
 
 async fn usage_events(provider: LiveProvider, events: Vec<Value>) -> Vec<(String, Value)> {
     let fixture = SocketFixture::new(events);
-    let mut session = LiveConfig::new(provider, "models/live-test", "key")
-        .connect_with(&fixture)
-        .await
-        .unwrap();
-    let mut usage = vec![];
-    while let Some(events) = session.receiver.next_events().await.unwrap() {
-        for event in events {
-            if let LiveEvent::Usage {
-                model,
-                usage: value,
-            } = event
-            {
-                usage.push((model, value));
-            }
-        }
-    }
-    usage
+    let reports = Arc::new(Mutex::new(vec![]));
+    let captured = reports.clone();
+    let mut config = LiveConfig::new(provider, "models/live-test", "key");
+    config.on_usage = Some(Arc::new(move |event: UsageEvent| {
+        captured
+            .lock()
+            .unwrap()
+            .push((event.model, event.raw_usage));
+    }));
+    let mut session = config.connect_with(&fixture).await.unwrap();
+    while session.receiver.next_events().await.unwrap().is_some() {}
+    reports.lock().unwrap().clone()
 }
 #[tokio::test]
 async fn google_usage_metadata_is_reported_per_message_with_the_model() {
