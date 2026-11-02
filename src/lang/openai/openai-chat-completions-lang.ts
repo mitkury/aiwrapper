@@ -1,3 +1,5 @@
+import { UsageReport } from "../../usage.js";
+import type { UsageHandler } from "../../usage.js";
 import { LanguageProvider } from "../language-provider.js";
 import type { LangOptions } from "../language-provider.js";
 import {
@@ -29,6 +31,7 @@ import { attachPartialResult, isAbortError } from "../../errors.js";
 export type ReasoningEffort = "low" | "medium" | "high";
 
 export type OpenAILikeConfig = {
+  provider?: string;
   apiKey?: string;
   model: string;
   systemPrompt: string;
@@ -38,6 +41,7 @@ export type OpenAILikeConfig = {
   headers?: Record<string, string>;
   bodyProperties?: Record<string, unknown>;
   reasoningEffort?: ReasoningEffort;
+  onUsage?: UsageHandler;
   defaultOptions?: LangOptions;
 };
 
@@ -75,7 +79,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
   protected modelInfo?: Model;
 
   constructor(config: OpenAILikeConfig) {
-    super(config.model, config.defaultOptions);
+    super(config.model, { ...config.defaultOptions, onUsage: config.onUsage ?? config.defaultOptions?.onUsage });
 
     const modelInfo = models.id(config.model);
     this.modelInfo = modelInfo; // can be undefined
@@ -151,6 +155,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
     headers?: Record<string, string>;
     bodyProperties?: Record<string, unknown>;
     reasoningEffort?: ReasoningEffort;
+    onUsage?: UsageHandler;
     defaultOptions?: LangOptions;
   }): OpenAIChatCompletionsLang {
     return new OpenAIChatCompletionsLang({
@@ -163,6 +168,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
       headers: options.headers,
       bodyProperties: options.bodyProperties,
       reasoningEffort: options.reasoningEffort,
+      onUsage: options.onUsage,
       defaultOptions: options.defaultOptions,
     });
   }
@@ -222,8 +228,11 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
 
     const requestMaxTokens = this.computeRequestMaxTokens(result);
     const body = this.buildRequestBody(result, requestMaxTokens, resolvedOptions);
+    if (resolvedOptions?.onUsage && body.stream_options === undefined) body.stream_options = { include_usage: true };
     const commonRequest = this.buildCommonRequest(body, resolvedOptions);
+    const report = new UsageReport(resolvedOptions?.onUsage, this._config.provider ?? "openai-compatible", String(body.model ?? this._config.model));
     const onData = (data: any) => {
+      report.observe(data);
       this.handleStreamData(data, result, resolvedOptions?.onResult);
     };
 
@@ -240,6 +249,8 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
         throw attachPartialResult(error, result);
       }
       throw error;
+    } finally {
+      report.finish();
     }
 
     result.finished = true;

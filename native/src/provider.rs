@@ -28,6 +28,22 @@ pub enum Provider {
 }
 
 impl Provider {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Openai => "openai",
+            Self::OpenaiCompatible => "openai-compatible",
+            Self::Anthropic => "anthropic",
+            Self::Google => "google",
+            Self::Ollama => "ollama",
+            Self::Groq => "groq",
+            Self::Deepseek => "deepseek",
+            Self::Kimi => "kimi",
+            Self::Xai => "xai",
+            Self::Cohere => "cohere",
+            Self::Mistral => "mistral",
+            Self::Openrouter => "openrouter",
+        }
+    }
     pub fn base_url(self) -> &'static str {
         match self {
             Self::Openai | Self::OpenaiCompatible => "https://api.openai.com/v1",
@@ -48,6 +64,7 @@ impl Provider {
 /// Explicit model selection; no network catalog lookup or hidden environment reads.
 #[derive(Clone)]
 pub struct ProviderConfig {
+    pub on_usage: Option<crate::UsageHandler>,
     pub provider: Provider,
     pub model: String,
     pub api_key: Option<String>,
@@ -59,6 +76,7 @@ pub struct ProviderConfig {
 impl ProviderConfig {
     pub fn new(provider: Provider, model: impl Into<String>) -> Self {
         Self {
+            on_usage: None,
             provider,
             model: model.into(),
             api_key: None,
@@ -66,6 +84,10 @@ impl ProviderConfig {
             headers: BTreeMap::new(),
             body: BTreeMap::new(),
         }
+    }
+    pub fn with_usage_handler(mut self, handler: crate::UsageHandler) -> Self {
+        self.on_usage = Some(handler);
+        self
     }
     pub fn with_api_key(mut self, key: impl Into<String>) -> Self {
         self.api_key = Some(key.into());
@@ -238,6 +260,10 @@ impl LanguageProvider for Lang {
         }
         headers.extend(self.config.headers.clone());
         headers.extend(options.headers.clone());
+        let model = body["model"]
+            .as_str()
+            .unwrap_or(&self.config.model)
+            .to_owned();
         let body = serde_json::to_vec(&body)?;
         let url = format!("{}{path}", self.config.base_url.trim_end_matches('/'));
         for attempt in 0..=options.max_retries {
@@ -270,12 +296,22 @@ impl LanguageProvider for Lang {
                     body: String::from_utf8_lossy(&bytes).into_owned(),
                 });
             }
+            let mut report = crate::usage::UsageReport::new(
+                self.config.on_usage.clone(),
+                self.config.provider.as_str(),
+                &model,
+                "chat",
+            );
+            report.event.request_id = response.headers.get("x-request-id").cloned();
             let mut decoder = response::Decoder::new(self.config.provider);
             crate::stream::read(
                 response,
                 self.config.provider == Provider::Ollama,
                 &options.cancellation,
-                &mut |value| decoder.push(value, on_update),
+                &mut |value| {
+                    report.observe(&value);
+                    decoder.push(value, on_update)
+                },
             )
             .await?;
             crate::error::check_cancel(&options.cancellation)?;

@@ -1,3 +1,4 @@
+import type { UsageHandler } from "../../usage.js";
 import type { LangOptions } from "../language-provider.js";
 import { OpenAIChatCompletionsLang } from "../openai/openai-chat-completions-lang.js";
 
@@ -9,6 +10,7 @@ export type GroqLangOptions = {
   reasoningEffort?: "low" | "medium" | "high";
   includeReasoning?: boolean;
   bodyProperties?: Record<string, any>;
+  onUsage?: UsageHandler;
   defaultOptions?: LangOptions;
 };
 
@@ -18,6 +20,7 @@ export class GroqLang extends OpenAIChatCompletionsLang {
   constructor(options: GroqLangOptions) {
     const modelName = options.model || "llama3-70b-8192";
     super({
+      provider: "groq",
       apiKey: options.apiKey,
       model: modelName,
       systemPrompt: options.systemPrompt || "",
@@ -25,6 +28,7 @@ export class GroqLang extends OpenAIChatCompletionsLang {
       bodyProperties: options.bodyProperties || {},
       maxTokens: options.maxTokens,
       reasoningEffort: options.reasoningEffort,
+      onUsage: options.onUsage,
       defaultOptions: options.defaultOptions,
     });
     this.includeReasoning = options.includeReasoning;

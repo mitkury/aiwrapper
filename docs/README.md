@@ -2,6 +2,8 @@
 
 ## Using AIWrapper
 
+- [Usage callbacks](usage.md): provider reports, normalized units and accounting boundaries
+
 - [Native Rust runtime](native.md): embedding, transport injection, compression, sandbox, compatibility
 - [Quick start](../README.md)
 - [Language providers](language-provider.md): text, structured output, images, provider setup

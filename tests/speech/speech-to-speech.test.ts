@@ -1613,3 +1613,16 @@ function deferred<T>(): {
   });
   return { promise, resolve, reject };
 }
+
+it("reports cancelled live responses and separately billed transcription before parsing output", async () => {
+  const socket = new FakeLiveSocket({ type: "session.updated" });
+  const reports: import("../../src/usage.ts").UsageEvent[] = [];
+  const session = await LiveLang.openai({ apiKey: "key", createWebSocket: () => socket, onUsage: event => { reports.push(event); } }).connect();
+  socket.serverMessage({ type: "conversation.item.input_audio_transcription.completed", item_id: "input-1", transcript: "hi", usage: { type: "duration", seconds: 2 } });
+  socket.serverMessage({ type: "response.done", response: { id: "response-1", model: "billed-model", status: "cancelled", usage: { input_tokens: 7, output_tokens: 2 } } });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(reports).toHaveLength(2);
+  expect(reports[0]).toMatchObject({ model: "gpt-4o-mini-transcribe", operation: "transcription", usage: { audioSeconds: 2 } });
+  expect(reports[1]).toMatchObject({ id: "openai:live:response-1", model: "billed-model", operation: "live", usage: { inputTokens: 7 } });
+  await session.close();
+});

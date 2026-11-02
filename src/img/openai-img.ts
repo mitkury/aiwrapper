@@ -1,9 +1,11 @@
+import { emitUsage, type UsageHandler } from "../usage.js";
 import type { LangImageInput } from "../lang/language-provider.js";
 import { LangMessages } from "../lang/messages.js";
 import { httpRequestWithRetry as fetch } from "../http-request.js";
 
 export type OpenAIImgOptions = {
   apiKey: string;
+  onUsage?: UsageHandler;
   model?: string;
   baseURL?: string;
 };
@@ -17,11 +19,13 @@ type OpenAIImageData = {
 };
 
 export class OpenAIImg {
+  private onUsage?: UsageHandler;
   private _apiKey: string;
   private _model: string;
   private _baseURL: string;
 
   constructor(options: OpenAIImgOptions) {
+    this.onUsage = options.onUsage;
     this._apiKey = options.apiKey;
     this._model = options.model || 'gpt-image-1';
     this._baseURL = options.baseURL || 'https://api.openai.com/v1';
@@ -50,7 +54,8 @@ export class OpenAIImg {
       body: JSON.stringify(body),
     });
 
-    const json = await response.json() as { data?: OpenAIImageData[] };
+    const json = await response.json() as { data?: OpenAIImageData[]; usage?: unknown };
+    emitUsage(this.onUsage, "openai", this._model, "image", json.usage, response.headers?.get("x-request-id") ?? undefined);
     return this.applyImageResponse(result, json.data);
   }
 
@@ -76,7 +81,8 @@ export class OpenAIImg {
       body: form,
     });
 
-    const json = await response.json() as { data?: OpenAIImageData[] };
+    const json = await response.json() as { data?: OpenAIImageData[]; usage?: unknown };
+    emitUsage(this.onUsage, "openai", this._model, "image", json.usage, response.headers?.get("x-request-id") ?? undefined);
     return this.applyImageResponse(result, json.data);
   }
 
@@ -100,7 +106,8 @@ export class OpenAIImg {
       body: form,
     });
 
-    const json = await response.json() as { data?: OpenAIImageData[] };
+    const json = await response.json() as { data?: OpenAIImageData[]; usage?: unknown };
+    emitUsage(this.onUsage, "openai", this._model, "image", json.usage, response.headers?.get("x-request-id") ?? undefined);
     return this.applyImageResponse(result, json.data);
   }
 

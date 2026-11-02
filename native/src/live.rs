@@ -79,6 +79,7 @@ pub enum LiveProvider {
     Openai,
 }
 pub struct LiveConfig {
+    pub on_usage: Option<UsageHandler>,
     pub provider: LiveProvider,
     pub model: String,
     pub api_key: String,
@@ -103,7 +104,7 @@ impl LiveConfig {
         model: impl Into<String>,
         api_key: impl Into<String>,
     ) -> Self {
-        Self { provider,model:model.into(),api_key:api_key.into(),voice:if provider == LiveProvider::Google {"Kore"} else {"marin"}.into(),
+        Self { on_usage:None,provider,model:model.into(),api_key:api_key.into(),voice:if provider == LiveProvider::Google {"Kore"} else {"marin"}.into(),
             endpoint:if provider == LiveProvider::Google {"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"} else {"wss://api.openai.com/v1/realtime"}.into(),
             instructions:String::new(),tools:vec![],settings:BTreeMap::new(),headers:BTreeMap::new(),cancellation:CancellationToken::new(),connect_timeout:Duration::from_secs(15),resumption:None,ephemeral:false }
     }
@@ -191,7 +192,11 @@ impl LiveConfig {
             }
             json!({"type":"session.update","session":session})
         };
-        let model = self.model.trim_start_matches("models/").to_string();
+        let model = setup["setup"]["model"]
+            .as_str()
+            .unwrap_or(&self.model)
+            .trim_start_matches("models/")
+            .to_string();
         let transcription_model = setup["session"]["audio"]["input"]["transcription"]["model"]
             .as_str()
             .map(str::to_owned);
@@ -235,6 +240,7 @@ impl LiveConfig {
                     closed: false,
                     model,
                     transcription_model,
+                    on_usage: self.on_usage,
                 }),
                 cancellation: self.cancellation.clone(),
                 changed: Notify::new(),
@@ -605,6 +611,7 @@ struct LiveState {
     closed: bool,
     model: String,
     transcription_model: Option<String>,
+    on_usage: Option<UsageHandler>,
 }
 pub struct LiveReceiver {
     provider: LiveProvider,
@@ -685,6 +692,7 @@ impl LiveReceiver {
                 let result = async {
                     crate::error::check_cancel(&connection.cancellation)?;
                     let value = value?;
+                    state.report_usage(provider, &value);
                     if let Some(error) = value.get("error").filter(|_| {
                         provider != LiveProvider::Openai
                             || value["type"] != "conversation.item.input_audio_transcription.failed"
@@ -848,6 +856,52 @@ impl LiveState {
             });
         }
         Ok(())
+    }
+    fn report_usage(&self, provider: LiveProvider, value: &Value) {
+        if self.on_usage.is_none() {
+            return;
+        }
+        let (raw, model, operation, request_id) = if provider == LiveProvider::Google {
+            (
+                value.get("usageMetadata"),
+                self.model.as_str(),
+                "live",
+                None,
+            )
+        } else if value["type"] == "response.done" {
+            (
+                value["response"].get("usage"),
+                value["response"]["model"].as_str().unwrap_or(&self.model),
+                "live",
+                value["response"]["id"].as_str(),
+            )
+        } else if value["type"] == "conversation.item.input_audio_transcription.completed" {
+            (
+                value.get("usage"),
+                self.transcription_model.as_deref().unwrap_or(&self.model),
+                "transcription",
+                value["item_id"].as_str(),
+            )
+        } else {
+            return;
+        };
+        if let Some(raw) = raw.filter(|u| u.is_object()) {
+            let mut event = UsageEvent::new(
+                if provider == LiveProvider::Google {
+                    "google"
+                } else {
+                    "openai"
+                },
+                model,
+                operation,
+                raw.clone(),
+            );
+            if let Some(id) = request_id {
+                event.request_id = Some(id.into());
+                event.id = format!("{}:{operation}:{id}", event.provider);
+            }
+            crate::usage::emit_usage(&self.on_usage, event);
+        }
     }
     fn google(&mut self, value: Value) -> Result<()> {
         if let Some(update) = value.get("sessionResumptionUpdate") {

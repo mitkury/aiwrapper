@@ -1,3 +1,5 @@
+import { UsageReport } from "../../usage.js";
+import type { UsageHandler } from "../../usage.js";
 import { LanguageProvider } from "../language-provider.js";
 import type { LangOptions } from "../language-provider.js";
 import { httpRequestWithRetry as fetch } from "../../http-request.js";
@@ -27,6 +29,7 @@ export type GoogleLangOptions = {
   model?: string;
   systemPrompt?: string;
   maxTokens?: number;
+  onUsage?: UsageHandler;
   defaultOptions?: LangOptions;
 };
 
@@ -39,7 +42,7 @@ export class GoogleLang extends LanguageProvider {
 
   constructor(options: GoogleLangOptions) {
     const modelName = options.model || "gemini-2.5-pro";
-    super(modelName, options.defaultOptions);
+    super(modelName, { ...options.defaultOptions, onUsage: options.onUsage ?? options.defaultOptions?.onUsage });
 
     const modelInfo = models.id(modelName);
     if (!modelInfo) {
@@ -101,6 +104,7 @@ export class GoogleLang extends LanguageProvider {
       ...(resolvedOptions?.providerSpecificBody ?? {}),
     };
 
+    const report = new UsageReport(resolvedOptions?.onUsage, "google", this._model);
     // Gemini REST v1beta doesn't yet accept responseSchema/responseMimeType; fall back to prompt
     try {
       const response = await fetch(
@@ -126,6 +130,7 @@ export class GoogleLang extends LanguageProvider {
       }
 
       const data = await response.json();
+      report.observe(data);
       this.applyCandidates(data?.candidates, messageCollection, resolvedOptions?.onResult);
     } catch (error) {
       if (isAbortError(error)) {
@@ -133,6 +138,8 @@ export class GoogleLang extends LanguageProvider {
         throw attachPartialResult(error, messageCollection);
       }
       throw error;
+    } finally {
+      report.finish();
     }
 
     messageCollection.finished = true;

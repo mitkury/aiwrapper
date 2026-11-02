@@ -1,3 +1,4 @@
+import type { UsageHandler } from "../usage.js";
 import {
   createNodeWebSocket,
   websocketURL,
@@ -27,6 +28,7 @@ export type OpenAIRealtimeTurnDetection =
     };
 
 export type OpenAIRealtimeSpeechToSpeechOptions = {
+  onUsage?: UsageHandler;
   apiKey: string;
   model?: string;
   voice?: string;
@@ -95,6 +97,10 @@ function openAIProtocolConfig(
   config: OpenAIRealtimeSpeechToSpeechConfig,
 ): OpenAICompatibleRealtimeSpeechToSpeechConfig {
   return {
+    usageProvider: "openai",
+    model: config.model,
+    transcriptionModel: config.transcriptionModel,
+    onUsage: config.onUsage,
     providerName: "OpenAI realtime",
     conversationControl: true,
     audioLabel: "OpenAI",

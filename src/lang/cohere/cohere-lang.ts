@@ -1,3 +1,5 @@
+import { UsageReport } from "../../usage.js";
+import type { UsageHandler } from "../../usage.js";
 import {
   httpRequestWithRetry as fetch,
 } from "../../http-request.js";
@@ -21,6 +23,7 @@ export type CohereLangOptions = {
   model?: string;
   systemPrompt?: string;
   maxTokens?: number;
+  onUsage?: UsageHandler;
   defaultOptions?: LangOptions;
 };
 
@@ -33,7 +36,7 @@ export class CohereLang extends LanguageProvider {
 
   constructor(options: CohereLangOptions) {
     const modelName = options.model || "command-r-plus-08-2024";
-    super(modelName, options.defaultOptions);
+    super(modelName, { ...options.defaultOptions, onUsage: options.onUsage ?? options.defaultOptions?.onUsage });
 
     // Get model info from aimodels
     const modelInfo = models.id(modelName);
@@ -103,7 +106,9 @@ export class CohereLang extends LanguageProvider {
 
     const onResult = resolvedOptions?.onResult;
     let assistantMessage: ConversationMessage | undefined;
+    const report = new UsageReport(resolvedOptions?.onUsage, "cohere", String(requestBody.model));
     const onData = (data: any) => {
+      report.observe(data);
       if (data.type === "message-end") {
         result.finished = true;
         if (assistantMessage) onResult?.(assistantMessage);
@@ -148,6 +153,8 @@ export class CohereLang extends LanguageProvider {
         throw attachPartialResult(error, result);
       }
       throw error;
+    } finally {
+      report.finish();
     }
 
     return result;

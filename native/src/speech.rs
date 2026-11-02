@@ -55,6 +55,7 @@ pub struct Transcription {
     pub usage: Option<Value>,
 }
 pub struct Speech {
+    pub on_usage: Option<UsageHandler>,
     transport: Arc<dyn HttpTransport>,
     pub api_key: String,
     pub base_url: String,
@@ -73,9 +74,22 @@ impl Speech {
         transport: Arc<dyn HttpTransport>,
     ) -> Self {
         Self {
+            on_usage: None,
             transport,
             api_key: api_key.into(),
             base_url: base_url.into(),
+        }
+    }
+    pub fn with_usage_handler(mut self, handler: UsageHandler) -> Self {
+        self.on_usage = Some(handler);
+        self
+    }
+    fn report(&self, provider: &str, model: &str, raw: Option<&Value>) {
+        if let Some(raw) = raw.filter(|u| u.is_object()) {
+            crate::usage::emit_usage(
+                &self.on_usage,
+                UsageEvent::new(provider, model, "transcription", raw.clone()),
+            );
         }
     }
     async fn send(
@@ -140,6 +154,7 @@ impl Speech {
             bytes = crate::transport::read_body(response,8*1024*1024) => bytes?,
         };
         let value: Value = serde_json::from_slice(&bytes)?;
+        self.report("openai", model, value.get("usage"));
         value["text"]
             .as_str()
             .map(str::to_owned)
@@ -176,6 +191,13 @@ impl Speech {
             bytes = crate::transport::read_body(response,8*1024*1024) => bytes?,
         };
         let value: Value = serde_json::from_slice(&bytes)?;
+        if let Some(billed) = value.get("totalBilledTime") {
+            self.report(
+                "google",
+                "speech-to-text",
+                Some(&json!({"totalBilledTime":billed})),
+            );
+        }
         Ok(value["results"]
             .as_array()
             .into_iter()
@@ -241,6 +263,7 @@ impl Speech {
             bytes = crate::transport::read_body(response, 8*1024*1024) => bytes?,
         };
         let value: Value = serde_json::from_slice(&bytes)?;
+        self.report("google", model, value.get("usageMetadata"));
         let parts = value["candidates"][0]["content"]["parts"]
             .as_array()
             .ok_or_else(|| Error::Protocol("transcription response did not include text".into()))?;
@@ -316,6 +339,21 @@ impl Speech {
                 &cancellation,
             )
             .await?;
+        if let Some(cost) = response
+            .headers
+            .get("character-cost")
+            .and_then(|c| c.parse::<f64>().ok())
+            .filter(|c| c.is_finite() && *c >= 0.0)
+        {
+            let mut event = UsageEvent::new(
+                "elevenlabs",
+                model,
+                "speech-synthesis",
+                json!({"characterCost":cost}),
+            );
+            event.request_id = response.headers.get("request-id").cloned();
+            crate::usage::emit_usage(&self.on_usage, event);
+        }
         Ok(pcm_stream(response, sample_rate, cancellation))
     }
 }

@@ -11,6 +11,7 @@ pub mod speech;
 mod stream;
 mod tools;
 mod transport;
+mod usage;
 
 pub use agent::*;
 pub use compression::*;
@@ -21,3 +22,4 @@ pub use provider::*;
 pub use tokio_util::sync::CancellationToken;
 pub use tools::*;
 pub use transport::*;
+pub use usage::*;

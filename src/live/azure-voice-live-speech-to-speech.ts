@@ -1,3 +1,4 @@
+import type { UsageHandler } from "../usage.js";
 import { createNodeWebSocket } from "../speech/realtime-websocket.js";
 import type { RealtimeSpeechWebSocketFactory } from "../speech/realtime-websocket.js";
 import {
@@ -14,6 +15,7 @@ import { speechToSpeechFunctionDeclarations } from "./live-lang-tools.js";
 export type AzureVoiceLiveVoiceType = "openai" | "azure-standard";
 
 export type AzureVoiceLiveSpeechToSpeechOptions = {
+  onUsage?: UsageHandler;
   endpoint: string;
   apiKey?: string;
   accessToken?: string;
@@ -91,6 +93,10 @@ function azureVoiceLiveProtocolConfig(
   config: AzureVoiceLiveSpeechToSpeechConfig,
 ): OpenAICompatibleRealtimeSpeechToSpeechConfig {
   return {
+    usageProvider: "azure",
+    model: config.model,
+    transcriptionModel: config.transcriptionModel,
+    onUsage: config.onUsage,
     providerName: "Azure Voice Live",
     audioLabel: "Azure Voice Live",
     url: voiceLiveURL(config),

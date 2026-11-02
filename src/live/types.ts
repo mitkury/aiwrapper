@@ -1,3 +1,4 @@
+import type { UsageHandler } from "../usage.js";
 import type {
   PcmAudioFormat,
   PcmAudioFrame,
@@ -52,6 +53,7 @@ export type LiveImageInput = {
 export type LiveToolResult = LangToolExecutionResult & { images?: LiveImageInput[] };
 
 export type SpeechToSpeechSessionOptions = {
+  onUsage?: UsageHandler;
   signal?: AbortSignal;
   instructions?: string;
   tools?: LangTool[];

@@ -91,3 +91,5 @@ export * from "./elevenlabs-realtime-speech-to-text.js";
 export * from "./openai-text-to-speech.js";
 export * from "./elevenlabs-text-to-speech.js";
 export * from "./mock.js";
+
+export type { Usage, UsageEvent, UsageHandler, UsageOptions } from "../usage.js";

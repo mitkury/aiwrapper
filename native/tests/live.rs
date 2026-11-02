@@ -976,3 +976,24 @@ async fn openai_usage_covers_cancelled_responses_and_input_transcription() {
         ]
     );
 }
+
+#[tokio::test]
+async fn usage_callback_survives_failed_responses_and_names_the_transcription_model() {
+    let fixture = SocketFixture::new(vec![
+        json!({"type":"session.updated"}),
+        json!({"type":"conversation.item.input_audio_transcription.completed","item_id":"item-1","transcript":"hi","usage":{"type":"duration","seconds":2}}),
+        json!({"type":"response.done","response":{"id":"resp-1","model":"billed-live","status":"failed","usage":{"input_tokens":10,"output_tokens":3}}}),
+    ]);
+    let reports = Arc::new(Mutex::new(vec![]));
+    let output = reports.clone();
+    let mut config = LiveConfig::new(LiveProvider::Openai, "configured-live", "key");
+    config.on_usage = Some(Arc::new(move |event| output.lock().unwrap().push(event)));
+    let mut session = config.connect_with(&fixture).await.unwrap();
+    while let Ok(Some(_)) = session.receiver.next_events().await {}
+    let reports = reports.lock().unwrap();
+    assert_eq!(reports.len(), 2);
+    assert_eq!(reports[0].model, "gpt-4o-mini-transcribe");
+    assert_eq!(reports[0].usage.counts["audioSeconds"], 2.0);
+    assert_eq!(reports[1].model, "billed-live");
+    assert_eq!(reports[1].id, "openai:live:resp-1");
+}

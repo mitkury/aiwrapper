@@ -1,3 +1,5 @@
+import { UsageReport } from "../../usage.js";
+import type { UsageHandler } from "../../usage.js";
 import {
   ConverseStreamCommand,
 } from "@aws-sdk/client-bedrock-runtime";
@@ -56,6 +58,7 @@ export type BedrockLangOptions = {
   temperature?: number;
   topP?: number;
   stopSequences?: string[];
+  onUsage?: UsageHandler;
   defaultOptions?: LangOptions;
 };
 
@@ -72,7 +75,7 @@ export class BedrockLang extends LanguageProvider {
     if (options.model.trim().length === 0) {
       throw new Error("BedrockLang requires a non-empty model ID.");
     }
-    super(options.model, options.defaultOptions);
+    super(options.model, { ...options.defaultOptions, onUsage: options.onUsage ?? options.defaultOptions?.onUsage });
     this.client = options.client;
     this.config = {
       model: options.model,
@@ -105,6 +108,7 @@ export class BedrockLang extends LanguageProvider {
 
     fixToolResultsIfNeeded(result);
     const request = this.buildRequest(result, resolvedOptions);
+    const report = new UsageReport(resolvedOptions?.onUsage, "bedrock", String(request.modelId));
     const streamHandler = new BedrockStreamHandler(
       result,
       resolvedOptions?.onResult,
@@ -121,6 +125,7 @@ export class BedrockLang extends LanguageProvider {
         throw new Error("Bedrock ConverseStream returned no response stream.");
       }
       for await (const event of response.stream) {
+        report.observe(event);
         streamHandler.handleEvent(event);
       }
       streamHandler.assertComplete();
@@ -130,6 +135,8 @@ export class BedrockLang extends LanguageProvider {
         throw attachPartialResult(error, result);
       }
       throw error;
+    } finally {
+      report.finish();
     }
 
     if (resolvedOptions?.schema) {

@@ -1,3 +1,4 @@
+import { emitUsage, type UsageHandler } from "../usage.js";
 import {
   assertPcmFrame,
   createAbortError,
@@ -34,6 +35,7 @@ export type AmazonNovaSonicInvoker = (options: {
 }) => Promise<AmazonNovaSonicInvocation>;
 
 export type AmazonNovaSonicSpeechToSpeechOptions = {
+  onUsage?: UsageHandler;
   model?: string;
   region?: string;
   voice?: string;
@@ -44,7 +46,7 @@ export type AmazonNovaSonicSpeechToSpeechOptions = {
   invoke?: AmazonNovaSonicInvoker;
 };
 
-type AmazonNovaSonicConfig = Required<AmazonNovaSonicSpeechToSpeechOptions>;
+type AmazonNovaSonicConfig = Required<Omit<AmazonNovaSonicSpeechToSpeechOptions, "onUsage">> & Pick<AmazonNovaSonicSpeechToSpeechOptions, "onUsage">;
 
 const inputFormat: PcmAudioFormat = {
   encoding: "pcm_s16le",
@@ -67,6 +69,7 @@ export class AmazonNovaSonicSpeechToSpeech
 
   constructor(options: AmazonNovaSonicSpeechToSpeechOptions = {}) {
     this.config = {
+      onUsage: options.onUsage,
       model: options.model ?? "amazon.nova-2-sonic-v1:0",
       region: options.region ?? "us-east-1",
       voice: options.voice ?? "tiffany",
@@ -288,6 +291,8 @@ class AmazonNovaSonicSession {
   }
 
   private handleEvent(event: Record<string, unknown>): void {
+    // Nova supplies per-event deltas alongside session totals. Only the deltas are additive.
+    if (event.usageEvent) emitUsage(this.session.onUsage ?? this.config.onUsage, "amazon", this.config.model, "live", event.usageEvent);
     if (event.completionStart) {
       this.seenToolCallIds.clear();
       this.responseActive = true;

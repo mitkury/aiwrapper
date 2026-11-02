@@ -19,6 +19,9 @@ serde_json = "1"
 The crate is version 0.1.0 and is not published to crates.io. Model names and
 credentials are explicit. The library never reads environment variables.
 
+Usage callbacks are described in the [usage guide](usage.md); the same optional
+handler works across language, speech and live providers.
+
 ## Inference and tools
 
 ```rust,no_run

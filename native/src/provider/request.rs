@@ -181,6 +181,20 @@ pub(super) fn build(
         body[key] = value.clone();
     }
     // Streaming is required by this decoder. Reject overrides instead of silently misreading JSON.
+    if matches!(
+        p,
+        Provider::OpenaiCompatible
+            | Provider::Groq
+            | Provider::Deepseek
+            | Provider::Kimi
+            | Provider::Xai
+            | Provider::Mistral
+            | Provider::Openrouter
+    ) && config.on_usage.is_some()
+        && body.get("stream_options").is_none()
+    {
+        body["stream_options"] = json!({"include_usage":true});
+    }
     if p != Provider::Google && body.get("stream") != Some(&json!(true)) {
         return Err(Error::Invalid("stream must remain true".into()));
     }

@@ -1,3 +1,4 @@
+import type { UsageHandler } from "../usage.js";
 import { models, type ModelCollection } from '../aimodels/index.js';
 import { OpenAILang } from "./openai/openai-lang.js";
 import type { OpenAILangOptions } from "./openai/responses/openai-responses-lang.js";
@@ -93,6 +94,7 @@ export abstract class Lang {
     maxTokens?: number;
     headers?: Record<string, string>;
     bodyProperties?: Record<string, unknown>;
+    onUsage?: UsageHandler;
     defaultOptions?: LangOptions;
   }): OpenAIChatCompletionsLang {
     return OpenAIChatCompletionsLang.custom(options);

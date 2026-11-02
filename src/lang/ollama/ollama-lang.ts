@@ -1,3 +1,5 @@
+import { UsageReport } from "../../usage.js";
+import type { UsageHandler } from "../../usage.js";
 import { LangResult, LanguageProvider } from "../language-provider.js";
 import type { LangOptions } from "../language-provider.js";
 import {
@@ -19,6 +21,7 @@ export type OllamaLangOptions = {
   systemPrompt?: string;
   maxTokens?: number;
   url?: string;
+  onUsage?: UsageHandler;
   defaultOptions?: LangOptions;
 };
 
@@ -44,7 +47,7 @@ export class OllamaLang extends LanguageProvider {
 
   constructor(options: OllamaLangOptions = {}) {
     const modelName = options.model || "llama2:latest";
-    super(modelName, options.defaultOptions);
+    super(modelName, { ...options.defaultOptions, onUsage: options.onUsage ?? options.defaultOptions?.onUsage });
 
     this._config = {
       model: modelName,
@@ -89,7 +92,9 @@ export class OllamaLang extends LanguageProvider {
     let visibleContent = "";
     let explicitReasoning = "";
 
+    const report = new UsageReport(resolvedOptions?.onUsage, "ollama", String(resolvedOptions?.providerSpecificBody?.model ?? this._config.model));
     const onData = (data: any) => {
+      report.observe(data);
       const responseMessage = data?.message;
       const contentDelta = typeof responseMessage?.content === "string"
         ? responseMessage.content
@@ -147,6 +152,8 @@ export class OllamaLang extends LanguageProvider {
         throw attachPartialResult(error, result);
       }
       throw error;
+    } finally {
+      report.finish();
     }
 
     const toolResults = await result.executeRequestedTools({

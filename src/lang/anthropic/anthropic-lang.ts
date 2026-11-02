@@ -1,3 +1,5 @@
+import { UsageReport } from "../../usage.js";
+import type { UsageHandler } from "../../usage.js";
 import {
   httpRequestWithRetry as fetch,
 } from "../../http-request.js";
@@ -41,6 +43,7 @@ export type AnthropicLangOptions = {
   systemPrompt?: string;
   maxTokens?: number;
   extendedThinking?: boolean;
+  onUsage?: UsageHandler;
   defaultOptions?: LangOptions;
 };
 
@@ -57,7 +60,7 @@ export class AnthropicLang extends LanguageProvider {
 
   constructor(options: AnthropicLangOptions) {
     const modelName = options.model || "claude-sonnet-4-6";
-    super(modelName, options.defaultOptions);
+    super(modelName, { ...options.defaultOptions, onUsage: options.onUsage ?? options.defaultOptions?.onUsage });
 
     const modelInfo = models.id(modelName);
     if (!modelInfo) {
@@ -121,6 +124,7 @@ export class AnthropicLang extends LanguageProvider {
       ...(resolvedOptions?.providerSpecificBody ?? {}),
     };
 
+    const report = new UsageReport(resolvedOptions?.onUsage, "anthropic", String(requestBody.model));
     try {
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
@@ -138,6 +142,7 @@ export class AnthropicLang extends LanguageProvider {
       const streamHandler = new AnthropicStreamHandler(result, resolvedOptions?.onResult);
 
       await processServerEvents(response, (data: any) => {
+        report.observe(data);
         streamHandler.handleEvent(data);
       }, abortSignal);
     } catch (error) {
@@ -146,6 +151,8 @@ export class AnthropicLang extends LanguageProvider {
         throw attachPartialResult(error, result);
       }
       throw error;
+    } finally {
+      report.finish();
     }
 
     result.finished = true;

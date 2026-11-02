@@ -1,3 +1,4 @@
+import { emitUsage, type UsageHandler } from "../usage.js";
 import { httpRequestWithRetry as fetch } from "../http-request.js";
 import { BufferedTranscriptionSession } from "./buffered-transcription.js";
 import type {
@@ -9,6 +10,7 @@ import type {
 
 export type OpenAISpeechToTextOptions = {
   apiKey: string;
+  onUsage?: UsageHandler;
   model?: string;
   baseURL?: string;
   prompt?: string;
@@ -74,10 +76,12 @@ export class OpenAISpeechToText implements SpeechToTextProvider {
       signal,
     });
     const data = await response.json() as {
+      usage?: unknown;
       text?: unknown;
       languages?: unknown;
       language?: unknown;
     };
+    emitUsage(this.options.onUsage, "openai", this.options.model, "transcription", data.usage, response.headers?.get("x-request-id") ?? undefined);
     if (typeof data.text !== "string") {
       throw new Error("OpenAI transcription response did not include text");
     }
