@@ -85,6 +85,31 @@ async fn gemini_transcription_preserves_encoded_audio_and_uses_the_injected_prox
     );
 }
 #[tokio::test]
+async fn gemini_transcription_of_silence_is_empty_and_other_empty_answers_fail() {
+    let fixture = common::Fixture::new(vec![
+        // Measured: 2 s of silent WebM/Opus to gemini-3.5-transcribe.
+        (
+            200,
+            r#"{"candidates":[{"finishReason":"STOP","index":0}]}"#.into(),
+        ),
+        (
+            200,
+            r#"{"candidates":[{"content":{"parts":[]},"finishReason":"STOP"}]}"#.into(),
+        ),
+        (200, r#"{"candidates":[{"finishReason":"SAFETY"}]}"#.into()),
+        (200, r#"{"promptFeedback":{"blockReason":"OTHER"}}"#.into()),
+        (200, "{not json".into()),
+    ]);
+    let speech = Speech::with_transport("key", "https://test/v1", fixture.clone());
+    let token = CancellationToken::new();
+    let transcribe = || speech.transcribe_gemini(b"clip", "audio/webm", "test", &token);
+    assert_eq!(transcribe().await.unwrap(), "");
+    assert_eq!(transcribe().await.unwrap(), "");
+    assert!(matches!(transcribe().await, Err(Error::Protocol(m)) if m.contains("SAFETY")));
+    assert!(matches!(transcribe().await, Err(Error::Protocol(_))));
+    assert!(transcribe().await.is_err());
+}
+#[tokio::test]
 async fn gemini_transcription_validates_input_before_sending_credentials() {
     let fixture = common::Fixture::new(vec![]);
     let speech = Speech::with_transport("key", "https://test/v1", fixture.clone());

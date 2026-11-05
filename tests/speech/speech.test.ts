@@ -318,6 +318,26 @@ describe("Google speech to text", () => {
     expect(await provider.transcribe(recording)).toEqual({ text: "Make a space." });
     expect(inlineData).toEqual({ mimeType: "audio/webm", data: "AQID" });
   });
+
+  it("returns empty text for silence and fails on other answers without text", async () => {
+    const answers = [
+      // Measured: 2 s of silent WebM/Opus to gemini-3.5-transcribe.
+      JSON.stringify({ candidates: [{ finishReason: "STOP", index: 0 }] }),
+      JSON.stringify({ candidates: [{ content: { parts: [] }, finishReason: "STOP" }] }),
+      JSON.stringify({ candidates: [{ finishReason: "SAFETY" }] }),
+      JSON.stringify({ promptFeedback: { blockReason: "OTHER" } }),
+      "{not json",
+    ];
+    setHttpRequestImpl(async () => new Response(answers.shift(), { headers: { "Content-Type": "application/json" } }));
+    const provider = new GoogleSpeechToText({ apiKey: "test" });
+    const recording = new Blob([new Uint8Array([1])], { type: "audio/webm" });
+
+    expect(await provider.transcribe(recording)).toEqual({ text: "" });
+    expect(await provider.transcribe(recording)).toEqual({ text: "" });
+    await expect(provider.transcribe(recording)).rejects.toThrow("finishReason SAFETY");
+    await expect(provider.transcribe(recording)).rejects.toThrow("did not include a candidate");
+    await expect(provider.transcribe(recording)).rejects.toThrow();
+  });
 });
 
 describe("OpenAI realtime speech to text", () => {
