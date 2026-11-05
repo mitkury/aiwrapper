@@ -246,11 +246,13 @@ impl Speech {
         };
         let value: Value = serde_json::from_slice(&bytes)?;
         self.report("google", model, value.get("usageMetadata"));
-        let parts = value["candidates"][0]["content"]["parts"]
+        let candidate = value["candidates"].get(0).ok_or_else(|| {
+            Error::Protocol("transcription response did not include a candidate".into())
+        })?;
+        let text: String = candidate["content"]["parts"]
             .as_array()
-            .ok_or_else(|| Error::Protocol("transcription response did not include text".into()))?;
-        let text = parts
-            .iter()
+            .into_iter()
+            .flatten()
             .filter_map(|part| {
                 part["audioTranscription"]["text"]
                     .as_str()
@@ -259,6 +261,15 @@ impl Speech {
             .collect::<String>()
             .trim()
             .into();
+        // Silent audio finishes normally with no content; any other finish
+        // without text (SAFETY, RECITATION, ...) is a failure.
+        let finish = candidate["finishReason"].as_str();
+        if text.is_empty() && finish != Some("STOP") {
+            return Err(Error::Protocol(format!(
+                "transcription response did not include text (finishReason {})",
+                finish.unwrap_or("missing")
+            )));
+        }
         Ok(text)
     }
     /// OpenAI PCM synthesis, mono 24 kHz. Drop the stream to cancel network I/O.

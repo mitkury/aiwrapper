@@ -100,19 +100,26 @@ export class GoogleSpeechToText implements SpeechToTextProvider {
     );
     const data = await response.json() as {
       usageMetadata?: unknown;
-      candidates?: { content?: { parts?: GeminiPart[] } }[];
+      candidates?: { content?: { parts?: GeminiPart[] }; finishReason?: string }[];
     };
     emitUsage(this.options.onUsage, "google", this.options.model, "transcription", data.usageMetadata, response.headers?.get("x-request-id") ?? undefined);
-    const parts = data.candidates?.[0]?.content?.parts;
-    if (!Array.isArray(parts)) {
-      throw new Error("Google transcription response did not include text");
+    const candidate = data.candidates?.[0];
+    if (!candidate) {
+      throw new Error("Google transcription response did not include a candidate");
     }
+    const rawParts = candidate.content?.parts;
+    const parts = Array.isArray(rawParts) ? rawParts : [];
     // Transcription models answer audioTranscription parts; others answer text.
     const text = parts
       .map((part) => part.audioTranscription?.text ?? part.text)
       .filter((value): value is string => typeof value === "string")
       .join("")
       .trim();
+    // Silent audio finishes normally with no content; any other finish
+    // without text (SAFETY, RECITATION, ...) is a failure.
+    if (!text && candidate.finishReason !== "STOP") {
+      throw new Error(`Google transcription response did not include text (finishReason ${candidate.finishReason ?? "missing"})`);
+    }
     return { text };
   }
 }
