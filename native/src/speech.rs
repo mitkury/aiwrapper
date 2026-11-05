@@ -362,7 +362,7 @@ fn pcm_stream(
                     pending.extend(bytes);
                     let count = pending.len()/2*2;
                     if count == 0 { continue; }
-                    let samples = pending[..count].chunks_exact(2).map(|b|i16::from_le_bytes([b[0],b[1]])).collect();
+                    let samples = pending[..count].as_chunks::<2>().0.iter().map(|b|i16::from_le_bytes(*b)).collect();
                     pending.drain(..count);
                     return Some((Ok(PcmFrame { samples,sample_rate }),(body,pending,false,cancel)));
                 }
