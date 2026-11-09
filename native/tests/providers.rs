@@ -218,6 +218,43 @@ async fn structured_output_is_validated_and_tool_arguments_are_assembled() {
     assert!(matches!(&history.messages[1].items[0],Item::Tool {arguments,..} if arguments["a"]==2));
 }
 #[tokio::test]
+async fn null_continuation_fields_and_parameterless_tools_keep_their_calls() {
+    // Continuation chunks may repeat id and name as null next to "error": null.
+    let transport = Fixture::new(vec![(
+        200,
+        sse(vec![
+            json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c","function":{"name":"add","arguments":"{\"a\":"}}]}}],"error":null}),
+            json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":null,"function":{"name":null,"arguments":"2}"}}]},"finish_reason":"tool_calls"}],"error":null}),
+        ]),
+    )]);
+    let history = transport
+        .lang(Provider::OpenaiCompatible)
+        .ask("Hi", &ChatOptions::default())
+        .await
+        .unwrap();
+    assert!(
+        matches!(&history.messages[1].items[0],Item::Tool {call_id,name,arguments,..} if call_id=="c" && name=="add" && arguments["a"]==2)
+    );
+    // Anthropic streams an empty input_json_delta for a tool without parameters.
+    let transport = Fixture::new(vec![(
+        200,
+        sse(vec![
+            json!({"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"c","name":"now","input":{}}}),
+            json!({"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":""}}),
+            json!({"type":"content_block_stop","index":0}),
+            json!({"type":"message_stop"}),
+        ]),
+    )]);
+    let history = transport
+        .lang(Provider::Anthropic)
+        .ask("Hi", &ChatOptions::default())
+        .await
+        .unwrap();
+    assert!(
+        matches!(&history.messages[1].items[0],Item::Tool {name,arguments,..} if name=="now" && arguments==&json!({}))
+    );
+}
+#[tokio::test]
 async fn malformed_streams_refusals_and_missing_pairs_are_errors() {
     for body in [
         "data: {bad}\n\n".into(),

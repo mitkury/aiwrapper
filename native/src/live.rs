@@ -430,7 +430,7 @@ impl LiveSender {
                 .await?;
         } else {
             for r in &active {
-                state.send(json!({"type":"conversation.item.create","item":{"type":"function_call_output","call_id":r.call_id,"output":r.result.to_string()}}), &self.connection.cancellation).await?;
+                state.send(json!({"type":"conversation.item.create","item":{"type":"function_call_output","call_id":r.call_id,"output":crate::provider::output_text(&r.result)}}), &self.connection.cancellation).await?;
                 if !r.images.is_empty() {
                     state.send(json!({"type":"conversation.item.create","item":{"type":"message","role":"user","content":r.images.iter().map(|image| json!({"type":"input_image","image_url":format!("data:{};base64,{}",image.mime_type,image.data)})).collect::<Vec<_>>()}}), &self.connection.cancellation).await?;
                 }

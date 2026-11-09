@@ -32,7 +32,8 @@ impl ReqwestTransport {
         Ok(Self {
             client: reqwest::Client::builder()
                 .connect_timeout(Duration::from_secs(15))
-                .timeout(Duration::from_secs(180))
+                // An idle limit, not a total deadline: streams may run for many minutes.
+                .read_timeout(Duration::from_secs(180))
                 .redirect(reqwest::redirect::Policy::none())
                 .build()?,
         })

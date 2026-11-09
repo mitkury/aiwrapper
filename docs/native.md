@@ -142,7 +142,8 @@ Gemini `contextWindowCompression` and `sessionResumption` in live settings.
 ## Injecting networking
 
 `Lang::new` uses a pooled `reqwest` client with rustls, a 15-second connect timeout,
-a 180-second request timeout and redirects disabled. `ReqwestTransport::with_client`
+a 180-second idle read timeout (long streams are not cut off) and redirects
+disabled. `ReqwestTransport::with_client`
 accepts an existing client with the host's timeout, proxy and TLS configuration.
 
 For complete ownership of networking, implement one async method:
