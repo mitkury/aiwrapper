@@ -1,7 +1,7 @@
 # AIWrapper for Rust
 
-An embeddable async library for streaming language models, tool agents, context
-compression, speech and native live voice. The crate does not start a server.
+A universal AI wrapper for Rust. One message and tool-calling API across language
+providers, with separate interfaces for live models, speech, and agents.
 
 ```toml
 [dependencies]
