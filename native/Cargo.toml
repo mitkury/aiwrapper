@@ -2,10 +2,14 @@
 name = "aiwrapper"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.88"
 license = "MIT"
 description = "Embeddable async language providers and tool agents for Rust"
 repository = "https://github.com/mitkury/aiwrapper"
+documentation = "https://docs.rs/aiwrapper"
 readme = "README.md"
+keywords = ["llm", "ai", "agents", "openai", "anthropic"]
+categories = ["api-bindings", "asynchronous", "multimedia::audio"]
 
 [dependencies]
 async-trait = "0.1"

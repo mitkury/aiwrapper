@@ -5,19 +5,24 @@ async model calls, tool loops, optional history compression, HTTP speech and
 Gemini/OpenAI live voice. It owns no HTTP listener, database, credentials store,
 WebRTC peer connection or application session registry.
 
-Use a Cargo path dependency during development, or a Git dependency pinned to a
-reviewed commit. Cargo finds the `aiwrapper` package in the workspace:
+Add the crate from crates.io:
 
 ```toml
-aiwrapper = { path = "../aiwrapper/native" }
-# Alternatively:
-# aiwrapper = { git = "https://github.com/mitkury/aiwrapper", rev = "<commit>" }
+aiwrapper = "0.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 serde_json = "1"
 ```
 
-The crate is version 0.1.0 and is not published to crates.io. Model names and
-credentials are explicit. The library never reads environment variables.
+To build against a local checkout, override it in the application's
+`.cargo/config.toml` without changing the dependency:
+
+```toml
+[patch.crates-io]
+aiwrapper = { path = "../aiwrapper/native" }
+```
+
+The crate is versioned separately from the npm package, and its API may change
+between 0.x releases. Model names and credentials are explicit. The library never reads environment variables.
 
 Usage callbacks are described in the [usage guide](usage.md); the same optional
 handler works across language, speech and live providers.

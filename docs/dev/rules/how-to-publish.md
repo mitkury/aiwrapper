@@ -19,3 +19,18 @@ Use `npm publish` directly only as a manual recovery path.
 Automated catalog updates create a patch version and dispatch `publish.yml`
 explicitly at its tag. See [dependency updates](../dependency-updates.md) for
 triggers, permissions, and recovery.
+
+## Rust crate
+
+The `native/` crate is published to crates.io by hand, separately from npm and
+with its own version. A release needs `cargo login` with a token that can
+publish `aiwrapper`.
+
+1. Check the crate: `npm run native:check`
+2. Set `version` in `native/Cargo.toml` (0.x: patch for fixes and additions,
+   minor for breaking changes) and commit it with a `ci:` prefix
+3. Check the package: `cargo publish -p aiwrapper --dry-run`
+4. Publish: `cargo publish -p aiwrapper`
+5. Tag the commit `native-v<version>` and push the tag
+
+A published version cannot be replaced. Use `cargo yank` to withdraw one.

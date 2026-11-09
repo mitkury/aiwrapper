@@ -3,11 +3,9 @@
 An embeddable async library for streaming language models, tool agents, context
 compression, speech and native live voice. The crate does not start a server.
 
-Use a path dependency during development:
-
 ```toml
 [dependencies]
-aiwrapper = { path = "../aiwrapper/native" }
+aiwrapper = "0.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -25,7 +23,8 @@ async fn main() -> aiwrapper::Result<()> {
 }
 ```
 
-See the repository's [native guide](../docs/native.md) for agents, compression,
-injected transports, frontend integration, live sessions and the compatibility
-matrix. Version 0.1 is an additive native implementation; the npm package remains
-available. This crate has not been published to crates.io.
+See the [native guide](https://github.com/mitkury/aiwrapper/blob/main/docs/native.md)
+for agents, compression, injected transports, frontend integration, live sessions
+and the compatibility matrix. The crate is versioned separately from the
+[npm package](https://www.npmjs.com/package/aiwrapper), and its API may change
+between 0.x releases.
