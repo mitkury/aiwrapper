@@ -76,8 +76,10 @@ Handlers receive a call ID, name and cancellation token. Arguments are validated
 before invocation. Tool errors become structured results. Completed results
 remain in history if another tool is cancelled. The library does not drop a
 running tool future on cancellation because it may have performed a side effect;
-handlers must cooperate. Unresolved calls require explicit results before
-resumption. AIWrapper never silently replays a tool or invents its outcome.
+handlers must cooperate. Calls not started before cancellation get an explicit
+cancelled result, so the history can resume. Calls left unresolved in history
+from elsewhere require explicit results before resumption. AIWrapper never
+silently replays a tool or invents its outcome.
 
 Set `agent.refresh_tools` to an async callback when declarations and handlers
 can change between rounds. It runs before each model request and compression

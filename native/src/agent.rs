@@ -136,7 +136,10 @@ impl ChatAgent {
                     index,
                 });
             }
-            crate::error::check_cancel(&options.cancellation)?;
+            // Tool calls continue below so each one gets an explicit cancelled result.
+            if !response.has_tools() {
+                crate::error::check_cancel(&options.cancellation)?;
+            }
             if response.role != Role::Assistant {
                 return Err(Error::Protocol(
                     "provider returned a non-assistant message".into(),
@@ -176,13 +179,17 @@ impl ChatAgent {
                     return Err(Error::Protocol("invalid or duplicate tool call".into()));
                 }
             }
+            // After cancellation, later calls are not executed but still get a
+            // truthful cancelled result, so the history stays resumable.
+            let mut stopped = false;
             for (call_id, name, arguments) in calls {
-                crate::error::check_cancel(&options.cancellation)?;
+                stopped |= options.cancellation.is_cancelled();
                 let handler = self.tools.iter().find(|t| {
                     t.definition.name == name
                         && options.tool_definitions().iter().any(|d| d.name == name)
                 });
                 let outcome = match handler {
+                    _ if stopped => Err(Error::Cancelled),
                     Some(tool) => {
                         tool.execute(
                             arguments,
@@ -232,9 +239,10 @@ impl ChatAgent {
                     message: self.conversation.messages[index].clone(),
                     index,
                 });
-                if cancelled || options.cancellation.is_cancelled() {
-                    return Err(Error::Cancelled);
-                }
+                stopped |= cancelled || options.cancellation.is_cancelled();
+            }
+            if stopped {
+                return Err(Error::Cancelled);
             }
         }
         Err(Error::IterationLimit(self.max_iterations))
