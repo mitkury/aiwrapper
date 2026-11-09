@@ -102,11 +102,14 @@ impl ChatAgent {
             self.conversation.validate()?;
             let context = if let Some(compression) = &mut self.compression {
                 let previous = compression.checkpoint.clone();
-                if compression.needs_summary(&self.conversation, &options)? {
-                    on_event(AgentEvent::Compressing);
-                }
+                // History was validated above; check and hash the checkpoint once.
                 let context = compression
-                    .prepare(self.provider.as_ref(), &self.conversation, &options)
+                    .prepare_validated(
+                        self.provider.as_ref(),
+                        &self.conversation,
+                        &options,
+                        &mut || on_event(AgentEvent::Compressing),
+                    )
                     .await?;
                 if previous != compression.checkpoint {
                     on_event(AgentEvent::Compressed {
@@ -257,8 +260,7 @@ pub(crate) fn validate_tools(tools: &[Tool]) -> Result<()> {
                 "tool names must be non-empty and unique".into(),
             ));
         }
-        jsonschema::validator_for(&tool.definition.parameters)
-            .map_err(|e| Error::Schema(e.to_string()))?;
+        tool.validator()?;
     }
     Ok(())
 }

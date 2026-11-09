@@ -2,7 +2,10 @@ use crate::{CancellationToken, Error, Result};
 use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{future::Future, sync::Arc};
+use std::{
+    future::Future,
+    sync::{Arc, Mutex},
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ToolDefinition {
@@ -19,11 +22,14 @@ pub struct ToolContext {
 }
 
 type Handler = dyn Fn(Value, ToolContext) -> BoxFuture<'static, Result<Value>> + Send + Sync;
+/// The compiled parameter schema with the schema it was compiled from.
+type CompiledSchema = Arc<Mutex<Option<(Value, Arc<jsonschema::Validator>)>>>;
 
 #[derive(Clone)]
 pub struct Tool {
     pub definition: ToolDefinition,
     handler: Arc<Handler>,
+    validator: CompiledSchema,
 }
 
 impl Tool {
@@ -44,11 +50,29 @@ impl Tool {
                 parameters,
             },
             handler: Arc::new(move |args, context| Box::pin(handler(args, context))),
+            validator: CompiledSchema::default(),
         }
+    }
+    /// Compile the parameter schema once; recompile only if `definition` changed.
+    pub(crate) fn validator(&self) -> Result<Arc<jsonschema::Validator>> {
+        let mut cache = self.validator.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((schema, validator)) = cache.as_ref()
+            && schema == &self.definition.parameters
+        {
+            return Ok(validator.clone());
+        }
+        let validator = Arc::new(
+            jsonschema::validator_for(&self.definition.parameters)
+                .map_err(|e| Error::Schema(e.to_string()))?,
+        );
+        *cache = Some((self.definition.parameters.clone(), validator.clone()));
+        Ok(validator)
     }
     pub async fn execute(&self, arguments: Value, context: ToolContext) -> Result<Value> {
         crate::error::check_cancel(&context.cancellation)?;
-        validate_schema(&self.definition.parameters, &arguments)?;
+        self.validator()?
+            .validate(&arguments)
+            .map_err(|e| Error::Schema(e.to_string()))?;
         // Do not drop a handler after it has started: it may have side effects.
         // The handler receives cancellation and must return a truthful outcome.
         (self.handler)(arguments, context).await
