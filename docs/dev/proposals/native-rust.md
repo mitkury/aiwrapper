@@ -39,10 +39,7 @@ image tool results, provider-owned tools or live interruption semantics.
 4. Add xAI and Azure live presets/protocol differences over the shared socket
    boundary. Preserve manual tool delivery, connection errors and truncation
    capabilities explicitly. Test each protocol before advertising compatibility.
-5. Finish image generation's standalone facade, the patch helper and a small
-   model-catalog interface. Generate model data from the existing catalog source;
-   avoid a second manually maintained model list. Keep catalog capabilities as
-   hints rather than claims of account access.
+5. Finish image generation's standalone facade and the patch helper.
 6. Adapt the playground's speech and live routes to a native example host. Keep
    all listeners, session registries and browser transport outside the library.
    Chat already exercises the native runtime through the existing host route.

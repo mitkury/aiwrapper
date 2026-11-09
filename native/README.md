@@ -23,6 +23,11 @@ async fn main() -> aiwrapper::Result<()> {
 }
 ```
 
+Model names stay explicit. The default `catalog` feature embeds the
+[AIModels](https://github.com/mitkury/aimodels) catalog, re-exported as
+`aiwrapper::models()`, and uses it to size output and gate reasoning parameters
+for known models.
+
 See the [native guide](https://github.com/mitkury/aiwrapper/blob/main/docs/native.md)
 for agents, compression, injected transports, frontend integration, live sessions
 and the compatibility matrix. The crate is versioned separately from the

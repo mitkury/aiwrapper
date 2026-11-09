@@ -26,9 +26,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "aimodels"
+version = "0.1.0"
+source = "git+https://github.com/mitkury/aimodels?rev=995ecb4019b667029a598248fd546c928b2c67cd#995ecb4019b667029a598248fd546c928b2c67cd"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "aiwrapper"
 version = "0.1.2"
 dependencies = [
+ "aimodels",
  "async-trait",
  "base64 0.22.1",
  "futures-util",

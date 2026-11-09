@@ -7,6 +7,9 @@ pub(super) fn build(
     options: &ChatOptions,
 ) -> Result<(String, Value)> {
     let p = config.provider;
+    let catalog = crate::catalog::lookup(config, conversation).unwrap_or_default();
+    // Size output from the catalog only when the caller sets no limit.
+    let max_tokens = options.max_tokens.or(catalog.response_tokens);
     let mut body = json!({"model":config.model, "stream":true});
     let path = match p {
         Provider::Openai => {
@@ -52,11 +55,16 @@ pub(super) fn build(
             if let Some(max) = options.max_tokens {
                 body["max_output_tokens"] = json!(max);
             }
+            // Reasoning parameters are rejected by models without reasoning, so
+            // send them only to models the catalog marks as reasoning models.
+            if catalog.can_reason {
+                body["reasoning"] = json!({"effort":"medium","summary":"auto"});
+            }
             "/responses".into()
         }
         Provider::Anthropic => {
             body["messages"] = json!(anthropic_messages(conversation)?);
-            body["max_tokens"] = json!(options.max_tokens.unwrap_or(4096));
+            body["max_tokens"] = json!(max_tokens.unwrap_or(4096));
             let instructions = conversation.instructions.clone();
             if let Some(schema) = &options.schema {
                 body["output_config"] = json!({"format":{"type":"json_schema","schema":schema}});
@@ -77,7 +85,7 @@ pub(super) fn build(
                 body["systemInstruction"] = json!({"parts":[{"text":conversation.instructions}]});
             }
             let mut generation = json!({});
-            if let Some(max) = options.max_tokens {
+            if let Some(max) = max_tokens {
                 generation["maxOutputTokens"] = json!(max);
             }
             if let Some(schema) = &options.schema {
@@ -148,7 +156,7 @@ pub(super) fn build(
             }
             body["messages"] = json!(messages);
             add_chat_tools(&mut body, options);
-            if let Some(max) = options.max_tokens {
+            if let Some(max) = max_tokens {
                 body["options"] = json!({"num_predict":max});
             }
             if let Some(schema) = &options.schema {
@@ -160,7 +168,7 @@ pub(super) fn build(
             reject_builtins(options)?;
             body["messages"] = json!(chat_messages(conversation)?);
             add_chat_tools(&mut body, options);
-            if let Some(max) = options.max_tokens {
+            if let Some(max) = max_tokens {
                 body["max_tokens"] = json!(max);
             }
             if let Some(schema) = &options.schema {

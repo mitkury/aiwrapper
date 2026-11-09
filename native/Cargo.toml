@@ -11,7 +11,13 @@ readme = "README.md"
 keywords = ["llm", "ai", "agents", "openai", "anthropic"]
 categories = ["api-bindings", "asynchronous", "multimedia::audio"]
 
+[features]
+default = ["catalog"]
+# Embedded AIModels catalog: default output limits, reasoning gating and `aiwrapper::models()`.
+catalog = ["dep:aimodels"]
+
 [dependencies]
+aimodels = { version = "0.1", git = "https://github.com/mitkury/aimodels", rev = "995ecb4019b667029a598248fd546c928b2c67cd", optional = true }
 async-trait = "0.1"
 base64 = "0.22"
 futures-util = "0.3"
