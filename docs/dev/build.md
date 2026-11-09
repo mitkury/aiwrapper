@@ -1,6 +1,14 @@
 # Build
 
-AIWrapper is an ESM package for Node.js 20+ and modern browsers. Install
+Initialize the pinned [agent guidance](../airul/README.md) when setting up a
+contributor checkout:
+
+```sh
+git submodule update --init docs/airul
+```
+
+AIWrapper builds an ESM package for Node.js 20+ and modern browsers, plus an
+independent [Rust crate](../native.md). For the TypeScript package, install
 dependencies before the first build:
 
 ```sh
@@ -24,3 +32,7 @@ by building the playground against local source.
 clean temporary consumer to verify runtime imports and TypeScript declarations.
 It needs npm registry access for dependencies. The published package contains
 `dist/`, `LICENSE`, and npm's standard package files.
+
+For the native library, use `cargo build --locked -p aiwrapper` and
+`npm run native:check`. The docs submodule is development guidance; neither the
+npm build nor the Rust build reads it.

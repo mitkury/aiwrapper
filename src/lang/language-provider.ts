@@ -1,3 +1,4 @@
+import type { UsageHandler } from "../usage.js";
 import { z } from 'zod';
 import { LangMessages } from "./messages.js";
 import type { LangMessage, LangMessageItem, LangMessageRole, LangTool } from "./messages.js";
@@ -22,6 +23,7 @@ export type {
  * Options that can be passed to language model methods
  */
 export interface LangOptions {
+  onUsage?: UsageHandler;
   schema?: LangResponseSchema;
   
   // Streaming callback

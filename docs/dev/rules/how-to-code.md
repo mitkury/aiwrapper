@@ -1,26 +1,24 @@
 # How to code here
 
-This is an npm-first ESM package for Node.js 20+ and modern browsers. Prefer
-standard web platform APIs when they keep the implementation simple.
+Apply the [shared code rules](../../airul/rules/how-to-code.md).
 
-Most source code lives in `src` and is written in TypeScript with ESM imports. Follow the existing style in the surrounding files.
+The TypeScript runtime lives in `src/` and builds an ESM package for Node.js 20+
+and modern browsers. Keep explicit `.js` extensions in relative imports;
+TypeScript resolves them to source files and preserves them in the output.
+Shared runtime code must not import Node.js built-ins or rely on unguarded Node
+globals. Keep platform-specific transports at their existing boundaries.
 
-Keep explicit `.js` extensions in relative source imports. TypeScript resolves them to `.ts` sources and preserves the correct specifiers in JavaScript and declarations.
+The Rust runtime lives in `native/`. Keep its public API async and embeddable.
+Applications supply credentials, tools, persistence and frontend transport.
+Use the existing cancellation and transport interfaces; keep servers and device
+I/O in host adapters or examples. Run the [native checks](how-to-test.md) for
+Rust changes.
 
-Prefer adding to existing provider and utility modules instead of introducing new abstractions too early. Keep the public API simple.
+Keep messages and tool results provider-neutral, with protocol fields at the
+provider edge. Do not silently invent prompts, tool results or provider
+capabilities. Preserve caller intent and return a specific error when a provider
+cannot represent a feature.
 
-Be careful with new dependencies. Since this is a wrapper library, prefer lightweight solutions and avoid adding packages when the platform or current utilities already cover the need.
-
-Public runtime code must not import Node.js built-ins or rely on unguarded Node
-globals. Keep browser and Node.js support in mind when changing shared code.
-
-Provider adapters should translate at the edge. Keep shared messages and tool
-results provider-neutral, and keep protocol field names inside the relevant
-provider module.
-
-Do not silently invent prompts, tool results, or provider capabilities. Preserve
-caller intent and fail with a specific error when a provider cannot represent a
-requested feature.
-
-Use lowercase, dash-separated names for new utility and provider files. Follow
-the established name when extending an existing public class module.
+Use lowercase, dash-separated names for new TypeScript utility and provider
+files, and follow existing Rust module names. Check both implementations when a
+change affects their shared message format or documented behavior.

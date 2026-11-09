@@ -1,3 +1,4 @@
+import type { UsageHandler } from "../usage.js";
 import {
   createNodeWebSocket,
   websocketURL,
@@ -15,6 +16,7 @@ import type {
 import { speechToSpeechFunctionDeclarations } from "./live-lang-tools.js";
 
 export type XAIVoiceSpeechToSpeechOptions = {
+  onUsage?: UsageHandler;
   apiKey: string;
   model?: string;
   voice?: string;
@@ -80,6 +82,10 @@ function xaiProtocolConfig(
   config: XAIVoiceSpeechToSpeechConfig,
 ): OpenAICompatibleRealtimeSpeechToSpeechConfig {
   return {
+    usageProvider: "xai",
+    model: config.model,
+    transcriptionModel: config.transcriptionModel,
+    onUsage: config.onUsage,
     providerName: "xAI Voice",
     audioLabel: "xAI Voice",
     url: `${websocketURL(config.baseURL, "/realtime")}?model=${encodeURIComponent(config.model)}`,

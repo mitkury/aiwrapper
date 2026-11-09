@@ -4,7 +4,8 @@ import type {
   LangMessageItemToolResult,
   ToolRequest,
 } from "./messages.js";
-import { createAbortError, isAbortError, normalizeError, throwIfAborted } from "../errors.js";
+import { isAbortError, normalizeError, throwIfAborted } from "../errors.js";
+import { validateAgainstSchema } from "./schema/schema-utils.js";
 
 export type LangToolExecutionResult = Omit<LangMessageItemToolResult, "type">;
 
@@ -36,18 +37,22 @@ export async function executeLangToolCall(
 
   let result: any;
   try {
-    result = await Promise.resolve(
-      tool.handler(call.arguments || {}, {
-        callId: call.callId,
-        name: call.name,
-        signal: options.signal,
-      }),
-    );
-    throwIfAborted(options.signal);
-  } catch (error) {
-    if (isAbortError(error) || options.signal?.aborted) {
-      throw isAbortError(error) ? normalizeError(error) : createAbortError();
+    if (!call.arguments || typeof call.arguments !== "object" || Array.isArray(call.arguments)) {
+      throw new Error(`Tool "${call.name}" arguments must be a JSON object`);
     }
+    const validation = validateAgainstSchema(call.arguments, tool.parameters);
+    if (!validation.valid) {
+      throw new Error(`Invalid arguments for tool "${call.name}": ${validation.errors.join("; ")}`);
+    }
+    // Preserve the actual outcome even if cancellation arrives during execution.
+    // Callers stop further work after recording it; cancellation cannot undo a side effect.
+    result = await tool.handler(call.arguments, {
+      callId: call.callId,
+      name: call.name,
+      signal: options.signal,
+    });
+  } catch (error) {
+    if (isAbortError(error)) throw normalizeError(error);
     const normalizedError = normalizeError(error);
     result = {
       ...Object.fromEntries(Object.entries(normalizedError)),

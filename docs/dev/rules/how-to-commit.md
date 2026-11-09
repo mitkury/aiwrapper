@@ -1,35 +1,17 @@
-# Git commits
+# Commit format
 
-Use imperative mood and a typed prefix.
+Apply the [shared commit rules](../../airul/rules/how-to-commit.md).
+Use an imperative message with a typed prefix:
 
-Examples:
+| Prefix | Change |
+| --- | --- |
+| `feat(scope):` | Product feature |
+| `fix(scope):` | Product fix |
+| `refactor(scope):` | Behavior-preserving restructuring |
+| `ci:` | Build, release or CI |
+| `tests:` | Tests |
+| `docs:` | Documentation |
+| `deps:` | Dependency update |
+| `dev:` | Developer workflow |
 
-`feat(openai): add responses API image output`
-
-`fix(lang): handle empty tool results`
-
-`ci: update release workflow`
-
-`docs: refresh README examples`
-
-`deps: update aimodels`
-
-`dev: simplify AGENTS rules`
-
-## Commit types
-
-Product feature work: `feat(scope): description`
-
-Product fixes: `fix(scope): description`
-
-Behavior-preserving restructuring: `refactor(scope): description`
-
-Build, release, and CI changes: `ci: description`
-
-Tests: `tests: description`
-
-Documentation: `docs: description`
-
-Dependency updates: `deps: description`
-
-Developer workflow and repo convenience changes: `dev: description`
+For example: `fix(native): preserve partial output on cancellation`.

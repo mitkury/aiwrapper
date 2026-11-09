@@ -94,7 +94,7 @@
 				selectedModel(),
 				messages,
 				(event) => {
-					if (abortController === controller)
+					if (abortController === controller && Array.isArray(event.messages))
 						messages = Array.from(new LangMessages(event.messages));
 				},
 				controller.signal

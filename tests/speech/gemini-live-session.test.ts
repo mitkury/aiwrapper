@@ -346,3 +346,15 @@ describe("Gemini Live application integration", () => {
     expect(socket.sent).toEqual([]);
   });
 });
+
+it("reports every Gemini billed turn through the usage callback without requiring content", async () => {
+  const socket = new Socket();
+  const reports: import("../../src/usage.ts").UsageEvent[] = [];
+  await connect(socket, { onUsage: event => { reports.push(event); } });
+  socket.receive({ usageMetadata: { promptTokenCount: 10, responseTokenCount: 2 } });
+  socket.receive({ usageMetadata: { promptTokenCount: 20, responseTokenCount: 3 } });
+  await settle();
+  expect(reports).toHaveLength(2);
+  expect(reports.map(report => report.usage.inputTokens)).toEqual([10, 20]);
+  expect(new Set(reports.map(report => report.id)).size).toBe(2);
+});

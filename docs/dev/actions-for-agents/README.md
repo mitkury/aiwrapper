@@ -1,10 +1,13 @@
 # Agent actions
 
-These are short workflows a user can invoke directly:
+Use the shared actions with the relevant [local rules](../rules/README.md):
 
-- [Be brutally critical](less-retarded.md)
-- [Tidy](tidy.md)
-- [Red-green TDD](red-green-tdd.md)
-- [Commit](commit.md)
+- [Remove](../../airul/actions/remove.md): improve through subtraction.
+- [Less wrong](../../airul/actions/less-wrong.md): fix weak code and decisions.
+- [Tidy](../../airul/actions/tidy.md): simplify while preserving behavior.
+- [Red, green, refactor](../../airul/actions/red-green-tdd.md): start with a failing test.
+- [Commit](../../airul/actions/commit.md): review, check and commit.
 
-Read the relevant files under [development rules](../rules) before acting.
+Choose validation from the [testing rules](../rules/how-to-test.md), including
+Rust or playground checks when those paths change. Existing action files in this
+directory link to the shared versions so saved prompts keep working.

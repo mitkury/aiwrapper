@@ -2,6 +2,9 @@
 
 ## Using AIWrapper
 
+- [Usage callbacks](usage.md): provider reports, normalized units and accounting boundaries
+
+- [Native Rust runtime](native.md): embedding, transport injection, compression, sandbox, compatibility
 - [Quick start](../README.md)
 - [Language providers](language-provider.md): text, structured output, images, provider setup
 - [Agents and tools](agent.md): tool loops, results, events, cancellation
@@ -16,9 +19,12 @@
 - [Testing](../tests/README.md)
 - [AIModels catalog](dev/aimodels.md)
 - [Dependency updates](dev/dependency-updates.md)
-- [Agent workflows](dev/actions-for-agents/README.md) and [development rules](dev/rules)
+- [Shared agent guidance](airul/README.md): common rules and actions
+- [Local development rules](dev/rules/README.md): repository conventions and checks
+- [Agent actions](dev/actions-for-agents/README.md): focused development workflows
 
-## Proposed, not implemented
+## Proposals and remaining work
 
+- [Complete the native Rust runtime](dev/proposals/native-rust.md)
 - [Pluggable interruption detection](dev/proposals/interruption-detection.md)
 - [Speaker verification and extraction](dev/proposals/speaker-verification-and-extraction.md)

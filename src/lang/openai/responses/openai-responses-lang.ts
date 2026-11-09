@@ -1,3 +1,5 @@
+import { UsageReport } from "../../../usage.js";
+import type { UsageHandler } from "../../../usage.js";
 import { LanguageProvider } from "../../language-provider.js";
 import type { LangOptions, LangResponseSchema } from "../../language-provider.js";
 import { LangMessage, LangMessages, fixToolResultsIfNeeded } from "../../messages.js";
@@ -21,6 +23,7 @@ export type OpenAILangOptions = {
   systemPrompt?: string;
   reasoningEffort?: "low" | "medium" | "high";
   showReasoningSummary?: boolean;
+  onUsage?: UsageHandler;
   defaultOptions?: LangOptions;
 };
 
@@ -34,7 +37,7 @@ export class OpenAIResponsesLang extends LanguageProvider {
   private showReasoningSummary: boolean;
 
   constructor(options: OpenAILangOptions) {
-    super("OpenAI Responses", options.defaultOptions);
+    super("OpenAI Responses", { ...options.defaultOptions, onUsage: options.onUsage ?? options.defaultOptions?.onUsage });
 
     this.model = options.model || "gpt-5.4";
     this.apiKey = options.apiKey;
@@ -181,16 +184,19 @@ export class OpenAIResponsesLang extends LanguageProvider {
       },
     };
 
+    const report = new UsageReport(options?.onUsage, "openai", String(body.model ?? this.model));
     const streamHandler = new OpenAIResponseStreamHandler(msgCollection, options?.onResult);
     try {
       const response = await fetch(`${this.baseURL}/responses`, req);
-      await processServerEvents(response, (data) => streamHandler.handleEvent(data), abortSignal);
+      await processServerEvents(response, (data) => { report.observe(data); streamHandler.handleEvent(data); }, abortSignal);
     } catch (error) {
       if (isAbortError(error)) {
         msgCollection.aborted = true;
         throw attachPartialResult(error, msgCollection);
       }
       throw error;
+    } finally {
+      report.finish();
     }
 
     // If we expect a structured output, validate the schema against the result

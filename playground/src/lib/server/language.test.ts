@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setHttpRequestImpl } from 'aiwrapper';
-import { languageConfig, createServerLanguageProvider } from './language';
+import { languageConfig, chatConfig, createServerLanguageProvider } from './language';
+import { nativeChat } from './native-chat';
 import { POST } from '../../routes/api/chat/+server';
 import { runChat } from '../chat';
 import { filterProviderPreferences } from '../provider-settings.svelte';
 
 const environment = vi.hoisted(() => ({
+	AIWRAPPER_RUNTIME: '',
+	AIWRAPPER_NATIVE_MOCK: '',
 	OPENROUTER_API_KEY: 'server-key',
 	OPENROUTER_MODEL: 'gpt-5-mini',
 	OLLAMA_URL: 'http://ollama.test:11434',
@@ -13,8 +16,12 @@ const environment = vi.hoisted(() => ({
 	OPENAI_COMPATIBLE_MODEL: 'local-model'
 }));
 vi.mock('$env/dynamic/private', () => ({ env: environment }));
+vi.mock('./native-chat', () => ({ nativeChat: vi.fn(() => new Response('{"done":true}\n')) }));
 
 afterEach(() => {
+	environment.AIWRAPPER_RUNTIME = '';
+	environment.AIWRAPPER_NATIVE_MOCK = '';
+	vi.clearAllMocks();
 	vi.unstubAllGlobals();
 	setHttpRequestImpl((url, options) => globalThis.fetch(url, options));
 });
@@ -39,6 +46,14 @@ function textResponse(text: string) {
 }
 
 describe('shared server credentials', () => {
+	it('makes only native mock chat available without credentials', () => {
+		environment.AIWRAPPER_NATIVE_MOCK = '1';
+		expect(chatConfig().openai.configured).toBe(false);
+		environment.AIWRAPPER_RUNTIME = 'rust';
+		expect(chatConfig().openai.configured).toBe(true);
+		expect(languageConfig().openai.configured).toBe(false);
+		expect(() => createServerLanguageProvider('openai', '')).toThrow('not configured');
+	});
 	it('reports availability and model defaults without exposing credentials', () => {
 		const config = languageConfig();
 		expect(config.openrouter).toEqual({
@@ -100,6 +115,25 @@ describe('server chat transport', () => {
 		model: 'gpt-5-mini',
 		messages: [{ role: 'user', items: [{ type: 'text', text: 'Hi' }] }]
 	};
+
+	it('routes keyless mock chat to Rust with only the permitted browser fields', async () => {
+		environment.AIWRAPPER_RUNTIME = 'rust';
+		environment.AIWRAPPER_NATIVE_MOCK = '1';
+		const response = await request({
+			...input,
+			provider: 'openai',
+			model: '',
+			apiKey: 'browser-key',
+			baseURL: 'https://untrusted.test'
+		});
+		expect(response.status).toBe(200);
+		expect(nativeChat).toHaveBeenCalledOnce();
+		expect(vi.mocked(nativeChat).mock.calls[0][0]).toEqual({
+			provider: 'openai',
+			model: languageConfig().openai.model,
+			messages: input.messages
+		});
+	});
 
 	it('streams a complete conversation using only server credentials', async () => {
 		setHttpRequestImpl(async (_url, options) => {

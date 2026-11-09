@@ -1,3 +1,4 @@
+import type { UsageHandler } from "../../usage.js";
 import type { LangOptions } from "../language-provider.js";
 import { OpenAIChatCompletionsLang } from "../openai/openai-chat-completions-lang.js";
 
@@ -11,6 +12,7 @@ export type OpenRouterLangOptions = {
   siteName?: string; // Optional. Site title for rankings on openrouter.ai
   headers?: Record<string, string>; // Additional custom headers
   bodyProperties?: Record<string, unknown>; // Additional request body properties
+  onUsage?: UsageHandler;
   defaultOptions?: LangOptions;
 };
 
@@ -33,6 +35,7 @@ export class OpenRouterLang extends OpenAIChatCompletionsLang {
     }
     
     super({
+      provider: "openrouter",
       apiKey: options.apiKey,
       model: modelName,
       systemPrompt: options.systemPrompt || "",
@@ -41,6 +44,7 @@ export class OpenRouterLang extends OpenAIChatCompletionsLang {
       baseURL: "https://openrouter.ai/api/v1",
       headers,
       bodyProperties: options.bodyProperties,
+      onUsage: options.onUsage,
       defaultOptions: options.defaultOptions,
     });
   }

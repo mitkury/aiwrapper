@@ -12,6 +12,10 @@ Requires Node.js 20+ or a modern browser. The package is ESM; browser requests
 also depend on provider CORS support. Keep long-lived API keys on your server.
 The API is evolving and may change between releases.
 
+The first [native Rust library](docs/native.md) supports backend embedding,
+streaming inference, tool agents, optional context compression and live voice.
+Run `npm run sandbox:native` to use it from the browser chat playground.
+
 ## Generate text
 
 ```ts
@@ -77,3 +81,7 @@ providers, [speech](docs/speech.md) for transcription and synthesis, or
 The [browser playground](playground/README.md) includes chat, speech, realtime
 agents, and native live voice. Start with the [documentation index](docs/README.md)
 for setup, tests, and development rules.
+
+Contributors and coding agents use [shared guidance](docs/airul/README.md) with
+[local development rules](docs/dev/rules/README.md). Initialize the docs submodule
+with `git submodule update --init docs/airul` after cloning.

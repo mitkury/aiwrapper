@@ -1,14 +1,13 @@
-# How to create pull requests
+# Pull requests
 
-Before creating or updating a pull request, read the current workflows under
-`.github/workflows`. They are the source of truth for required checks.
+Apply the [shared pull request rules](../../airul/rules/how-to-create-prs.md).
+Read the current workflows under `.github/workflows` for the required checks.
 
-Use a typed, imperative title that follows [Git commits](how-to-commit.md).
-Explain user-visible behavior changes, provider compatibility constraints, and
-which checks ran.
+Use a typed, imperative title following the [commit format](how-to-commit.md).
+Describe behavior changes, provider compatibility constraints and validation.
 
-Run `npm run check` before opening the pull request. Also run
-`npm run check:playground` when shared exports, browser compatibility, or the
-playground changed.
+Run `npm run check` before opening a pull request. Include
+`npm run native:check` for Rust changes and `npm run check:playground` when shared
+TypeScript exports, browser compatibility or the playground changed.
 
-Do not create or publish a pull request unless the user explicitly asks.
+Create or publish a pull request only when the user explicitly asks.

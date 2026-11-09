@@ -14,6 +14,9 @@ checks end in `.integration.test.ts` and are excluded from that default suite.
 | `npm run test:img-in`, `test:img-out` | Image input or output checks |
 | `npm run check` | Build, unit tests, and a clean package-consumer check |
 | `npm run check:playground` | Playground type check and production build |
+| `npm run native:check` | Rust formatting, Clippy and all deterministic Rust tests |
+| `cargo test --locked -p aiwrapper --test mock --test mock_compression` | Offline replies, tools, streaming, compression and restart scenarios |
+| `npm run native:test:sandbox` | Native example process, loopback HTTP and interactive mock tool loops |
 
 Integration tests use real, potentially billable calls. Missing credentials
 skip the corresponding tests; invalid or expired credentials cause failures.

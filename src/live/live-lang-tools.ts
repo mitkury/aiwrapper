@@ -9,6 +9,7 @@ import {
   type LangToolExecutionResult,
 } from "../lang/tool-execution.js";
 import type { SpeechToSpeechSessionOptions } from "./types.js";
+import { throwIfAborted } from "../errors.js";
 
 export type SpeechToSpeechFunctionDeclaration = Pick<
   LangToolWithHandler,
@@ -45,6 +46,7 @@ export async function executeSpeechToSpeechToolCall(
 ): Promise<LangToolExecutionResult> {
   options.onEvent?.({ type: "tool-call", call });
   let result = await executeLangToolCall(call, options.tools, { signal });
+  throwIfAborted(signal);
   try {
     result = { ...result, result: jsonSpeechToSpeechToolResult(result.result) };
   } catch (error) {

@@ -45,8 +45,14 @@ use those results. `ChatAgent` repeats automatically. Put tools on
 `LangMessages.availableTools` or pass `tools` in call options to override them
 for one request; `tools: []` disables them for that call.
 
-Handler failures become structured tool errors. `AbortError` propagates as
-cancellation; results from already completed tools remain in partial history.
+Tool call IDs must be nonempty and unique within the conversation. Missing names
+or IDs, or duplicate IDs, reject the batch before any handler runs.
+
+Arguments must be JSON objects matching the tool's parameter schema. Invalid
+arguments become tool errors before the handler runs; values are not coerced or
+filled with defaults. Handler failures also become structured tool errors.
+`AbortError` propagates as cancellation. Completed outcomes remain in partial
+history even when cancellation arrives while the handler is running.
 Handlers must honor their signal to stop work. Cancellation cannot undo a
 completed side effect.
 

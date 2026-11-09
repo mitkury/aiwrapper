@@ -1,7 +1,4 @@
-# How to write docs
+# Documentation
 
-Keep docs simple and direct.
-
-Do not over-format them. Avoid deep heading trees, large nested lists, and em dashes.
-
-Prefer short sections and concrete examples over long explanations.
+Use the [shared documentation rules](../../airul/rules/how-to-write-docs.md).
+The [documentation index](../../README.md) is the starting point for readers.

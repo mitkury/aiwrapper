@@ -1,6 +1,6 @@
 import extractJSON from "./json/extract-json.js";
 import { executeLangToolCall } from "./tool-execution.js";
-import { attachPartialResult, isAbortError } from "../errors.js";
+import { attachPartialResult, isAbortError, throwIfAborted } from "../errors.js";
 import { encodeBytesAsBase64 } from "../base64.js";
 
 export type LangMessageRole = "user" | "assistant" | "tool-results";
@@ -398,14 +398,25 @@ export class LangMessages extends Array<LangMessage> {
 
     const toolResults: LangMessageItemToolResult[] = [];
     try {
+      throwIfAborted(options.signal);
+      const seen = new Set(this.slice(0, -1).flatMap(message =>
+        message.toolRequests.map(call => call.callId)));
+      // Validate the entire batch before any handler can have side effects.
+      for (const call of toolRequests) {
+        if (typeof call.callId !== "string" || !call.callId
+          || typeof call.name !== "string" || !call.name || seen.has(call.callId)) {
+          throw new Error("Invalid or duplicate tool call");
+        }
+        seen.add(call.callId);
+      }
       for (const requestedTool of toolRequests) {
-        if (!requestedTool.name) continue;
         const executed = await executeLangToolCall(
           requestedTool,
           options.tools ?? this.availableTools ?? [],
           { signal: options.signal },
         );
         toolResults.push({ type: "tool-result", ...executed });
+        throwIfAborted(options.signal);
       }
     } catch (error) {
       if (isAbortError(error)) {

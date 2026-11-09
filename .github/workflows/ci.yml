@@ -42,3 +42,19 @@ jobs:
       - run: npm ci
       - run: npm ci --prefix playground
       - run: npm run check:playground
+
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - run: cargo test --locked --workspace
+      - run: cargo package --locked -p aiwrapper
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+      - run: npm run native:test:sandbox

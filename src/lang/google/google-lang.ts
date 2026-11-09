@@ -1,3 +1,5 @@
+import { UsageReport } from "../../usage.js";
+import type { UsageHandler } from "../../usage.js";
 import { LanguageProvider } from "../language-provider.js";
 import type { LangOptions } from "../language-provider.js";
 import { httpRequestWithRetry as fetch } from "../../http-request.js";
@@ -27,6 +29,7 @@ export type GoogleLangOptions = {
   model?: string;
   systemPrompt?: string;
   maxTokens?: number;
+  onUsage?: UsageHandler;
   defaultOptions?: LangOptions;
 };
 
@@ -39,7 +42,7 @@ export class GoogleLang extends LanguageProvider {
 
   constructor(options: GoogleLangOptions) {
     const modelName = options.model || "gemini-2.5-pro";
-    super(modelName, options.defaultOptions);
+    super(modelName, { ...options.defaultOptions, onUsage: options.onUsage ?? options.defaultOptions?.onUsage });
 
     const modelInfo = models.id(modelName);
     if (!modelInfo) {
@@ -101,6 +104,7 @@ export class GoogleLang extends LanguageProvider {
       ...(resolvedOptions?.providerSpecificBody ?? {}),
     };
 
+    const report = new UsageReport(resolvedOptions?.onUsage, "google", this._model);
     // Gemini REST v1beta doesn't yet accept responseSchema/responseMimeType; fall back to prompt
     try {
       const response = await fetch(
@@ -126,6 +130,7 @@ export class GoogleLang extends LanguageProvider {
       }
 
       const data = await response.json();
+      report.observe(data);
       this.applyCandidates(data?.candidates, messageCollection, resolvedOptions?.onResult);
     } catch (error) {
       if (isAbortError(error)) {
@@ -133,6 +138,8 @@ export class GoogleLang extends LanguageProvider {
         throw attachPartialResult(error, messageCollection);
       }
       throw error;
+    } finally {
+      report.finish();
     }
 
     messageCollection.finished = true;
@@ -375,7 +382,6 @@ export class GoogleLang extends LanguageProvider {
     if (!Array.isArray(parts) || parts.length === 0) return;
 
     const assistantMessage = new LangMessage("assistant", []);
-    let toolIndex = 0;
 
     for (const part of parts) {
       if (!part) continue;
@@ -392,18 +398,16 @@ export class GoogleLang extends LanguageProvider {
       }
       const funcCall = part.functionCall || part.function_call;
       if (funcCall) {
-        const name = funcCall.name || `function_call_${toolIndex}`;
-        const fallbackCallId = `function_call_${toolIndex++}`;
+        const name = funcCall.name;
         const callId = typeof funcCall.id === "string" && funcCall.id.length > 0
           ? funcCall.id
-          : fallbackCallId;
-        const rawArgs = funcCall.args || funcCall.arguments;
-        const args = this.parseFunctionArgs(rawArgs);
+          : crypto.randomUUID();
+        const rawArgs = funcCall.args ?? funcCall.arguments ?? {};
         const toolItem: any = {
           type: "tool",
           callId,
           name,
-          arguments: args,
+          arguments: typeof rawArgs === "string" ? JSON.parse(rawArgs) : rawArgs,
         };
         // Store thoughtSignature if present (required by Google Gemini API)
         // Google API returns thoughtSignature (camelCase) at the part level
@@ -421,16 +425,4 @@ export class GoogleLang extends LanguageProvider {
     }
   }
 
-  private parseFunctionArgs(rawArgs: any): Record<string, any> {
-    if (!rawArgs) return {};
-    if (typeof rawArgs === "object") return rawArgs;
-    if (typeof rawArgs === "string") {
-      try {
-        return JSON.parse(rawArgs);
-      } catch {
-        return {};
-      }
-    }
-    return {};
-  }
 }

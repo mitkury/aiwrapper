@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AnthropicLang } from "../../src/lang/anthropic/anthropic-lang.ts";
 import { CohereLang } from "../../src/lang/cohere/cohere-lang.ts";
 import { DeepSeekLang } from "../../src/lang/deepseek/deepseek-lang.ts";
@@ -415,8 +415,10 @@ describe("provider streaming", () => {
     expect(requestBody.tools[0].function.name).toBe("double");
   });
 
-  it("executes Ollama tool calls", async () => {
-    setHttpRequestImpl(async () => new Response(
+  it.each(["google", "ollama"])("executes %s tool calls with distinct IDs across turns", async (provider) => {
+    setHttpRequestImpl(async () => provider === "google" ? Response.json({
+      candidates: [{ content: { parts: [{ functionCall: { name: "double", args: { value: 21 } } }] } }],
+    }) : new Response(
       '{"message":{"role":"assistant","tool_calls":[{"function":{"name":"double","arguments":{"value":21}}}]},"done":true}',
       {
         status: 200,
@@ -436,17 +438,44 @@ describe("provider streaming", () => {
       handler: ({ value }) => value * 2,
     }];
 
-    const result = await new OllamaLang({ model: "local-test-model" }).chat(messages);
+    const lang = provider === "google"
+      ? new GoogleLang({ apiKey: "test", model: "gemini-2.5-pro" })
+      : new OllamaLang({ model: "local-test-model" });
+    const result = await lang.chat(messages);
 
     expect(result[result.length - 2].toolRequests).toEqual([
       {
         type: "tool",
-        callId: "ollama_tool_0",
+        callId: expect.any(String),
         name: "double",
         arguments: { value: 21 },
       },
     ]);
     expect(result[result.length - 1].toolResults[0].result).toBe(42);
+    const continued = await lang.chat(result);
+    const ids = continued.flatMap(message => message.toolRequests.map(call => call.callId));
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+    expect(continued.at(-1)?.toolResults[0].result).toBe(42);
+  });
+
+  it.each(["google", "ollama"])("rejects malformed %s tool JSON instead of executing with empty arguments", async (provider) => {
+    setHttpRequestImpl(async () => provider === "google" ? Response.json({
+      candidates: [{ content: { parts: [{ functionCall: { name: "work", args: "{broken" } }] } }],
+    }) : new Response(JSON.stringify({
+      message: { tool_calls: [{ function: { name: "work", arguments: "{broken" } }] },
+      done: true,
+    })));
+    const handler = vi.fn(() => "done");
+    const messages = new LangMessages("Run", {
+      tools: [{ name: "work", description: "Work", parameters: {}, handler }],
+    });
+    const lang = provider === "google"
+      ? new GoogleLang({ apiKey: "test", model: "gemini-2.5-pro" })
+      : new OllamaLang({ model: "local-test-model" });
+
+    await expect(lang.chat(messages)).rejects.toThrow();
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it("uses the shared OpenAI-compatible reasoning handler for DeepSeek", () => {

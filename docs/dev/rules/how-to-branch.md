@@ -1,13 +1,10 @@
-# How to branch
+# Branch conventions
 
-Do not create a branch automatically for every task.
+Apply the [shared branch rules](../../airul/rules/how-to-branch.md).
+Stay on the current branch for focused fixes, documentation, tests and cleanup
+unless the user requests another branch.
 
-Stay on the current branch for focused fixes, docs, tests, and cleanup unless
-the user asks for a separate branch. Ask before branching for a broad refactor,
-risky public API change, or long-running feature.
-
-When a new standalone branch is requested, start from an up-to-date
-`origin/main` unless the user names another base. Use a short descriptive prefix
-such as `feat/`, `fix/`, `refactor/`, or the environment's required agent prefix.
-
+For a new standalone branch, use an up-to-date `origin/main` unless the user
+names another base. Use the user's requested name or the environment's required
+prefix; otherwise choose a short descriptive `feat/`, `fix/` or `refactor/` name.
 Pull requests normally target `main`.

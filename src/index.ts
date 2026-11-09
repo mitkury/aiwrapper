@@ -23,3 +23,6 @@ export {
   type HttpResponseWithRetries,
   type HttpResponseOnErrorAction,
 } from "./http-request.js";
+
+export { normalizeUsage } from "./usage.js";
+export type { Usage, UsageEvent, UsageHandler } from "./usage.js";

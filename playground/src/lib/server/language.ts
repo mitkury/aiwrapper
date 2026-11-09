@@ -43,6 +43,15 @@ export function languageConfig() {
 	) as Record<ProviderId, { configured: boolean; environmentKey?: string; model: string }>;
 }
 
+/** Only native chat can run offline; speech/live still need real providers. */
+export function chatConfig() {
+	const config = languageConfig();
+	if (env.AIWRAPPER_RUNTIME === 'rust' && env.AIWRAPPER_NATIVE_MOCK === '1') {
+		for (const provider of Object.values(config)) provider.configured = true;
+	}
+	return config;
+}
+
 export function createServerLanguageProvider(
 	providerId: ProviderId,
 	model: string,

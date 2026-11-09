@@ -1,3 +1,4 @@
+import type { UsageHandler } from "../../usage.js";
 import { OpenAIChatCompletionsLang } from "../openai/openai-chat-completions-lang.js";
 import type { LangOptions } from "../language-provider.js";
 import { models } from '../../aimodels/index.js';
@@ -7,6 +8,7 @@ export type DeepSeekLangOptions = {
   model?: string;
   systemPrompt?: string;
   maxTokens?: number;
+  onUsage?: UsageHandler;
   defaultOptions?: LangOptions;
 };
 
@@ -14,11 +16,13 @@ export class DeepSeekLang extends OpenAIChatCompletionsLang {
   constructor(options: DeepSeekLangOptions) {
     const modelName = options.model || "deepseek-chat";
     super({
+      provider: "deepseek",
       apiKey: options.apiKey,
       model: modelName,
       systemPrompt: options.systemPrompt || "",
       maxTokens: options.maxTokens,
       baseURL: "https://api.deepseek.com/v1",
+      onUsage: options.onUsage,
       defaultOptions: options.defaultOptions,
     });
   }

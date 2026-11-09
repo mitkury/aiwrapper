@@ -1,3 +1,4 @@
+import { emitUsage, type UsageHandler } from "../usage.js";
 import {
   assertPcmFrame,
   createAbortError,
@@ -37,6 +38,10 @@ type SocketEvent = {
 };
 
 export type OpenAICompatibleRealtimeSpeechToSpeechConfig = {
+  usageProvider?: string;
+  model?: string;
+  transcriptionModel?: string;
+  onUsage?: UsageHandler;
   providerName: string;
   audioLabel: string;
   url: string;
@@ -322,6 +327,17 @@ class OpenAICompatibleRealtimeSpeechToSpeechSession {
     const text = await socketDataToText(data);
     if (this.state === "closed") return;
     const event = JSON.parse(text) as Record<string, unknown>;
+    const typeForUsage = event.type;
+    const responseForUsage = event.response as { id?: string; model?: string; usage?: unknown } | undefined;
+    const providerForUsage = this.provider.usageProvider ?? "openai-compatible";
+    const handler = this.session.onUsage ?? this.provider.onUsage;
+    if (typeForUsage === "response.done") emitUsage(handler, providerForUsage, responseForUsage?.model ?? this.provider.model ?? "unknown", "live", responseForUsage?.usage, responseForUsage?.id,
+      responseForUsage?.id ? `${providerForUsage}:live:${responseForUsage.id}` : undefined);
+    if (typeForUsage === "conversation.item.input_audio_transcription.completed") {
+      const id = typeof event.item_id === "string" ? event.item_id : undefined;
+      emitUsage(handler, providerForUsage, this.provider.transcriptionModel ?? "unknown", "transcription", event.usage, id, id ? `${providerForUsage}:transcription:${id}` : undefined);
+    }
+
     const type = typeof event.type === "string" ? event.type : "";
 
     if (type === "session.updated") {

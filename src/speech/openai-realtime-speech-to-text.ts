@@ -1,3 +1,4 @@
+import { emitUsage, type UsageHandler } from "../usage.js";
 import {
   assertPcmFrame,
   createAbortError,
@@ -30,6 +31,7 @@ type SocketEvent = { data?: unknown; error?: unknown };
 
 export type OpenAIRealtimeSpeechToTextOptions = {
   apiKey: string;
+  onUsage?: UsageHandler;
   model?: string;
   baseURL?: string;
   prompt?: string;
@@ -315,6 +317,8 @@ class OpenAIRealtimeSpeechToTextSession implements SpeechToTextSession {
       return;
     }
     if (type === "conversation.item.input_audio_transcription.completed") {
+      const id = typeof event.item_id === "string" ? event.item_id : undefined;
+      emitUsage(this.provider.onUsage, "openai", this.provider.model, "transcription", event.usage, id, id ? `openai:transcription:${id}` : undefined);
       if (typeof event.transcript !== "string") {
         this.fail(
           new Error(

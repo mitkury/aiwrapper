@@ -1,3 +1,4 @@
+import { emitUsage, type UsageHandler } from "../usage.js";
 import {
   assertPcmFrame,
   createAbortError,
@@ -60,6 +61,7 @@ export type GeminiLiveSessionConfig = {
 };
 
 export type GeminiLiveSpeechToSpeechOptions = {
+  onUsage?: UsageHandler;
   apiKey: string;
   model?: string;
   voice?: string;
@@ -325,6 +327,7 @@ class GeminiLiveSpeechToSpeechSession {
     const text = await socketDataToText(data);
     if (this.state === "closed") return;
     const message = JSON.parse(text) as Record<string, unknown>;
+    emitUsage(this.session.onUsage ?? this.provider.onUsage, "google", this.provider.model, "live", message.usageMetadata);
     const providerError = message.error as { message?: unknown } | undefined;
     if (providerError) {
       this.fail(

@@ -1,3 +1,4 @@
+import type { UsageHandler } from "../../usage.js";
 import type { LangOptions } from "../language-provider.js";
 import { OpenAIChatCompletionsLang } from "../openai/openai-chat-completions-lang.js";
 
@@ -14,6 +15,7 @@ export type KimiLangOptions = {
   promptCacheKey?: string;
   safetyIdentifier?: string;
   bodyProperties?: Record<string, unknown>;
+  onUsage?: UsageHandler;
   defaultOptions?: LangOptions;
 };
 
@@ -22,6 +24,7 @@ export class KimiLang extends OpenAIChatCompletionsLang {
     const modelName = options.model || "kimi-k2.5";
 
     super({
+      provider: "kimi",
       apiKey: options.apiKey,
       model: modelName,
       systemPrompt: options.systemPrompt || "",
@@ -33,6 +36,7 @@ export class KimiLang extends OpenAIChatCompletionsLang {
         ...(options.promptCacheKey ? { prompt_cache_key: options.promptCacheKey } : {}),
         ...(options.safetyIdentifier ? { safety_identifier: options.safetyIdentifier } : {}),
       },
+      onUsage: options.onUsage,
       defaultOptions: options.defaultOptions,
     });
   }

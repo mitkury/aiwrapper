@@ -1,7 +1,35 @@
 # Dependency updates
 
 AIModels is a pinned Git submodule whose compiled catalog ships inside
-AIWrapper. Other dependencies use normal npm updates and review.
+AIWrapper. Shared agent guidance is pinned separately under `docs/airul/`.
+Runtime dependencies use the npm and Cargo manifests and lockfiles.
+
+## Shared agent guidance
+
+The [airul repository](https://github.com/mitkury/airul) supplies shared rules
+and actions through the `docs/airul/` submodule. Local conventions live in
+[development rules](rules/README.md) and take precedence. Keep repository-specific
+guidance there instead of editing the shared checkout.
+
+Initialize the recorded revision from the repository root:
+
+```sh
+git submodule update --init docs/airul
+```
+
+To adopt a newer upstream revision, first check that the submodule has no local
+changes, then update and review it:
+
+```sh
+git -C docs/airul status --short
+git submodule update --remote docs/airul
+git diff --submodule=log -- docs/airul
+```
+
+Reconcile changed guidance with the local rules, verify documentation links, and
+commit the new submodule pointer with any local documentation changes. Ordinary
+checkout and initialization use the recorded commit, not the latest upstream
+revision. Documentation updates do not require a package release.
 
 ## Catalog automation
 

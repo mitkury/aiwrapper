@@ -1,3 +1,4 @@
+import { emitUsage, type UsageHandler } from "../usage.js";
 import { httpRequestWithRetry as fetch } from "../http-request.js";
 import {
   createAbortError,
@@ -32,6 +33,7 @@ export type ElevenLabsVoiceSettings = {
 };
 
 export type ElevenLabsTextToSpeechOptions = {
+  onUsage?: UsageHandler;
   apiKey?: string;
   singleUseToken?: string;
   voiceId: string;
@@ -111,6 +113,10 @@ export class ElevenLabsTextToSpeech implements TextToSpeechProvider {
       signal: options.signal,
     });
 
+    const cost = response.headers?.get("character-cost");
+    if (cost !== null && cost !== undefined && cost.trim() !== "" && Number.isFinite(Number(cost)) && Number(cost) >= 0) {
+      emitUsage(this.options.onUsage, "elevenlabs", String(this.options.bodyProperties?.model_id ?? this.model), "speech-synthesis", { characterCost: Number(cost) }, response.headers.get("request-id") ?? undefined);
+    }
     yield* responsePcmFrames(response, this.outputFormat, options.signal);
   }
 

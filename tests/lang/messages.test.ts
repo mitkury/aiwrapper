@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   fixToolResultsIfNeeded,
   LangMessage,
@@ -74,6 +74,90 @@ describe("LangMessages copying", () => {
 });
 
 describe("LangMessages tool execution", () => {
+  it.each([null, false, 0, [], {}, { amount: "5" }, { amount: -1 }, { amount: 5, extra: true }].map(args => ({ args })))(
+    "rejects invalid arguments $args before running a handler",
+    async ({ args }) => {
+      const handler = vi.fn(() => "paid");
+      const messages = new LangMessages("Pay", {
+        tools: [{
+          name: "pay",
+          description: "Pay an amount",
+          parameters: {
+            type: "object",
+            properties: { amount: { type: "integer", minimum: 1 } },
+            required: ["amount"],
+            additionalProperties: false,
+          },
+          handler,
+        }],
+      });
+      messages.addAssistantItems([{
+        type: "tool", name: "pay", callId: "payment", arguments: args as any,
+      }]);
+
+      const result = await messages.executeRequestedTools();
+
+      expect(handler).not.toHaveBeenCalled();
+      expect(result?.toolResults[0]).toMatchObject({
+        callId: "payment", name: "pay", result: { error: true },
+      });
+    },
+  );
+
+  it.each([false, true])("rejects duplicate call IDs before side effects (previous turn: %s)", async (previousTurn) => {
+    const handler = vi.fn(() => "done");
+    const messages = new LangMessages("Run", {
+      tools: [{ name: "work", description: "Work", parameters: {}, handler }],
+    });
+    const call = { type: "tool" as const, name: "work", callId: "duplicate", arguments: {} };
+    if (previousTurn) {
+      messages.addAssistantItems([call]);
+      messages.addToolResultsMessage([{
+        type: "tool-result", callId: call.callId, name: call.name, result: "already done",
+      }]);
+      messages.addUserMessage("Continue");
+    }
+    messages.addAssistantItems(previousTurn
+      ? [{ ...call, callId: "new-call" }, call]
+      : [call, call]);
+
+    await expect(messages.executeRequestedTools()).rejects.toThrow("duplicate tool call");
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { fails: false, later: false },
+    { fails: true, later: false },
+    { fails: false, later: true },
+    { fails: true, later: true },
+  ])("retains the actual outcome when cancellation races completion: %j", async ({ fails, later }) => {
+    const controller = new AbortController();
+    const handler = vi.fn(() => {
+      controller.abort();
+      if (fails) throw new Error("write failed");
+      return { saved: true };
+    });
+    const messages = new LangMessages("Save", {
+      tools: [{ name: "save", description: "Save", parameters: {}, handler }],
+    });
+    messages.addAssistantItems([
+      { type: "tool", name: "save", callId: "first", arguments: {} },
+      ...(later ? [{ type: "tool" as const, name: "save", callId: "later", arguments: {} }] : []),
+    ]);
+
+    await expect(messages.executeRequestedTools({ signal: controller.signal }))
+      .rejects.toMatchObject({ name: "AbortError", partialResult: messages });
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(messages.aborted).toBe(true);
+    expect(messages.at(-1)?.toolResults).toEqual([{
+      type: "tool-result", callId: "first", name: "save",
+      result: fails
+        ? { error: true, name: "Error", message: "write failed" }
+        : { saved: true },
+    }]);
+  });
+
   it("returns null when the last assistant message has no tool request", async () => {
     const messages = new LangMessages();
     messages.addAssistantMessage("No tools needed");

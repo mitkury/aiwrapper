@@ -5,6 +5,8 @@
 	let { data }: { data: PageData } = $props();
 </script>
 
+<p class="px-4 pt-3 text-xs text-gray-500">Chat runtime: {data.runtime}</p>
+
 <ProviderPreferences>
 	<ChatApp providers={data.providers} />
 </ProviderPreferences>

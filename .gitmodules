@@ -2,3 +2,7 @@
 	path = aimodels
 	url = https://github.com/mitkury/aimodels.git
 	branch = main
+[submodule "docs/airul"]
+	path = docs/airul
+	url = https://github.com/mitkury/airul.git
+	branch = main
