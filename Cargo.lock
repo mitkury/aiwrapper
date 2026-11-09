@@ -28,7 +28,8 @@ dependencies = [
 [[package]]
 name = "aimodels"
 version = "0.1.0"
-source = "git+https://github.com/mitkury/aimodels?rev=995ecb4019b667029a598248fd546c928b2c67cd#995ecb4019b667029a598248fd546c928b2c67cd"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37e9cb3117ce7401d856e4da038d67bc8a106305f09929fe0df26d56990b7fb9"
 dependencies = [
  "serde",
  "serde_json",
