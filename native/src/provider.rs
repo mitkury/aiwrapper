@@ -198,21 +198,13 @@ impl Lang {
         let index = conversation.messages.len();
         let result = self
             .complete(&input, options, &mut |message| {
-                if conversation.messages.len() == index {
-                    conversation.messages.push(message.clone());
-                } else {
-                    conversation.messages[index] = message.clone();
-                }
+                crate::messages::put_message(&mut conversation.messages, index, message.clone());
                 on_update(message);
             })
             .await;
         match result {
             Ok(message) => {
-                if conversation.messages.len() == index {
-                    conversation.messages.push(message);
-                } else {
-                    conversation.messages[index] = message;
-                }
+                crate::messages::put_message(&mut conversation.messages, index, message);
                 conversation.finished = true;
                 Ok(())
             }
@@ -234,9 +226,13 @@ impl LanguageProvider for Lang {
     ) -> Result<Message> {
         crate::error::check_cancel(&options.cancellation)?;
         conversation.validate()?;
-        if let Some(schema) = &options.schema {
-            jsonschema::validator_for(schema).map_err(|e| Error::Schema(e.to_string()))?;
-        }
+        let output_schema = options
+            .schema
+            .as_ref()
+            .map(|schema| {
+                jsonschema::validator_for(schema).map_err(|e| Error::Schema(e.to_string()))
+            })
+            .transpose()?;
         let (path, body) = request::build(&self.config, conversation, options)?;
         let mut headers = BTreeMap::from([
             ("content-type".into(), "application/json".into()),
@@ -317,10 +313,12 @@ impl LanguageProvider for Lang {
             crate::error::check_cancel(&options.cancellation)?;
             let message = decoder.finish()?;
             if !message.has_tools()
-                && let Some(schema) = &options.schema
+                && let Some(validator) = &output_schema
             {
                 let value: Value = serde_json::from_str(&message.answer())?;
-                crate::tools::validate_schema(schema, &value)?;
+                validator
+                    .validate(&value)
+                    .map_err(|e| Error::Schema(e.to_string()))?;
             }
             return Ok(message);
         }
@@ -328,6 +326,15 @@ impl LanguageProvider for Lang {
     }
 }
 
+/// Gemini requires an object response; other JSON values are wrapped.
+pub(crate) fn google_function_response(call_id: &str, name: &str, result: &Value) -> Value {
+    let response = if result.is_object() {
+        result.clone()
+    } else {
+        json!({"result":result})
+    };
+    json!({"id":call_id,"name":name,"response":response})
+}
 pub(crate) fn output_text(value: &Value) -> String {
     value
         .as_str()

@@ -416,7 +416,8 @@ impl LiveSender {
         }
         if self.provider == LiveProvider::Google {
             let responses: Vec<_> = active.iter().map(|r| {
-                let mut response = json!({"id":r.call_id,"name":r.name,"response":if r.result.is_object() {r.result.clone()} else {json!({"result":r.result})}});
+                let mut response =
+                    crate::provider::google_function_response(&r.call_id, &r.name, &r.result);
                 if !r.images.is_empty() {
                     response["parts"] = json!(r.images.iter().map(|image| json!({"inlineData":{"mimeType":image.mime_type,"data":image.data}})).collect::<Vec<_>>());
                 }
@@ -823,12 +824,7 @@ impl LiveState {
         }
         self.events.push_back(LiveEvent::Audio {
             frame: PcmFrame {
-                samples: bytes
-                    .as_chunks::<2>()
-                    .0
-                    .iter()
-                    .map(|b| i16::from_le_bytes(*b))
-                    .collect(),
+                samples: crate::speech::pcm_samples(&bytes),
                 sample_rate: 24000,
             },
             item_id: value["item_id"].as_str().map(str::to_owned),

@@ -344,6 +344,15 @@ impl Speech {
         Ok(pcm_stream(response, sample_rate, cancellation))
     }
 }
+/// Little-endian 16-bit samples; callers reject or retain an odd trailing byte.
+pub(crate) fn pcm_samples(bytes: &[u8]) -> Vec<i16> {
+    bytes
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|b| i16::from_le_bytes(*b))
+        .collect()
+}
 fn pcm_stream(
     response: HttpResponse,
     sample_rate: u32,
@@ -362,7 +371,7 @@ fn pcm_stream(
                     pending.extend(bytes);
                     let count = pending.len()/2*2;
                     if count == 0 { continue; }
-                    let samples = pending[..count].as_chunks::<2>().0.iter().map(|b|i16::from_le_bytes(*b)).collect();
+                    let samples = pcm_samples(&pending[..count]);
                     pending.drain(..count);
                     return Some((Ok(PcmFrame { samples,sample_rate }),(body,pending,false,cancel)));
                 }

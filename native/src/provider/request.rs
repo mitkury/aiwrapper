@@ -180,7 +180,6 @@ pub(super) fn build(
     for (key, value) in config.body.iter().chain(&options.body) {
         body[key] = value.clone();
     }
-    // Streaming is required by this decoder. Reject overrides instead of silently misreading JSON.
     if matches!(
         p,
         Provider::OpenaiCompatible
@@ -195,6 +194,7 @@ pub(super) fn build(
     {
         body["stream_options"] = json!({"include_usage":true});
     }
+    // Streaming is required by this decoder. Reject overrides instead of silently misreading JSON.
     if p != Provider::Google && body.get("stream") != Some(&json!(true)) {
         return Err(Error::Invalid("stream must remain true".into()));
     }
@@ -434,7 +434,7 @@ fn google_messages(conversation: &Conversation) -> Result<Vec<Value>> {
                     name,
                     result,
                 } => {
-                    let mut response = json!({"id":call_id,"name":name,"response":if result.is_object() {result.clone()} else {json!({"result":result})}});
+                    let mut response = google_function_response(call_id, name, result);
                     if let Some(parts) = parts(result) {
                         let mut texts = vec![];
                         let mut images = vec![];

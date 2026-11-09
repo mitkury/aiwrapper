@@ -184,6 +184,15 @@ impl Conversation {
     }
 }
 
+/// Write a streamed snapshot or final message at `index`, appending the first time.
+pub(crate) fn put_message(messages: &mut Vec<Message>, index: usize, message: Message) {
+    if messages.len() == index {
+        messages.push(message);
+    } else {
+        messages[index] = message;
+    }
+}
+
 pub(crate) fn image_url(
     url: &Option<String>,
     base64: &Option<String>,

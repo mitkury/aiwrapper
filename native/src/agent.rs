@@ -122,11 +122,7 @@ impl ChatAgent {
             let response = self
                 .provider
                 .complete(&context, &options, &mut |message| {
-                    if messages.len() == index {
-                        messages.push(message.clone());
-                    } else {
-                        messages[index] = message.clone();
-                    }
+                    crate::messages::put_message(messages, index, message.clone());
                     on_event(AgentEvent::Streaming {
                         message: message.clone(),
                         index,
@@ -134,11 +130,7 @@ impl ChatAgent {
                 })
                 .await?;
             if messages.get(index) != Some(&response) {
-                if messages.len() == index {
-                    messages.push(response.clone());
-                } else {
-                    messages[index] = response.clone();
-                }
+                crate::messages::put_message(messages, index, response.clone());
                 on_event(AgentEvent::Streaming {
                     message: response.clone(),
                     index,
