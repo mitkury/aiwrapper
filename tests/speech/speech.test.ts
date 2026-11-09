@@ -278,6 +278,32 @@ describe("OpenAI speech to text", () => {
       "cannot accept 24000 Hz without resampling",
     );
   });
+
+  it("ignores late transcripts after closing a buffered session", async () => {
+    let releaseResponse!: () => void;
+    const responseReady = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
+    setHttpRequestImpl(async () => {
+      await responseReady;
+      return Response.json({ text: "late transcript" });
+    });
+    const events: unknown[] = [];
+    const session = await new OpenAISpeechToText({ apiKey: "test" }).createSession({
+      onTranscript: (event) => events.push(event),
+    });
+    await session.appendAudio(frame([1], 16000));
+
+    const pending = session.commit();
+    await session.close();
+    releaseResponse();
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(events).toEqual([]);
+    await expect(session.appendAudio(frame([2], 16000))).rejects.toThrow(
+      "session is closed",
+    );
+  });
 });
 
 describe("Google speech to text", () => {

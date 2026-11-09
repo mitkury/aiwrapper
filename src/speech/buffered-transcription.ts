@@ -72,26 +72,26 @@ export class BufferedTranscriptionSession implements SpeechToTextSession {
     if (this.sampleRate === undefined || this.audioBytes === 0) {
       throw new Error("Cannot transcribe an empty audio session");
     }
+    const { signal } = this.controller;
+    throwIfAborted(signal);
     this.state = "finishing";
-    throwIfAborted(this.controller.signal);
 
     try {
       const result = await this.provider.transcribe(
         encodeMonoPcmAsWav(this.chunks, this.sampleRate),
-        this.controller.signal,
+        signal,
       );
+      throwIfAborted(signal);
       this.session.onTranscript?.({ type: "final", ...result });
-      if (final) {
-        this.state = "finished";
-      } else {
+      if (!this.isClosed) {
         this.chunks.length = 0;
         this.sampleRate = undefined;
         this.audioBytes = 0;
-        this.state = "open";
+        this.state = final ? "finished" : "open";
       }
       return result;
     } catch (error) {
-      if (!final) this.state = "open";
+      if (!final && !this.isClosed) this.state = "open";
       throw error;
     } finally {
       if (final) this.unlinkAbort();
@@ -99,11 +99,15 @@ export class BufferedTranscriptionSession implements SpeechToTextSession {
   }
 
   async close(): Promise<void> {
-    if (this.state === "closed") return;
+    if (this.isClosed) return;
     this.state = "closed";
     this.controller.abort();
     this.unlinkAbort();
     this.chunks.length = 0;
+  }
+
+  private get isClosed(): boolean {
+    return this.state === "closed";
   }
 
   private assertOpen(): void {
