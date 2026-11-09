@@ -30,7 +30,7 @@ impl Decoder {
         value: Value,
         update: &mut (dyn for<'m> FnMut(&'m Message) + Send),
     ) -> Result<()> {
-        if let Some(error) = value.get("error") {
+        if let Some(error) = value.get("error").filter(|e| !e.is_null()) {
             return Err(Error::Protocol(error.to_string()));
         }
         if value["type"] == "error" {
@@ -56,16 +56,7 @@ impl Decoder {
             ));
         }
         for (index, call) in &self.calls {
-            let raw = self
-                .arguments
-                .get(index)
-                .map(String::as_str)
-                .unwrap_or("{}");
-            let arguments: Value = if raw.trim().is_empty() {
-                json!({})
-            } else {
-                serde_json::from_str(raw)?
-            };
+            let arguments = parse_arguments(self.arguments.get(index).map_or("", String::as_str))?;
             if !arguments.is_object() {
                 return Err(Error::Protocol("tool arguments must be an object".into()));
             }
@@ -153,11 +144,10 @@ impl Decoder {
             for call in calls {
                 let index = call["index"].as_u64().unwrap_or(0) as usize;
                 let entry = self.calls.entry(index).or_insert_with(|| json!({}));
-                if let Some(id) = call.get("id") {
-                    entry["id"] = id.clone();
-                }
-                if let Some(name) = call["function"].get("name") {
-                    entry["name"] = name.clone();
+                for (key, value) in [("id", &call["id"]), ("name", &call["function"]["name"])] {
+                    if value.as_str().is_some_and(|s| !s.is_empty()) {
+                        entry[key] = value.clone();
+                    }
                 }
                 if let Some(args) = call["function"]["arguments"].as_str() {
                     self.arguments.entry(index).or_default().push_str(args);
@@ -277,7 +267,7 @@ impl Decoder {
             "content_block_stop" => {
                 if let Some(raw) = self.arguments.remove(&index) {
                     self.blocks.entry(index).or_insert_with(|| json!({}))["input"] =
-                        serde_json::from_str(&raw)?;
+                        parse_arguments(&raw)?;
                 }
             }
             "message_delta" => {
@@ -430,6 +420,14 @@ impl Decoder {
             _ => {}
         }
         Ok(())
+    }
+}
+/// Streamed tool arguments; a tool without parameters may stream nothing at all.
+fn parse_arguments(raw: &str) -> Result<Value> {
+    if raw.trim().is_empty() {
+        Ok(json!({}))
+    } else {
+        Ok(serde_json::from_str(raw)?)
     }
 }
 fn required(value: &Value, key: &str) -> Result<String> {

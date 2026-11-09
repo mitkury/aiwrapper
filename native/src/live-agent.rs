@@ -258,7 +258,7 @@ impl LiveAgent {
                 "tool id already belongs to an earlier connection".into(),
             ));
         }
-        if self.pending.len() >= self.max_pending || self.seen.len() >= 16_384 {
+        if self.pending.len() >= self.max_pending {
             return Err(Error::Protocol("live agent tool capacity reached".into()));
         }
         let cancellation = self.cancellation.child_token();

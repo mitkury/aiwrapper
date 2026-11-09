@@ -102,11 +102,14 @@ impl ChatAgent {
             self.conversation.validate()?;
             let context = if let Some(compression) = &mut self.compression {
                 let previous = compression.checkpoint.clone();
-                if compression.needs_summary(&self.conversation, &options)? {
-                    on_event(AgentEvent::Compressing);
-                }
+                // History was validated above; check and hash the checkpoint once.
                 let context = compression
-                    .prepare(self.provider.as_ref(), &self.conversation, &options)
+                    .prepare_validated(
+                        self.provider.as_ref(),
+                        &self.conversation,
+                        &options,
+                        &mut || on_event(AgentEvent::Compressing),
+                    )
                     .await?;
                 if previous != compression.checkpoint {
                     on_event(AgentEvent::Compressed {
@@ -122,11 +125,7 @@ impl ChatAgent {
             let response = self
                 .provider
                 .complete(&context, &options, &mut |message| {
-                    if messages.len() == index {
-                        messages.push(message.clone());
-                    } else {
-                        messages[index] = message.clone();
-                    }
+                    crate::messages::put_message(messages, index, message.clone());
                     on_event(AgentEvent::Streaming {
                         message: message.clone(),
                         index,
@@ -134,17 +133,16 @@ impl ChatAgent {
                 })
                 .await?;
             if messages.get(index) != Some(&response) {
-                if messages.len() == index {
-                    messages.push(response.clone());
-                } else {
-                    messages[index] = response.clone();
-                }
+                crate::messages::put_message(messages, index, response.clone());
                 on_event(AgentEvent::Streaming {
                     message: response.clone(),
                     index,
                 });
             }
-            crate::error::check_cancel(&options.cancellation)?;
+            // Tool calls continue below so each one gets an explicit cancelled result.
+            if !response.has_tools() {
+                crate::error::check_cancel(&options.cancellation)?;
+            }
             if response.role != Role::Assistant {
                 return Err(Error::Protocol(
                     "provider returned a non-assistant message".into(),
@@ -184,13 +182,17 @@ impl ChatAgent {
                     return Err(Error::Protocol("invalid or duplicate tool call".into()));
                 }
             }
+            // After cancellation, later calls are not executed but still get a
+            // truthful cancelled result, so the history stays resumable.
+            let mut stopped = false;
             for (call_id, name, arguments) in calls {
-                crate::error::check_cancel(&options.cancellation)?;
+                stopped |= options.cancellation.is_cancelled();
                 let handler = self.tools.iter().find(|t| {
                     t.definition.name == name
                         && options.tool_definitions().iter().any(|d| d.name == name)
                 });
                 let outcome = match handler {
+                    _ if stopped => Err(Error::Cancelled),
                     Some(tool) => {
                         tool.execute(
                             arguments,
@@ -240,9 +242,10 @@ impl ChatAgent {
                     message: self.conversation.messages[index].clone(),
                     index,
                 });
-                if cancelled || options.cancellation.is_cancelled() {
-                    return Err(Error::Cancelled);
-                }
+                stopped |= cancelled || options.cancellation.is_cancelled();
+            }
+            if stopped {
+                return Err(Error::Cancelled);
             }
         }
         Err(Error::IterationLimit(self.max_iterations))
@@ -257,8 +260,7 @@ pub(crate) fn validate_tools(tools: &[Tool]) -> Result<()> {
                 "tool names must be non-empty and unique".into(),
             ));
         }
-        jsonschema::validator_for(&tool.definition.parameters)
-            .map_err(|e| Error::Schema(e.to_string()))?;
+        tool.validator()?;
     }
     Ok(())
 }

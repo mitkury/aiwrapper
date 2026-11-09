@@ -215,11 +215,13 @@ async fn cancellation_retains_completed_side_effects_and_does_not_execute_later_
     ));
     assert_eq!(count.load(Ordering::SeqCst), 0);
     assert!(agent.conversation.aborted);
+    let results = &agent.conversation.messages.last().unwrap().items;
+    assert!(matches!(&results[0],Item::ToolResult {result,..} if result==&json!(5)));
+    // The unexecuted call gets an explicit cancelled result, so history can resume.
     assert!(
-        matches!(&agent.conversation.messages.last().unwrap().items[0],Item::ToolResult {result,..} if result==&json!(5))
+        matches!(&results[1],Item::ToolResult {call_id,result,..} if call_id=="second" && result["cancelled"]==true)
     );
-    // Resuming requires an explicit cancelled result for the unexecuted call.
-    assert!(agent.conversation.validate().is_err());
+    assert!(agent.conversation.validate().is_ok());
 }
 fn history() -> Conversation {
     let mut history = Conversation {
@@ -416,6 +418,37 @@ async fn cancellation_on_final_output_is_not_reported_as_success() {
     assert!(!agent.conversation.finished);
     assert!(events.iter().any(|e| matches!(e, AgentEvent::Aborted)));
     assert!(!events.iter().any(|e| matches!(e, AgentEvent::Finished)));
+}
+
+#[tokio::test]
+async fn cancellation_before_tools_run_records_cancelled_results() {
+    let count = Arc::new(AtomicUsize::new(0));
+    let mut agent = ChatAgent::new(Arc::new(MockLang::new([common::tool()])));
+    agent.tools = vec![Tool::new("add", "Add", json!({}), {
+        let count = count.clone();
+        move |_, _| {
+            count.fetch_add(1, Ordering::SeqCst);
+            async { Ok(json!(5)) }
+        }
+    })];
+    let options = ChatOptions::default();
+    // Cancel once the model's tool request is complete and saved, before any tool runs.
+    let cancel = options.cancellation.clone();
+    agent.on_message = Some(Arc::new(move |message, _| {
+        if message.role == Role::Assistant {
+            cancel.cancel();
+        }
+        Box::pin(async { Ok(()) })
+    }));
+    let result = agent
+        .run(vec![Message::user("Hi")], &options, &mut |_| {})
+        .await;
+    assert!(matches!(result, Err(Error::Cancelled)));
+    assert_eq!(count.load(Ordering::SeqCst), 0);
+    assert!(
+        matches!(&agent.conversation.messages.last().unwrap().items[0],Item::ToolResult {result,..} if result["cancelled"]==true)
+    );
+    assert!(agent.conversation.validate().is_ok());
 }
 
 #[tokio::test]

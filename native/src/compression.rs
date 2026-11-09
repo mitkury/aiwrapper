@@ -105,6 +105,18 @@ impl Compression {
         options: &ChatOptions,
     ) -> Result<Conversation> {
         history.validate()?;
+        self.prepare_validated(provider, history, options, &mut || {})
+            .await
+    }
+    /// `prepare` for history the caller already validated. `on_summarize` runs
+    /// once the budget is reached, before any summary request.
+    pub(crate) async fn prepare_validated(
+        &mut self,
+        provider: &dyn LanguageProvider,
+        history: &Conversation,
+        options: &ChatOptions,
+        on_summarize: &mut (dyn FnMut() + Send),
+    ) -> Result<Conversation> {
         crate::error::check_cancel(&options.cancellation)?;
         if self.input_tokens < 1024
             || self.summary_tokens == 0
@@ -128,6 +140,7 @@ impl Compression {
         if before < self.input_tokens {
             return Ok(projected);
         }
+        on_summarize();
         let latest_user = history.messages.iter().rposition(|m| m.role == Role::User);
         let fixed = Conversation {
             instructions: history.instructions.clone(),

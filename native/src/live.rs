@@ -416,7 +416,8 @@ impl LiveSender {
         }
         if self.provider == LiveProvider::Google {
             let responses: Vec<_> = active.iter().map(|r| {
-                let mut response = json!({"id":r.call_id,"name":r.name,"response":if r.result.is_object() {r.result.clone()} else {json!({"result":r.result})}});
+                let mut response =
+                    crate::provider::google_function_response(&r.call_id, &r.name, &r.result);
                 if !r.images.is_empty() {
                     response["parts"] = json!(r.images.iter().map(|image| json!({"inlineData":{"mimeType":image.mime_type,"data":image.data}})).collect::<Vec<_>>());
                 }
@@ -430,7 +431,7 @@ impl LiveSender {
                 .await?;
         } else {
             for r in &active {
-                state.send(json!({"type":"conversation.item.create","item":{"type":"function_call_output","call_id":r.call_id,"output":r.result.to_string()}}), &self.connection.cancellation).await?;
+                state.send(json!({"type":"conversation.item.create","item":{"type":"function_call_output","call_id":r.call_id,"output":crate::provider::output_text(&r.result)}}), &self.connection.cancellation).await?;
                 if !r.images.is_empty() {
                     state.send(json!({"type":"conversation.item.create","item":{"type":"message","role":"user","content":r.images.iter().map(|image| json!({"type":"input_image","image_url":format!("data:{};base64,{}",image.mime_type,image.data)})).collect::<Vec<_>>()}}), &self.connection.cancellation).await?;
                 }
@@ -823,12 +824,7 @@ impl LiveState {
         }
         self.events.push_back(LiveEvent::Audio {
             frame: PcmFrame {
-                samples: bytes
-                    .as_chunks::<2>()
-                    .0
-                    .iter()
-                    .map(|b| i16::from_le_bytes(*b))
-                    .collect(),
+                samples: crate::speech::pcm_samples(&bytes),
                 sample_rate: 24000,
             },
             item_id: value["item_id"].as_str().map(str::to_owned),

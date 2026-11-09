@@ -137,14 +137,31 @@ async fn repeated_compression_and_restart_continue_the_real_tool_loop_without_re
     ] {
         let trace = Arc::new(Mutex::new(Trace::default()));
         let mut original = agent(trace.clone(), padding);
+        let mut events = vec![];
         original
             .run(
                 vec![Message::user("run: 6")],
                 &ChatOptions::default(),
-                &mut |_| {},
+                &mut |event| events.push(event),
             )
             .await
             .unwrap();
+        // Every checkpoint is announced before its summary request.
+        let compressing = events
+            .iter()
+            .filter(|e| matches!(e, AgentEvent::Compressing))
+            .count();
+        let compressed = events
+            .iter()
+            .filter(|e| matches!(e, AgentEvent::Compressed { .. }))
+            .count();
+        assert!(compressed > 0 && compressing == compressed);
+        assert!(!matches!(
+            events
+                .iter()
+                .find(|e| matches!(e, AgentEvent::Compressing | AgentEvent::Compressed { .. })),
+            Some(AgentEvent::Compressed { .. })
+        ));
         assert_eq!(original.conversation.answer(), "Completed 6 reads.");
         assert_eq!(original.conversation.messages.len(), 14);
         original.conversation.validate().unwrap();
