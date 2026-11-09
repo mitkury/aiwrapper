@@ -26,9 +26,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "aiwrapper"
-version = "0.1.2"
+name = "aimodels"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37e9cb3117ce7401d856e4da038d67bc8a106305f09929fe0df26d56990b7fb9"
 dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "aiwrapper"
+version = "0.1.3"
+dependencies = [
+ "aimodels",
  "async-trait",
  "base64 0.22.1",
  "futures-util",

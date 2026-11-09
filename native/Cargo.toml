@@ -1,6 +1,6 @@
 [package]
 name = "aiwrapper"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
@@ -11,7 +11,13 @@ readme = "README.md"
 keywords = ["llm", "ai", "agents", "openai", "anthropic"]
 categories = ["api-bindings", "asynchronous", "multimedia::audio"]
 
+[features]
+default = ["catalog"]
+# Embedded AIModels catalog: default output limits, reasoning gating and `aiwrapper::models()`.
+catalog = ["dep:aimodels"]
+
 [dependencies]
+aimodels = { version = "0.1", optional = true }
 async-trait = "0.1"
 base64 = "0.22"
 futures-util = "0.3"

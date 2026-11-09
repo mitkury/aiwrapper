@@ -23,6 +23,8 @@ aiwrapper = { path = "../aiwrapper/native" }
 
 The crate is versioned separately from the npm package, and its API may change
 between 0.x releases. Model names and credentials are explicit. The library never reads environment variables.
+The default `catalog` feature embeds model metadata that fills in output limits
+and reasoning parameters for known models; see [model catalog](#model-catalog).
 
 Usage callbacks are described in the [usage guide](usage.md); the same optional
 handler works across language, speech and live providers.
@@ -97,6 +99,47 @@ so select a model that supports structured output. `built_in_tools` accepts
 provider definitions for Responses, Anthropic and Gemini. `body` and `headers`
 are explicit escape hatches and override constructor values. Streaming must stay
 enabled. Applications must not accept these overrides from an untrusted browser.
+
+## Model catalog
+
+The default `catalog` feature embeds the [AIModels](https://github.com/mitkury/aimodels)
+catalog through the `aimodels` crate and re-exports it as `aiwrapper::models()`
+and `aiwrapper::aimodels`. It needs no network access.
+
+```rust
+use aiwrapper::{aimodels::Capability, models};
+
+let model = models().id("gpt-5.1").unwrap();
+assert_eq!(model.id_for("openrouter"), Some("openai/gpt-5.1"));
+
+let vision_json = models()
+    .from_creator("google")
+    .can(&[Capability::Chat, Capability::ImgIn, Capability::JsonOut]);
+for model in &vision_json {
+    println!("{}: {:?} tokens", model.id(), model.context().and_then(|c| c.total));
+}
+```
+
+Model IDs stay explicit. Requests look the configured model up by catalog ID or
+alias, then by the provider's own ID (such as `openai/gpt-5.1` on OpenRouter),
+and use the catalog only for models it knows:
+
+- When `ChatOptions::max_tokens` is unset, Anthropic, Gemini, Ollama, Cohere and
+  Chat Completions requests ask for the model's output limit. That is the full
+  `maxOutput` when the catalog marks output as fixed; otherwise `maxOutput`
+  capped by what fits beside the estimated input (four characters per token
+  plus four tokens per message; instructions are not counted). Models without
+  token limits get 4000. OpenAI Responses requests set no output limit unless
+  the caller does.
+- OpenAI Responses requests to reasoning models include
+  `"reasoning": {"effort": "medium", "summary": "auto"}`. Other models get none,
+  because OpenAI rejects reasoning parameters for them. Replace it through
+  `ChatOptions::body` or `ProviderConfig::body`, for example to drop the summary
+  for accounts without summary access.
+
+Unknown models keep the provider defaults: Anthropic requests 4096 output tokens
+and other providers send no limit. Build with `default-features = false` to
+leave the catalog out; requests then always use those defaults.
 
 ## Context compression
 
@@ -373,7 +416,8 @@ voice and language selections. The library does not include media-device access.
 | AWS Bedrock / Nova Sonic | Still TypeScript; native AWS adapters proposed |
 | Other realtime STT/live providers and incremental TTS | Still TypeScript; proposed native ports |
 | Continuous STT → LLM → TTS orchestration | Still TypeScript; proposed native port |
-| Standalone image-generation facade, patch helper, model catalog API | Still TypeScript; Responses image generation is usable from native |
+| Model catalog | Embedded AIModels catalog (default `catalog` feature): `models()`, default output limits, Responses reasoning gating |
+| Standalone image-generation facade, patch helper | Still TypeScript; Responses image generation is usable from native |
 
 This is a working first native version, not complete replacement parity. The
 [remaining migration proposal](dev/proposals/native-rust.md) tracks the rest.

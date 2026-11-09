@@ -53,6 +53,8 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo test --locked --workspace
+      - run: cargo clippy --locked -p aiwrapper --no-default-features --all-targets -- -D warnings
+      - run: cargo test --locked -p aiwrapper --no-default-features
       - run: cargo package --locked -p aiwrapper
       - uses: actions/setup-node@v6
         with:
