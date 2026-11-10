@@ -1,5 +1,101 @@
 // src/data.js
 var models = {
+  "Ling-3.2-flash": {
+    "id": "Ling-3.2-flash",
+    "name": "Ling 3.2 Flash",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "fn-out",
+      "reason",
+      "img-in",
+      "video-in"
+    ],
+    "context": {
+      "type": "token",
+      "total": 1e6,
+      "maxOutput": null
+    },
+    "releasedAt": "2026-11-05",
+    "creatorId": "antgroup"
+  },
+  "Ling-3.1-flash": {
+    "id": "Ling-3.1-flash",
+    "name": "Ling 3.1 Flash",
+    "license": "mit",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "fn-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 1e6,
+      "maxOutput": null
+    },
+    "creatorId": "antgroup"
+  },
+  "Ling-3.0-flash-VL": {
+    "id": "Ling-3.0-flash-VL",
+    "name": "Ling 3.0 Flash VL",
+    "license": "mit",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "fn-out",
+      "reason",
+      "img-in",
+      "video-in"
+    ],
+    "context": {
+      "type": "token",
+      "total": 262144,
+      "maxOutput": null
+    },
+    "releasedAt": "2026-09-04",
+    "creatorId": "antgroup"
+  },
+  "Ling-3.0-tiny": {
+    "id": "Ling-3.0-tiny",
+    "name": "Ling 3.0 Tiny",
+    "license": "mit",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "fn-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 131072,
+      "maxOutput": null
+    },
+    "releasedAt": "2026-08-07",
+    "creatorId": "antgroup"
+  },
+  "claude-fable-5-2": {
+    "id": "claude-fable-5-2",
+    "extends": "claude-fable-5-1",
+    "overrides": {
+      "name": "Claude Fable 5.2"
+    },
+    "releasedAt": "2026-11-09",
+    "creatorId": "anthropic"
+  },
+  "claude-mythos-5-2": {
+    "id": "claude-mythos-5-2",
+    "extends": "claude-fable-5-2",
+    "overrides": {
+      "name": "Claude Mythos 5.2"
+    },
+    "releasedAt": "2026-11-09",
+    "creatorId": "anthropic"
+  },
   "claude-opus-5-5": {
     "id": "claude-opus-5-5",
     "name": "Claude Opus 5.5",
@@ -395,6 +491,24 @@ var models = {
     "releasedAt": "2025-10-28",
     "creatorId": "aws"
   },
+  "baidu/ERNIE-4.5-21B-A3B-Thinking": {
+    "id": "baidu/ERNIE-4.5-21B-A3B-Thinking",
+    "name": "ERNIE 4.5 21B A3B Thinking",
+    "license": "apache-2.0",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "fn-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 131072,
+      "maxOutput": null
+    },
+    "creatorId": "baidu"
+  },
   "ernie-5.1": {
     "id": "ernie-5.1",
     "name": "ERNIE 5.1",
@@ -429,6 +543,24 @@ var models = {
     },
     "releasedAt": "2026-01-22",
     "creatorId": "baidu"
+  },
+  "ByteDance-Seed/Seed-OSS-36B-Instruct": {
+    "id": "ByteDance-Seed/Seed-OSS-36B-Instruct",
+    "name": "Seed-OSS-36B Instruct",
+    "license": "apache-2.0",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "fn-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 524288,
+      "maxOutput": null
+    },
+    "creatorId": "bytedance"
   },
   "embed-v5.0-pro": {
     "id": "embed-v5.0-pro",
@@ -712,25 +844,6 @@ var models = {
     },
     "creatorId": "cohere"
   },
-  "command-r-plus-04-2024": {
-    "id": "command-r-plus-04-2024",
-    "name": "Command R+ (April 2024)",
-    "license": "proprietary",
-    "capabilities": [
-      "chat",
-      "txt-in",
-      "txt-out",
-      "json-out",
-      "fn-out"
-    ],
-    "context": {
-      "type": "token",
-      "total": 128e3,
-      "maxOutput": 4096
-    },
-    "aliases": [],
-    "creatorId": "cohere"
-  },
   "command-r-plus-08-2024": {
     "id": "command-r-plus-08-2024",
     "name": "Command R+",
@@ -766,77 +879,6 @@ var models = {
     "context": {
       "type": "token",
       "total": 128e3,
-      "maxOutput": 4096
-    },
-    "creatorId": "cohere"
-  },
-  "command-r-03-2024": {
-    "id": "command-r-03-2024",
-    "name": "Command R",
-    "license": "proprietary",
-    "capabilities": [
-      "chat",
-      "txt-in",
-      "txt-out",
-      "json-out",
-      "fn-out"
-    ],
-    "context": {
-      "type": "token",
-      "total": 128e3,
-      "maxOutput": 4096
-    },
-    "aliases": [
-      "command-r"
-    ],
-    "creatorId": "cohere"
-  },
-  "command-nightly": {
-    "id": "command-nightly",
-    "name": "Command Nightly",
-    "license": "proprietary",
-    "capabilities": [
-      "chat",
-      "txt-in",
-      "txt-out",
-      "json-out",
-      "fn-out"
-    ],
-    "context": {
-      "type": "token",
-      "total": 128e3,
-      "maxOutput": 4096
-    },
-    "creatorId": "cohere"
-  },
-  "command": {
-    "id": "command",
-    "name": "Command",
-    "license": "proprietary",
-    "capabilities": [
-      "chat",
-      "txt-in",
-      "txt-out"
-    ],
-    "context": {
-      "type": "token",
-      "total": 4096,
-      "maxOutput": 4096
-    },
-    "creatorId": "cohere"
-  },
-  "command-light": {
-    "id": "command-light",
-    "name": "Command Light",
-    "license": "proprietary",
-    "capabilities": [
-      "chat",
-      "txt-in",
-      "txt-out"
-    ],
-    "context": {
-      "type": "token",
-      "total": 4096,
       "maxOutput": 4096
     },
     "creatorId": "cohere"
@@ -1067,6 +1109,15 @@ var models = {
     },
     "creatorId": "cohere"
   },
+  "deepseek-ai/DeepSeek-V4.1-Flash-1017": {
+    "id": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+    "extends": "deepseek-flash",
+    "overrides": {
+      "name": "DeepSeek V4.1 Flash 1017"
+    },
+    "releasedAt": "2026-10-17",
+    "creatorId": "deepseek"
+  },
   "deepseek-flash": {
     "id": "deepseek-flash",
     "name": "DeepSeek V4.1 Flash",
@@ -1182,6 +1233,25 @@ var models = {
       "deepseek-reasoner-latest"
     ],
     "creatorId": "deepseek"
+  },
+  "gemini-omni-1.2-flash": {
+    "id": "gemini-omni-1.2-flash",
+    "name": "Gemini Omni 1.2 Flash",
+    "license": "proprietary",
+    "capabilities": [
+      "txt-in",
+      "img-in",
+      "video-in",
+      "txt-out",
+      "video-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": 131072,
+      "maxOutput": 65536
+    },
+    "releasedAt": "2026-11-05",
+    "creatorId": "google"
   },
   "gemini-embedding-2": {
     "id": "gemini-embedding-2",
@@ -2059,21 +2129,6 @@ var models = {
     },
     "creatorId": "google"
   },
-  "text-embedding-004": {
-    "id": "text-embedding-004",
-    "name": "Text Embedding 004",
-    "license": "proprietary",
-    "capabilities": [
-      "txt-in",
-      "vec-out"
-    ],
-    "context": {
-      "type": "token",
-      "total": 2048,
-      "maxOutput": 768
-    },
-    "creatorId": "google"
-  },
   "gemini-embedding-001": {
     "id": "gemini-embedding-001",
     "name": "Gemini Embedding 001",
@@ -2410,7 +2465,7 @@ var models = {
     "extends": "kimi-k3",
     "overrides": {
       "name": "Kimi K3.1 Pro",
-      "license": "proprietary"
+      "license": "kimi-k3.1-pro"
     },
     "aliases": [
       "kimi-k3.1-pro-highspeed"
@@ -2574,6 +2629,105 @@ var models = {
       }
     },
     "creatorId": "kimi"
+  },
+  "k-exaone_v2.5": {
+    "id": "k-exaone_v2.5",
+    "name": "K-EXAONE 2.5",
+    "license": "proprietary",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "fn-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 524288,
+      "maxOutput": null
+    },
+    "releasedAt": "2026-11-09",
+    "creatorId": "lgai"
+  },
+  "lfm3-1.7b": {
+    "id": "lfm3-1.7b",
+    "name": "LFM3-1.7B",
+    "license": "lfm1.0",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "json-out",
+      "fn-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": 128e3,
+      "maxOutput": null
+    },
+    "releasedAt": "2026-10-27",
+    "creatorId": "liquid"
+  },
+  "LongCat-2.5": {
+    "id": "LongCat-2.5",
+    "name": "LongCat 2.5",
+    "license": "mit",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "fn-out",
+      "reason",
+      "img-in",
+      "video-in",
+      "json-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": 1e6,
+      "maxOutput": 262144
+    },
+    "releasedAt": "2026-11-02",
+    "creatorId": "meituan"
+  },
+  "meituan-longcat/LongCat-Flash-Lite": {
+    "id": "meituan-longcat/LongCat-Flash-Lite",
+    "name": "LongCat Flash Lite",
+    "license": "mit",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "fn-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": 262144,
+      "maxOutput": null
+    },
+    "creatorId": "meituan"
+  },
+  "muse-ember-1.0": {
+    "id": "muse-ember-1.0",
+    "name": "Muse Ember",
+    "license": "proprietary",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "img-in",
+      "audio-in",
+      "video-in",
+      "json-out",
+      "fn-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 1048576,
+      "maxOutput": 524288
+    },
+    "creatorId": "meta"
   },
   "muse-wonder-1.0": {
     "id": "muse-wonder-1.0",
@@ -2774,92 +2928,6 @@ var models = {
       "llama-4-maverick-2025-04",
       "llama-4-maverick-latest"
     ],
-    "creatorId": "meta"
-  },
-  "llama3-70b-8192": {
-    "id": "llama3-70b-8192",
-    "name": "Llama 3 70B",
-    "license": "llama-3-community",
-    "capabilities": [
-      "chat",
-      "txt-in",
-      "txt-out",
-      "json-out",
-      "fn-out"
-    ],
-    "context": {
-      "type": "token",
-      "total": 8192,
-      "maxOutput": 4096
-    },
-    "creatorId": "meta"
-  },
-  "llama3-8b-8192": {
-    "id": "llama3-8b-8192",
-    "name": "Llama 3 8B",
-    "license": "llama-3-community",
-    "capabilities": [
-      "chat",
-      "txt-in",
-      "txt-out",
-      "json-out",
-      "fn-out"
-    ],
-    "context": {
-      "type": "token",
-      "total": 8192,
-      "maxOutput": 4096
-    },
-    "creatorId": "meta"
-  },
-  "llama-3.2-11b-vision-preview": {
-    "id": "llama-3.2-11b-vision-preview",
-    "name": "Llama 3.2 11B Vision",
-    "license": "llama-3-community",
-    "capabilities": [
-      "chat",
-      "txt-in",
-      "txt-out",
-      "img-in"
-    ],
-    "context": {
-      "type": "token",
-      "total": 4096,
-      "maxOutput": 4096
-    },
-    "creatorId": "meta"
-  },
-  "llama-3.2-90b-vision-preview": {
-    "id": "llama-3.2-90b-vision-preview",
-    "name": "Llama 3.2 90B Vision",
-    "license": "llama-3-community",
-    "capabilities": [
-      "chat",
-      "txt-in",
-      "txt-out",
-      "img-in"
-    ],
-    "context": {
-      "type": "token",
-      "total": 4096,
-      "maxOutput": 4096
-    },
-    "creatorId": "meta"
-  },
-  "llama-guard-3-8b": {
-    "id": "llama-guard-3-8b",
-    "name": "LlamaGuard 3 8B",
-    "license": "llama-3-community",
-    "capabilities": [
-      "chat",
-      "txt-in",
-      "txt-out"
-    ],
-    "context": {
-      "type": "token",
-      "total": 4096,
-      "maxOutput": 4096
-    },
     "creatorId": "meta"
   },
   "llama-3.1-8b-instant": {
@@ -3413,90 +3481,6 @@ var models = {
     ],
     "creatorId": "mistral"
   },
-  "mistral-large-2402": {
-    "id": "mistral-large-2402",
-    "name": "Mistral Large",
-    "license": "proprietary",
-    "capabilities": [
-      "chat",
-      "txt-in",
-      "txt-out",
-      "json-out",
-      "fn-out"
-    ],
-    "context": {
-      "type": "token",
-      "total": 32768,
-      "maxOutput": 4096
-    },
-    "creatorId": "mistral"
-  },
-  "mistral-small-2402": {
-    "id": "mistral-small-2402",
-    "name": "Mistral Small",
-    "license": "proprietary",
-    "capabilities": [
-      "chat",
-      "txt-in",
-      "txt-out",
-      "json-out",
-      "fn-out"
-    ],
-    "context": {
-      "type": "token",
-      "total": 32768,
-      "maxOutput": 4096
-    },
-    "creatorId": "mistral"
-  },
-  "mistral-medium": {
-    "id": "mistral-medium",
-    "name": "Mistral Medium",
-    "license": "proprietary",
-    "capabilities": [
-      "chat",
-      "txt-in",
-      "txt-out"
-    ],
-    "context": {
-      "type": "token",
-      "total": 32768,
-      "maxOutput": 4096
-    },
-    "creatorId": "mistral"
-  },
-  "open-mistral-7b": {
-    "id": "open-mistral-7b",
-    "name": "Open Mistral 7B",
-    "license": "apache-2.0",
-    "capabilities": [
-      "chat",
-      "txt-in",
-      "txt-out"
-    ],
-    "context": {
-      "type": "token",
-      "total": 32768,
-      "maxOutput": 4096
-    },
-    "creatorId": "mistral"
-  },
-  "open-mixtral-8x7b": {
-    "id": "open-mixtral-8x7b",
-    "name": "Open Mixtral 8x7B",
-    "license": "apache-2.0",
-    "capabilities": [
-      "chat",
-      "txt-in",
-      "txt-out"
-    ],
-    "context": {
-      "type": "token",
-      "total": 32768,
-      "maxOutput": 4096
-    },
-    "creatorId": "mistral"
-  },
   "nvidia/nemotron-3.5-super-vl-120b-a12b": {
     "id": "nvidia/nemotron-3.5-super-vl-120b-a12b",
     "name": "NVIDIA Nemotron 3.5 Super VL",
@@ -3634,6 +3618,33 @@ var models = {
     },
     "releasedAt": "2026-04-28",
     "creatorId": "nvidia"
+  },
+  "gpt-6-cyber": {
+    "id": "gpt-6-cyber",
+    "extends": "gpt-6-astra",
+    "overrides": {
+      "name": "GPT-6-Cyber"
+    },
+    "releasedAt": "2026-11-05",
+    "creatorId": "openai"
+  },
+  "gpt-image-2.6-sunburst": {
+    "id": "gpt-image-2.6-sunburst",
+    "extends": "gpt-image-2.5-sunburst",
+    "overrides": {
+      "name": "GPT Image 2.6 Sunburst"
+    },
+    "releasedAt": "2026-11-04",
+    "creatorId": "openai"
+  },
+  "gpt-image-2.6-flare": {
+    "id": "gpt-image-2.6-flare",
+    "extends": "gpt-image-2.6-sunburst",
+    "overrides": {
+      "name": "GPT Image 2.6 Flare"
+    },
+    "releasedAt": "2026-11-04",
+    "creatorId": "openai"
   },
   "chat-latest": {
     "id": "chat-latest",
@@ -4082,29 +4093,6 @@ var models = {
     },
     "creatorId": "openai"
   },
-  "gpt-4o": {
-    "id": "gpt-4o",
-    "name": "GPT-4o",
-    "license": "proprietary",
-    "capabilities": [
-      "chat",
-      "txt-in",
-      "txt-out",
-      "img-in",
-      "json-out",
-      "fn-out"
-    ],
-    "context": {
-      "type": "token",
-      "total": 128e3,
-      "maxOutput": 16384
-    },
-    "aliases": [
-      "chatgpt-4o-latest",
-      "gpt-4o-2024-08-06"
-    ],
-    "creatorId": "openai"
-  },
   "gpt-5-nano": {
     "id": "gpt-5-nano",
     "name": "GPT-5 Nano",
@@ -4378,49 +4366,6 @@ var models = {
     },
     "creatorId": "openai"
   },
-  "dall-e-2": {
-    "id": "dall-e-2",
-    "name": "DALL-E 2",
-    "license": "proprietary",
-    "capabilities": [
-      "txt-in",
-      "img-out"
-    ],
-    "context": {
-      "maxOutput": 1,
-      "sizes": [
-        "256x256",
-        "512x512",
-        "1024x1024"
-      ],
-      "qualities": [
-        "standard"
-      ]
-    },
-    "creatorId": "openai"
-  },
-  "dall-e-3": {
-    "id": "dall-e-3",
-    "name": "DALL-E 3",
-    "license": "proprietary",
-    "capabilities": [
-      "txt-in",
-      "img-out"
-    ],
-    "context": {
-      "maxOutput": 1,
-      "sizes": [
-        "1024x1024",
-        "1024x1792",
-        "1792x1024"
-      ],
-      "qualities": [
-        "standard",
-        "hd"
-      ]
-    },
-    "creatorId": "openai"
-  },
   "text-embedding-ada-002": {
     "id": "text-embedding-ada-002",
     "name": "Text Embedding Ada 002",
@@ -4640,6 +4585,44 @@ var models = {
       "omni-moderation-latest"
     ],
     "creatorId": "openai"
+  },
+  "openbmb/MiniCPM5-2B": {
+    "id": "openbmb/MiniCPM5-2B",
+    "name": "MiniCPM5-2B",
+    "license": "apache-2.0",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "fn-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 131072,
+      "maxOutput": null
+    },
+    "creatorId": "openbmb"
+  },
+  "Qwen/Qwen3.6-35B-A3B": {
+    "id": "Qwen/Qwen3.6-35B-A3B",
+    "name": "Qwen3.6 35B A3B",
+    "license": "apache-2.0",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "fn-out",
+      "reason",
+      "img-in",
+      "video-in"
+    ],
+    "context": {
+      "type": "token",
+      "total": 262144,
+      "maxOutput": null
+    },
+    "creatorId": "qwen"
   },
   "qwen3.8-omni-flash": {
     "id": "qwen3.8-omni-flash",
@@ -6066,10 +6049,28 @@ var models = {
     "releasedAt": "2026-06-16",
     "creatorId": "xai"
   },
+  "XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B": {
+    "id": "XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B",
+    "name": "MiMo V2.6 Distill Qwen 9B",
+    "license": "mit",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "img-in",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 262144,
+      "maxOutput": null
+    },
+    "creatorId": "xiaomi"
+  },
   "mimo-v2.6-pro": {
     "id": "mimo-v2.6-pro",
     "name": "Xiaomi MiMo-V2.6-Pro",
-    "license": "proprietary",
+    "license": "mit",
     "capabilities": [
       "chat",
       "txt-in",
@@ -6107,7 +6108,7 @@ var models = {
   "mimo-v2.5-pro": {
     "id": "mimo-v2.5-pro",
     "name": "Xiaomi MiMo-V2.5-Pro",
-    "license": "proprietary",
+    "license": "mit",
     "capabilities": [
       "chat",
       "txt-in",
@@ -6258,12 +6259,29 @@ var models = {
   }
 };
 var providers = {
+  "antgroup": {
+    "id": "antgroup",
+    "name": "Ant Ling",
+    "apiUrl": "https://api.ant-ling.com/v1",
+    "apiDocsUrl": "https://developer.ant-ling.com/en/docs/api-reference/chat/openai",
+    "pricing": {}
+  },
   "anthropic": {
     "id": "anthropic",
     "name": "Anthropic",
     "apiUrl": "https://api.anthropic.com/v1",
     "apiDocsUrl": "https://docs.anthropic.com/en/api",
-    "pricing": {}
+    "pricing": {},
+    "models": [
+      {
+        "creator": "anthropic",
+        "include": "all",
+        "exclude": [
+          "claude-opus-4-20250514",
+          "claude-sonnet-4-20250514"
+        ]
+      }
+    ]
   },
   "aws": {
     "id": "aws",
@@ -6288,7 +6306,10 @@ var providers = {
     "models": [
       {
         "creator": "baidu",
-        "include": "all"
+        "include": "all",
+        "exclude": [
+          "baidu/ERNIE-4.5-21B-A3B-Thinking"
+        ]
       },
       {
         "creator": "deepseek",
@@ -6313,12 +6334,14 @@ var providers = {
       {
         "creator": "anthropic",
         "include": [
+          "claude-fable-5-2",
           "claude-haiku-5-5",
           "claude-sonnet-5-5",
           "claude-opus-5-5",
           "claude-opus-5"
         ],
         "idOverrides": {
+          "claude-fable-5-2": "anthropic.claude-fable-5-2",
           "claude-opus-5": "anthropic.claude-opus-5",
           "claude-opus-5-5": "anthropic.claude-opus-5-5",
           "claude-sonnet-5-5": "anthropic.claude-sonnet-5-5",
@@ -6379,7 +6402,6 @@ var providers = {
           "gemini-2.0-flash",
           "gemini-2.0-flash-lite",
           "gemini-embedding-2-preview",
-          "text-embedding-004",
           "gemini-3.1-flash-image-preview",
           "gemini-3-pro-image-preview",
           "imagen-3.0-generate-002",
@@ -6408,12 +6430,8 @@ var providers = {
       {
         "creator": "meta",
         "include": [
-          "llama3-8b-8192",
-          "llama3-70b-8192",
-          "llama-guard-3-8b",
           "llama-3.1-8b-instant",
           "llama-3.3-70b-versatile",
-          "meta-llama/llama-guard-4-12b",
           "meta-llama/llama-4-maverick-17b-128e-instruct",
           "meta-llama/llama-4-scout-17b-16e-instruct",
           "meta-llama/llama-prompt-guard-2-22m",
@@ -6448,6 +6466,35 @@ var providers = {
       }
     ]
   },
+  "lgai": {
+    "id": "lgai",
+    "name": "EXAONE API Platform",
+    "apiUrl": "https://api.exaone.ai/v1",
+    "apiDocsUrl": "https://docs.exaone.ai/en/docs/overview",
+    "pricing": {}
+  },
+  "liquid": {
+    "id": "liquid",
+    "name": "Liquid AI",
+    "apiUrl": "https://api.liquid.ai/openai/v1",
+    "apiDocsUrl": "https://docs.liquid.ai/api/overview",
+    "pricing": {}
+  },
+  "meituan": {
+    "id": "meituan",
+    "name": "LongCat",
+    "apiUrl": "https://api.longcat.chat/openai/v1",
+    "apiDocsUrl": "https://longcat.chat/platform/docs/",
+    "pricing": {},
+    "models": [
+      {
+        "creator": "meituan",
+        "include": [
+          "LongCat-2.5"
+        ]
+      }
+    ]
+  },
   "meta": {
     "id": "meta",
     "name": "Meta Model API",
@@ -6458,6 +6505,7 @@ var providers = {
       {
         "creator": "meta",
         "include": [
+          "muse-ember-1.0",
           "muse-wonder-1.0",
           "muse-spark-1.3",
           "muse-image-1.0",
@@ -6488,6 +6536,15 @@ var providers = {
         "exclude": [
           "mistral-ocr-4-0"
         ]
+      },
+      {
+        "creator": "deepseek",
+        "include": [
+          "deepseek-ai/DeepSeek-V4.1-Flash-1017"
+        ],
+        "idOverrides": {
+          "deepseek-ai/DeepSeek-V4.1-Flash-1017": "deepseek-v4-1-flash-1017"
+        }
       },
       {
         "creator": "zai",
@@ -6521,7 +6578,18 @@ var providers = {
   },
   "ollama": {
     "id": "ollama",
-    "name": "Ollama"
+    "name": "Ollama",
+    "models": [
+      {
+        "creator": "openbmb",
+        "include": [
+          "openbmb/MiniCPM5-2B"
+        ],
+        "idOverrides": {
+          "openbmb/MiniCPM5-2B": "openbmb/minicpm5-2b"
+        }
+      }
+    ]
   },
   "openai": {
     "id": "openai",
@@ -6536,8 +6604,6 @@ var providers = {
         "exclude": [
           "gpt-oss-120b",
           "gpt-oss-20b",
-          "dall-e-2",
-          "dall-e-3",
           "o4-mini",
           "o4-mini-2025-04-16",
           "computer-use-preview-2025-03-11",
@@ -6576,7 +6642,6 @@ var providers = {
           "gpt-5.4-pro",
           "gpt-5.4-mini",
           "gpt-5.4-nano",
-          "gpt-4o",
           "gpt-5-nano",
           "gpt-5-mini",
           "gpt-oss-120b",
@@ -6587,6 +6652,7 @@ var providers = {
       {
         "creator": "anthropic",
         "include": [
+          "claude-fable-5-2",
           "claude-haiku-5-5",
           "claude-sonnet-5-5",
           "claude-opus-5-5",
@@ -6605,6 +6671,7 @@ var providers = {
         ],
         "idPrefix": "anthropic/",
         "idOverrides": {
+          "claude-fable-5-2": "anthropic/claude-fable-5.2",
           "claude-fable-5-1": "anthropic/claude-fable-5.1",
           "claude-opus-4-8": "anthropic/claude-opus-4.8",
           "claude-opus-4-7": "anthropic/claude-opus-4.7",
@@ -6622,6 +6689,8 @@ var providers = {
       {
         "creator": "google",
         "include": [
+          "gemini-omni-1.2-flash",
+          "gemini-omni-1.1-flash",
           "gemini-nano-banana-2.1",
           "gemini-4-argon",
           "gemini-3.8-flash",
@@ -6658,6 +6727,7 @@ var providers = {
         "creator": "meta",
         "include": [
           "meta-models/Muse-Spark-Open-816B-A42B",
+          "muse-ember-1.0",
           "muse-wonder-1.0",
           "muse-spark-1.1",
           "muse-spark-1.2",
@@ -6668,6 +6738,7 @@ var providers = {
         "idPrefix": "meta/",
         "idOverrides": {
           "meta-models/Muse-Glimmer-30B": "meta/muse-glimmer-30b",
+          "muse-ember-1.0": "meta/muse-ember",
           "muse-wonder-1.0": "meta/muse-wonder",
           "meta-models/Muse-Spark-Open-816B-A42B": "meta/muse-spark-open",
           "meta-llama/llama-guard-4-12b": "meta-llama/llama-guard-4-12b"
@@ -6696,10 +6767,12 @@ var providers = {
           "qwen3.8-max-0902",
           "qwen3.8-flash",
           "Qwen/Qwen3.8-27B",
+          "Qwen/Qwen3.6-35B-A3B",
           "Qwen/Qwen3.8-2.4T-A95B"
         ],
         "idPrefix": "qwen/",
         "idOverrides": {
+          "Qwen/Qwen3.6-35B-A3B": "qwen/qwen3.6-35b-a3b",
           "Qwen/Qwen3.8-27B": "qwen/qwen3.8-27b",
           "Qwen/Qwen3.8-2.4T-A95B": "qwen/qwen3.8-2.4t-a95b"
         }
@@ -6707,12 +6780,36 @@ var providers = {
       {
         "creator": "deepseek",
         "include": [
+          "deepseek-ai/DeepSeek-V4.1-Flash-1017",
           "deepseek-flash",
           "deepseek-v4-flash-vision-exp"
         ],
         "idPrefix": "deepseek/",
         "idOverrides": {
+          "deepseek-ai/DeepSeek-V4.1-Flash-1017": "deepseek/deepseek-v4.1-flash-1017",
           "deepseek-flash": "deepseek/deepseek-v4.1-flash"
+        }
+      },
+      {
+        "creator": "antgroup",
+        "include": [
+          "Ling-3.1-flash",
+          "Ling-3.0-flash-VL",
+          "Ling-3.0-tiny"
+        ],
+        "idOverrides": {
+          "Ling-3.1-flash": "inclusionai/ling-3.1-flash",
+          "Ling-3.0-flash-VL": "inclusionai/ling-3.0-flash-vl",
+          "Ling-3.0-tiny": "inclusionai/ling-3.0-tiny"
+        }
+      },
+      {
+        "creator": "liquid",
+        "include": [
+          "lfm3-1.7b"
+        ],
+        "idOverrides": {
+          "lfm3-1.7b": "liquid/lfm-3-1.7b"
         }
       },
       {
@@ -6853,6 +6950,7 @@ var providers = {
         "exclude": [
           "Qwen/Qwen3.8-2.4T-A95B",
           "Qwen/Qwen3.8-27B",
+          "Qwen/Qwen3.6-35B-A3B",
           "Qwen/Qwen3.8-Flash-Next"
         ]
       }
@@ -6978,6 +7076,7 @@ var providers = {
         "creator": "xiaomi",
         "include": "all",
         "exclude": [
+          "XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B",
           "mimo-v2.5-pro",
           "mimo-v2.5"
         ]
@@ -7136,6 +7235,42 @@ var organizations = {
     "websiteUrl": "https://thinkingmachines.ai",
     "country": "USA",
     "founded": 2025
+  },
+  "antgroup": {
+    "name": "Ant Group",
+    "websiteUrl": "https://www.antgroup.com/en/home",
+    "country": "CHN",
+    "founded": 2e3
+  },
+  "meituan": {
+    "name": "Meituan",
+    "websiteUrl": "https://www.meituan.com/en-US",
+    "country": "CHN",
+    "founded": 2010
+  },
+  "openbmb": {
+    "name": "OpenBMB",
+    "websiteUrl": "https://www.openbmb.cn",
+    "country": "CHN",
+    "founded": 2021
+  },
+  "bytedance": {
+    "name": "ByteDance",
+    "websiteUrl": "https://www.bytedance.com",
+    "country": "CHN",
+    "founded": 2012
+  },
+  "lgai": {
+    "name": "LG AI Research",
+    "websiteUrl": "https://www.lgresearch.ai",
+    "country": "KOR",
+    "founded": 2020
+  },
+  "liquid": {
+    "name": "Liquid AI",
+    "websiteUrl": "https://www.liquid.ai",
+    "country": "USA",
+    "founded": 2023
   },
   "together": {
     "name": "Together AI",
