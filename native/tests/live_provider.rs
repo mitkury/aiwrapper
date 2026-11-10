@@ -75,6 +75,7 @@ async fn openai_live_tools_interrupt_and_next_turn() {
         name: "add".into(),
         description: "Add two integers.".into(),
         parameters: json!({"type":"object","properties":{"a":{"type":"integer"},"b":{"type":"integer"}},"required":["a","b"],"additionalProperties":false}),
+        silent: false,
     }];
     let mut session = config.connect().await.unwrap();
     session

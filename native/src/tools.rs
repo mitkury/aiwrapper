@@ -12,6 +12,13 @@ pub struct ToolDefinition {
     pub name: String,
     pub description: String,
     pub parameters: Value,
+    /// In a live session, the call ends the model's turn: its result is
+    /// recorded without prompting a reply, so the model says nothing after it.
+    /// Gemini Live declares it non-blocking and schedules its result silently;
+    /// OpenAI Realtime records its output without requesting a response.
+    /// Text providers ignore it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub silent: bool,
 }
 
 #[derive(Clone)]
@@ -48,10 +55,17 @@ impl Tool {
                 name: name.into(),
                 description: description.into(),
                 parameters,
+                silent: false,
             },
             handler: Arc::new(move |args, context| Box::pin(handler(args, context))),
             validator: CompiledSchema::default(),
         }
+    }
+    /// A tool whose live calls end the model's turn without a reply
+    /// ([`ToolDefinition::silent`]).
+    pub fn silent(mut self) -> Self {
+        self.definition.silent = true;
+        self
     }
     /// Compile the parameter schema once; recompile only if `definition` changed.
     pub(crate) fn validator(&self) -> Result<Arc<jsonschema::Validator>> {
