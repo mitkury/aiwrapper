@@ -992,3 +992,94 @@ async fn usage_callback_survives_failed_responses_and_names_the_transcription_mo
     assert_eq!(reports[1].model, "billed-live");
     assert_eq!(reports[1].id, "openai:live:resp-1");
 }
+
+fn definition(name: &str, silent: bool) -> ToolDefinition {
+    ToolDefinition {
+        name: name.into(),
+        description: name.into(),
+        parameters: json!({"type":"object"}),
+        silent,
+    }
+}
+
+#[tokio::test]
+async fn google_silent_tools_are_non_blocking_and_their_results_never_prompt_a_reply() {
+    let fixture = SocketFixture::new(vec![
+        json!({"setupComplete":{}}),
+        json!({"toolCall":{"functionCalls":[{"id":"q","name":"pass","args":{}},{"id":"a","name":"add","args":{}}]}}),
+    ]);
+    let mut config = LiveConfig::new(LiveProvider::Google, "test", "key");
+    config.tools = vec![definition("pass", true), definition("add", false)];
+    let mut session = config.connect_with(&fixture).await.unwrap();
+    session.receiver.next_event().await.unwrap();
+    session.receiver.next_event().await.unwrap();
+    let result = |id: &str, name: &str| LiveToolResult {
+        call_id: id.into(),
+        name: name.into(),
+        result: json!({}),
+        images: vec![],
+    };
+    session
+        .sender
+        .send_tool_results(&[result("q", "pass"), result("a", "add")])
+        .await
+        .unwrap();
+    let sent = fixture.sent.lock().unwrap();
+    let declarations = &sent[0]["setup"]["tools"][0]["functionDeclarations"];
+    assert_eq!(declarations[0]["behavior"], "NON_BLOCKING");
+    assert!(declarations[1].get("behavior").is_none());
+    let responses = &sent[1]["toolResponse"]["functionResponses"];
+    assert_eq!(responses[0]["scheduling"], "SILENT");
+    assert!(responses[1].get("scheduling").is_none());
+}
+
+#[tokio::test]
+async fn openai_silent_tool_results_end_the_turn_without_a_response() {
+    let fixture = SocketFixture::new(vec![
+        json!({"type":"session.updated"}),
+        json!({"type":"response.created"}),
+        json!({"type":"response.function_call_arguments.done","call_id":"q","name":"pass","arguments":"{}"}),
+        json!({"type":"response.done","response":{"status":"completed"}}),
+    ]);
+    let mut config = LiveConfig::new(LiveProvider::Openai, "test", "key");
+    config.tools = vec![definition("pass", true)];
+    let mut session = config.connect_with(&fixture).await.unwrap();
+    for _ in 0..3 {
+        session.receiver.next_event().await.unwrap();
+    }
+    session
+        .sender
+        .send_tool_results(&[LiveToolResult {
+            call_id: "q".into(),
+            name: "pass".into(),
+            result: json!({}),
+            images: vec![],
+        }])
+        .await
+        .unwrap();
+    assert_eq!(fixture.count("conversation.item.create"), 1);
+    assert_eq!(fixture.count("response.create"), 0);
+    assert!(
+        fixture.sent.lock().unwrap()[0]["session"]["tools"][0]
+            .get("silent")
+            .is_none()
+    );
+}
+
+#[test]
+fn silent_is_optional_in_tool_definitions() {
+    let plain: ToolDefinition =
+        serde_json::from_value(json!({"name":"a","description":"","parameters":{}})).unwrap();
+    assert!(!plain.silent);
+    assert!(
+        serde_json::to_value(&plain)
+            .unwrap()
+            .get("silent")
+            .is_none()
+    );
+    let tool = Tool::new("pass", "", json!({"type":"object"}), |_, _| async {
+        Ok(json!({}))
+    })
+    .silent();
+    assert!(tool.definition.silent);
+}

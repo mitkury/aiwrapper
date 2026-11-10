@@ -353,6 +353,7 @@ async fn google_uses_json_schema_tool_field_without_dropping_constraints() {
             name: "add".into(),
             description: "Add".into(),
             parameters: json!({"type":"object","additionalProperties":false}),
+            silent: false,
         }]),
         ..ChatOptions::default()
     };

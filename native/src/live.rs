@@ -170,7 +170,14 @@ impl LiveConfig {
             headers.insert("authorization".into(), format!("Bearer {}", self.api_key));
         }
         let setup = if self.provider == LiveProvider::Google {
-            let tools: Vec<_> = self.tools.iter().map(|t|json!({"name":t.name,"description":t.description,"parametersJsonSchema":t.parameters})).collect();
+            let tools: Vec<_> = self.tools.iter().map(|t| {
+                let mut declaration = json!({"name":t.name,"description":t.description,"parametersJsonSchema":t.parameters});
+                // A silent result is scheduled SILENT, which Gemini honors only for non-blocking calls.
+                if t.silent {
+                    declaration["behavior"] = json!("NON_BLOCKING");
+                }
+                declaration
+            }).collect();
             let mut setup = json!({"model":format!("models/{}",self.model.trim_start_matches("models/")),
                 "generationConfig":{"responseModalities":["AUDIO"],"speechConfig":{"voiceConfig":{"prebuiltVoiceConfig":{"voiceName":self.voice}}}},
                 "systemInstruction":{"parts":[{"text":self.instructions}]},"inputAudioTranscription":{},"outputAudioTranscription":{}});
@@ -234,6 +241,12 @@ impl LiveConfig {
                     interrupted: false,
                     pending_response: false,
                     has_tools: false,
+                    silent_tools: self
+                        .tools
+                        .iter()
+                        .filter(|t| t.silent)
+                        .map(|t| t.name.clone())
+                        .collect(),
                     calls: resumed_calls,
                     resume_handle: initial_handle,
                     events: VecDeque::new(),
@@ -418,6 +431,9 @@ impl LiveSender {
             let responses: Vec<_> = active.iter().map(|r| {
                 let mut response =
                     crate::provider::google_function_response(&r.call_id, &r.name, &r.result);
+                if state.silent_tools.contains(&r.name) {
+                    response["scheduling"] = json!("SILENT");
+                }
                 if !r.images.is_empty() {
                     response["parts"] = json!(r.images.iter().map(|image| json!({"inlineData":{"mimeType":image.mime_type,"data":image.data}})).collect::<Vec<_>>());
                 }
@@ -599,6 +615,8 @@ struct LiveState {
     interrupted: bool,
     pending_response: bool,
     has_tools: bool,
+    /// Tools whose calls end the turn without a reply ([`ToolDefinition::silent`]).
+    silent_tools: HashSet<String>,
     calls: BTreeMap<String, ToolState>,
     resume_handle: Option<String>,
     events: VecDeque<LiveEvent>,
@@ -839,7 +857,8 @@ impl LiveState {
         if !self.calls.contains_key(id) {
             self.calls
                 .insert(id.into(), ToolState::Pending(name.into()));
-            self.has_tools = true;
+            // A silent call's result never asks for a reply.
+            self.has_tools |= !self.silent_tools.contains(name);
             self.events.push_back(LiveEvent::ToolCall {
                 call_id: id.into(),
                 name: name.into(),

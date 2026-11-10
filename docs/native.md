@@ -296,6 +296,13 @@ is not a live result format. `LiveSession` leaves execution to the host: respond
 pending call IDs and names; cancelled calls suppress both JSON and images.
 Duplicate, unknown or mismatched results fail before writing the batch.
 
+A silent tool (`ToolDefinition::silent`, or `Tool::silent()`) ends the model's
+turn: its result is recorded without prompting a reply. Use it for a tool the
+model calls when it should say nothing. Gemini declares it non-blocking and
+schedules its result `SILENT`; OpenAI records the output without
+`response.create`. A host that must never play sound after such a call should
+still drop audio until the next turn, since the model decides when to call it.
+
 For automatic tool execution, use one `LiveAgent` per logical conversation:
 
 ```rust,ignore
