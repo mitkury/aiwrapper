@@ -178,11 +178,12 @@ export class AnthropicLang extends LanguageProvider {
       console.warn(`Model info not found for ${this._config.model}`);
     }
 
-    const requestMaxTokens = modelInfo ? calculateModelResponseTokens(
+    // Anthropic requires a limit, so keep a default when none is known.
+    const requestMaxTokens = (modelInfo ? calculateModelResponseTokens(
       modelInfo,
       messageCollection,
       this._config.maxTokens
-    ) : this._config.maxTokens || 16000;
+    ) : undefined) ?? (this._config.maxTokens || 16000);
 
     let tools: AnthropicTool[] | undefined;
     if (requestTools?.length) {

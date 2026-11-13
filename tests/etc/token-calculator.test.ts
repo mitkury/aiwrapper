@@ -27,9 +27,15 @@ describe('calculateModelResponseTokens', () => {
     expect(got).toBe(500);
   });
 
-  it('returns default for non-token models', () => {
+  it('leaves the limit unset for non-token models', () => {
     const got = calculateModelResponseTokens(mockNonTokenModel, [shortMessage]);
-    expect(got).toBe(4000);
+    expect(got).toBeUndefined();
+  });
+
+  it('leaves the limit unset when the model lists no output limit', () => {
+    const got = calculateModelResponseTokens(createMockTokenModel(1048576, null), [shortMessage]);
+    expect(got).toBeUndefined();
+    expect(calculateModelResponseTokens(createMockTokenModel(1048576, null), [shortMessage], 500)).toBe(500);
   });
 
   it('returns maxOutput for fixed-output models', () => {

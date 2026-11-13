@@ -26,10 +26,7 @@ pub(crate) fn lookup(config: &ProviderConfig, conversation: &Conversation) -> Op
         .id(id)
         .or_else(|| models().from_provider_id(config.provider.as_str(), id))?;
     Some(ModelInfo {
-        response_tokens: Some(response_tokens(
-            model.context(),
-            estimate_input_tokens(conversation),
-        )),
+        response_tokens: response_tokens(model.context(), estimate_input_tokens(conversation)),
         can_reason: model.can(&[aimodels::Capability::Reason]),
     })
 }
@@ -68,22 +65,19 @@ fn estimate_input_tokens(conversation: &Conversation) -> u64 {
 
 /// Output tokens to request for a model with no caller-set limit: the full
 /// `maxOutput` when output is fixed, otherwise what fits next to the input.
+/// `None` when the catalog lists no output limit, so the provider's own
+/// default applies instead of a guess that can cut replies short.
 #[cfg(feature = "catalog")]
-fn response_tokens(context: Option<&aimodels::ModelContext>, input_tokens: u64) -> u32 {
-    const FALLBACK: u64 = 4000;
-    let tokens = match context {
-        Some(context) if context.kind == aimodels::ContextKind::Token => {
-            match (context.total, context.max_output) {
-                (_, Some(max_output)) if context.output_is_fixed && max_output > 0 => max_output,
-                (Some(total), Some(max_output)) if total > 0 && max_output > 0 => {
-                    max_output.min(total.saturating_sub(input_tokens))
-                }
-                (_, max_output) => max_output.filter(|&m| m > 0).unwrap_or(FALLBACK),
-            }
+fn response_tokens(context: Option<&aimodels::ModelContext>, input_tokens: u64) -> Option<u32> {
+    let context = context.filter(|context| context.kind == aimodels::ContextKind::Token)?;
+    let max_output = context.max_output.filter(|&m| m > 0)?;
+    let tokens = match context.total {
+        Some(total) if total > 0 && !context.output_is_fixed => {
+            max_output.min(total.saturating_sub(input_tokens))
         }
-        _ => FALLBACK,
+        _ => max_output,
     };
-    u32::try_from(tokens).unwrap_or(u32::MAX)
+    Some(u32::try_from(tokens).unwrap_or(u32::MAX))
 }
 
 #[cfg(all(test, feature = "catalog"))]
@@ -158,8 +152,8 @@ mod tests {
     }
 
     #[test]
-    fn non_token_contexts_use_the_fallback() {
-        assert_eq!(response_tokens(None, 10), 4000);
+    fn models_without_an_output_limit_leave_it_to_the_provider() {
+        assert_eq!(response_tokens(None, 10), None);
         let image = models()
             .iter()
             .find(|m| {
@@ -167,7 +161,18 @@ mod tests {
                     .is_some_and(|c| c.kind == aimodels::ContextKind::Image)
             })
             .unwrap();
-        assert_eq!(response_tokens(image.context(), 10), 4000);
+        assert_eq!(response_tokens(image.context(), 10), None);
+        let unlisted = models()
+            .iter()
+            .find(|m| {
+                m.context().is_some_and(|c| {
+                    c.kind == aimodels::ContextKind::Token
+                        && c.total.is_some()
+                        && c.max_output.is_none()
+                })
+            })
+            .expect("a token model with no output limit");
+        assert_eq!(response_tokens(unlisted.context(), 10), None);
     }
 
     #[test]

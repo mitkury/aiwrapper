@@ -87,7 +87,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
   }
 
   /** Decide how many tokens to request based on model info and optional limits */
-  private computeRequestMaxTokens(messageCollection: LangMessages): number {
+  private computeRequestMaxTokens(messageCollection: LangMessages): number | undefined {
     if (this.modelInfo) {
       return calculateModelResponseTokens(
         this.modelInfo,
@@ -101,7 +101,7 @@ export class OpenAIChatCompletionsLang extends LanguageProvider {
   /** Build OpenAI-like request body including tools and json schema toggles */
   private buildRequestBody(
     messageCollection: LangMessages,
-    requestMaxTokens: number,
+    requestMaxTokens: number | undefined,
     options?: LangOptions,
   ): Record<string, unknown> {
     const schemaInstructions = options?.schema

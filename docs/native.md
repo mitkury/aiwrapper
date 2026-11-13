@@ -128,9 +128,10 @@ and use the catalog only for models it knows:
   Chat Completions requests ask for the model's output limit. That is the full
   `maxOutput` when the catalog marks output as fixed; otherwise `maxOutput`
   capped by what fits beside the estimated input (four characters per token
-  plus four tokens per message; instructions are not counted). Models without
-  token limits get 4000. OpenAI Responses requests set no output limit unless
-  the caller does.
+  plus four tokens per message; instructions are not counted). When the catalog
+  lists no output limit, requests set none and the provider's default applies;
+  Anthropic, which requires one, gets 4096. OpenAI Responses requests set no
+  output limit unless the caller does.
 - OpenAI Responses requests to reasoning models include
   `"reasoning": {"effort": "medium", "summary": "auto"}`. Other models get none,
   because OpenAI rejects reasoning parameters for them. Replace it through

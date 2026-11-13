@@ -7,17 +7,19 @@ function estimateTokens(text: string): number {
 }
 
 /**
- * Calculate the maximum number of tokens available for model response
+ * Calculate the maximum number of tokens available for model response.
+ * Returns undefined when neither the caller nor the catalog sets a limit, so
+ * the provider's own default applies.
  */
 export function calculateModelResponseTokens(
   model: Model,
   messages: Array<{ role: string; text: string } | LangMessage>,
   maxTokens?: number
-): number {
+): number | undefined {
   const modelContext = model.context;
   if (modelContext?.type !== "token") {
-    // Non-token contexts aren't handled, return user maxTokens or a reasonable default
-    return maxTokens || 4000;
+    // Non-token contexts aren't handled; keep only the caller's limit
+    return maxTokens || undefined;
   }
 
   const context: TokenContext = modelContext;
@@ -51,6 +53,6 @@ export function calculateModelResponseTokens(
     return Math.max(0, Math.min(context.maxOutput, remainingTokens));
   }
   
-  // If we don't have enough information, return user maxTokens or a reasonable default
-  return maxTokens || context.maxOutput || 4000;
+  // Without a listed total, use the caller's limit or the model's output limit
+  return maxTokens || context.maxOutput || undefined;
 }
