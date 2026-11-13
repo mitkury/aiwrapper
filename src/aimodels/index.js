@@ -491,6 +491,75 @@ var models = {
     "releasedAt": "2025-10-28",
     "creatorId": "aws"
   },
+  "ernie-5.5-flash-preview": {
+    "id": "ernie-5.5-flash-preview",
+    "name": "ERNIE 5.5 Flash Preview",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "reason",
+      "fn-out",
+      "json-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": 1e6,
+      "maxOutput": 1e6
+    },
+    "releasedAt": "2026-11-11",
+    "creatorId": "baidu"
+  },
+  "ernie-light-dt-1.0": {
+    "id": "ernie-light-dt-1.0",
+    "name": "ERNIE Light DT 1.0",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "reason",
+      "fn-out",
+      "json-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": 1024e3,
+      "maxOutput": 131072
+    },
+    "creatorId": "baidu"
+  },
+  "ernie-wizshot-me": {
+    "id": "ernie-wizshot-me",
+    "name": "ERNIE Wizshot ME",
+    "capabilities": [
+      "txt-in",
+      "img-in",
+      "audio-in",
+      "video-out"
+    ],
+    "context": {
+      "maxOutput": 1,
+      "sizes": [
+        "1080p"
+      ]
+    },
+    "creatorId": "baidu"
+  },
+  "baidu/ERNIE-5.5-Flash-Base": {
+    "id": "baidu/ERNIE-5.5-Flash-Base",
+    "name": "ERNIE 5.5 Flash Base",
+    "license": "ernie-5.5-flash-base-model-license-v1.0",
+    "capabilities": [
+      "txt-in",
+      "txt-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": 1048576,
+      "maxOutput": null
+    },
+    "creatorId": "baidu"
+  },
   "baidu/ERNIE-4.5-21B-A3B-Thinking": {
     "id": "baidu/ERNIE-4.5-21B-A3B-Thinking",
     "name": "ERNIE 4.5 21B A3B Thinking",
@@ -543,6 +612,25 @@ var models = {
     },
     "releasedAt": "2026-01-22",
     "creatorId": "baidu"
+  },
+  "doubao-seedream-5-5-261028": {
+    "id": "doubao-seedream-5-5-261028",
+    "name": "Seedream 5.5",
+    "license": "proprietary",
+    "capabilities": [
+      "txt-in",
+      "img-in",
+      "img-out"
+    ],
+    "context": {
+      "maxOutput": 100,
+      "sizes": [
+        "1K",
+        "1.5K",
+        "2K"
+      ]
+    },
+    "creatorId": "bytedance"
   },
   "ByteDance-Seed/Seed-OSS-36B-Instruct": {
     "id": "ByteDance-Seed/Seed-OSS-36B-Instruct",
@@ -1233,6 +1321,70 @@ var models = {
       "deepseek-reasoner-latest"
     ],
     "creatorId": "deepseek"
+  },
+  "gemini-4-carbon": {
+    "id": "gemini-4-carbon",
+    "name": "Gemini 4 Carbon",
+    "license": "proprietary",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "img-in",
+      "json-out",
+      "fn-out",
+      "reason",
+      "audio-in",
+      "video-in"
+    ],
+    "context": {
+      "type": "token",
+      "total": 1048576,
+      "maxOutput": 65536
+    },
+    "releasedAt": "2026-11-10",
+    "creatorId": "google"
+  },
+  "gemini-4-hydrogen": {
+    "id": "gemini-4-hydrogen",
+    "name": "Gemini 4 Hydrogen",
+    "license": "proprietary",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "img-in",
+      "json-out",
+      "fn-out",
+      "reason",
+      "audio-in",
+      "video-in"
+    ],
+    "context": {
+      "type": "token",
+      "total": 1048576,
+      "maxOutput": 65536
+    },
+    "releasedAt": "2026-11-12",
+    "creatorId": "google"
+  },
+  "gemini-decision-1": {
+    "id": "gemini-decision-1",
+    "name": "Gemini Decision 1",
+    "license": "proprietary",
+    "capabilities": [
+      "txt-in",
+      "img-in",
+      "audio-in",
+      "video-in"
+    ],
+    "context": {
+      "type": "token",
+      "total": 262144,
+      "maxOutput": 0
+    },
+    "releasedAt": "2026-11-11",
+    "creatorId": "google"
   },
   "gemini-omni-1.2-flash": {
     "id": "gemini-omni-1.2-flash",
@@ -3075,6 +3227,44 @@ var models = {
     ],
     "creatorId": "meta"
   },
+  "MiniMax-H3-Image": {
+    "id": "MiniMax-H3-Image",
+    "name": "MiniMax H3 Image",
+    "license": "minimax-h3-image-community-license-agreement",
+    "capabilities": [
+      "txt-in",
+      "img-in",
+      "img-out"
+    ],
+    "context": {
+      "maxOutput": 10,
+      "sizes": [
+        "1024x1024",
+        "2048x2048",
+        "4096x4096"
+      ]
+    },
+    "releasedAt": "2026-11-10",
+    "creatorId": "minimax"
+  },
+  "MiniMax-H3-Image-Highspeed": {
+    "id": "MiniMax-H3-Image-Highspeed",
+    "name": "MiniMax H3 Image Highspeed",
+    "capabilities": [
+      "txt-in",
+      "img-in",
+      "img-out"
+    ],
+    "context": {
+      "maxOutput": 10,
+      "sizes": [
+        "1024x1024",
+        "2048x2048",
+        "4096x4096"
+      ]
+    },
+    "creatorId": "minimax"
+  },
   "MiniMax-M3.1-Flash": {
     "id": "MiniMax-M3.1-Flash",
     "name": "MiniMax M3.1 Flash",
@@ -4604,6 +4794,28 @@ var models = {
     },
     "creatorId": "openbmb"
   },
+  "qwen4-max-preview": {
+    "id": "qwen4-max-preview",
+    "name": "Qwen 4 Max Preview",
+    "license": "proprietary",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "img-in",
+      "video-in",
+      "fn-out",
+      "json-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 1e6,
+      "maxOutput": 393216
+    },
+    "releasedAt": "2026-11-11",
+    "creatorId": "qwen"
+  },
   "Qwen/Qwen3.6-35B-A3B": {
     "id": "Qwen/Qwen3.6-35B-A3B",
     "name": "Qwen3.6 35B A3B",
@@ -5320,6 +5532,26 @@ var models = {
     },
     "releasedAt": "2026-04-23",
     "creatorId": "tencent"
+  },
+  "thinkingmachines/Inkling-2-Small": {
+    "id": "thinkingmachines/Inkling-2-Small",
+    "name": "Inkling 2 Small",
+    "license": "apache-2.0",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "img-in",
+      "fn-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 1048576,
+      "maxOutput": null
+    },
+    "releasedAt": "2026-11-05",
+    "creatorId": "thinkingmachines"
   },
   "thinkingmachines/Inkling-Small": {
     "id": "thinkingmachines/Inkling-Small",
@@ -6308,7 +6540,10 @@ var providers = {
         "creator": "baidu",
         "include": "all",
         "exclude": [
-          "baidu/ERNIE-4.5-21B-A3B-Thinking"
+          "baidu/ERNIE-4.5-21B-A3B-Thinking",
+          "baidu/ERNIE-5.5-Flash-Base",
+          "ernie-light-dt-1.0",
+          "ernie-wizshot-me"
         ]
       },
       {
@@ -6316,6 +6551,23 @@ var providers = {
         "include": [
           "deepseek-v4-pro",
           "deepseek-v4-flash"
+        ]
+      }
+    ]
+  },
+  "baidu-qianfan-cn": {
+    "id": "baidu-qianfan-cn",
+    "name": "Baidu Qianfan (China)",
+    "apiUrl": "https://qianfan.baidubce.com/v2",
+    "apiDocsUrl": "https://cloud.baidu.com/doc/qianfan-docs/s/7m95lyy43",
+    "pricing": {},
+    "models": [
+      {
+        "creator": "baidu",
+        "include": [
+          "ernie-5.5-flash-preview",
+          "ernie-light-dt-1.0",
+          "ernie-wizshot-me"
         ]
       }
     ]
@@ -6334,6 +6586,7 @@ var providers = {
       {
         "creator": "anthropic",
         "include": [
+          "claude-mythos-5-2",
           "claude-fable-5-2",
           "claude-haiku-5-5",
           "claude-sonnet-5-5",
@@ -6341,11 +6594,30 @@ var providers = {
           "claude-opus-5"
         ],
         "idOverrides": {
+          "claude-mythos-5-2": "anthropic.claude-mythos-5-2",
           "claude-fable-5-2": "anthropic.claude-fable-5-2",
           "claude-opus-5": "anthropic.claude-opus-5",
           "claude-opus-5-5": "anthropic.claude-opus-5-5",
           "claude-sonnet-5-5": "anthropic.claude-sonnet-5-5",
           "claude-haiku-5-5": "anthropic.claude-haiku-5-5"
+        }
+      }
+    ]
+  },
+  "byteplus-ark": {
+    "id": "byteplus-ark",
+    "name": "BytePlus ModelArk",
+    "apiUrl": "https://ark.ap-southeast.bytepluses.com/api/v3",
+    "apiDocsUrl": "https://docs.byteplus.com/en/docs/ModelArk/seedream-5-5",
+    "pricing": {},
+    "models": [
+      {
+        "creator": "bytedance",
+        "include": [
+          "doubao-seedream-5-5-261028"
+        ],
+        "idOverrides": {
+          "doubao-seedream-5-5-261028": "dola-seedream-5-5-261028"
         }
       }
     ]
@@ -6588,6 +6860,15 @@ var providers = {
         "idOverrides": {
           "openbmb/MiniCPM5-2B": "openbmb/minicpm5-2b"
         }
+      },
+      {
+        "creator": "xiaomi",
+        "include": [
+          "XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B"
+        ],
+        "idOverrides": {
+          "XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B": "mimo-v2.6"
+        }
       }
     ]
   },
@@ -6622,6 +6903,8 @@ var providers = {
       {
         "creator": "openai",
         "include": [
+          "gpt-image-2.6-sunburst",
+          "gpt-image-2.6-flare",
           "gpt-6-luna",
           "gpt-6-sol",
           "gpt-6.1-sol",
@@ -6689,6 +6972,8 @@ var providers = {
       {
         "creator": "google",
         "include": [
+          "gemini-4-carbon",
+          "gemini-4-hydrogen",
           "gemini-omni-1.2-flash",
           "gemini-omni-1.1-flash",
           "gemini-nano-banana-2.1",
@@ -6833,9 +7118,11 @@ var providers = {
       {
         "creator": "thinkingmachines",
         "include": [
+          "thinkingmachines/Inkling-2-Small",
           "thinkingmachines/Inkling-Small"
         ],
         "idOverrides": {
+          "thinkingmachines/Inkling-2-Small": "thinkingmachines/inkling-2-small",
           "thinkingmachines/Inkling-Small": "thinkingmachines/inkling-small"
         }
       },
@@ -6850,9 +7137,13 @@ var providers = {
       {
         "creator": "minimax",
         "include": [
+          "MiniMax-H3-Image",
+          "MiniMax-H3-Image-Highspeed",
           "MiniMax-M3.1-Flash"
         ],
         "idOverrides": {
+          "MiniMax-H3-Image": "minimax/minimax-h3-image",
+          "MiniMax-H3-Image-Highspeed": "minimax/minimax-h3-image-highspeed",
           "MiniMax-M3.1-Flash": "minimax/minimax-m3.1-flash"
         }
       },
@@ -6927,6 +7218,26 @@ var providers = {
           "command-r-08-2024": "cohere/command-r-08-2024",
           "command-r-plus-08-2024": "cohere/command-r-plus-08-2024"
         }
+      },
+      {
+        "creator": "baidu",
+        "include": [
+          "ernie-5.5-flash-preview",
+          "ernie-light-dt-1.0"
+        ],
+        "idOverrides": {
+          "ernie-5.5-flash-preview": "baidu/ernie-5.5-flash-preview:free",
+          "ernie-light-dt-1.0": "baidu/ernie-light-dt-1.0-intl"
+        }
+      },
+      {
+        "creator": "bytedance",
+        "include": [
+          "doubao-seedream-5-5-261028"
+        ],
+        "idOverrides": {
+          "doubao-seedream-5-5-261028": "bytedance-seed/seedream-5-5"
+        }
       }
     ]
   },
@@ -6948,10 +7259,26 @@ var providers = {
         "creator": "qwen",
         "include": "all",
         "exclude": [
+          "qwen4-max-preview",
           "Qwen/Qwen3.8-2.4T-A95B",
           "Qwen/Qwen3.8-27B",
           "Qwen/Qwen3.6-35B-A3B",
           "Qwen/Qwen3.8-Flash-Next"
+        ]
+      }
+    ]
+  },
+  "qwen-token-plan": {
+    "id": "qwen-token-plan",
+    "name": "Qwen Token Plan",
+    "apiUrl": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+    "apiDocsUrl": "https://help.aliyun.com/en/model-studio/qwen4-max-preview",
+    "pricing": {},
+    "models": [
+      {
+        "creator": "qwen",
+        "include": [
+          "qwen4-max-preview"
         ]
       }
     ]
@@ -7038,11 +7365,27 @@ var providers = {
       {
         "creator": "thinkingmachines",
         "include": [
+          "thinkingmachines/Inkling-2-Small",
           "thinkingmachines/Inkling"
         ],
         "idOverrides": {
           "thinkingmachines/Inkling": "thinkingmachines/inkling"
         }
+      }
+    ]
+  },
+  "volcano-ark": {
+    "id": "volcano-ark",
+    "name": "Volcano Ark",
+    "apiUrl": "https://ark.cn-beijing.volces.com/api/v3",
+    "apiDocsUrl": "https://console.volcengine.com/ark/region:cn-beijing/docs/seedream-5-5",
+    "pricing": {},
+    "models": [
+      {
+        "creator": "bytedance",
+        "include": [
+          "doubao-seedream-5-5-261028"
+        ]
       }
     ]
   },
