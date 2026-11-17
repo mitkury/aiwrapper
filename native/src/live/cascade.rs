@@ -214,6 +214,7 @@ enum Work {
     Done(Result<Message>),
     Audio(usize, PcmFrame),
     SegmentDone(usize),
+    SynthesisText(usize, String),
     Synthesized,
     Failed(Error),
 }
@@ -324,7 +325,7 @@ impl Actor {
                 }
                 _ = flush.tick() => {
                     if self.continuation.is_some_and(|t|t.elapsed()>Duration::from_secs(30)) { return Err(Error::Protocol("playback acknowledgement timed out before tool continuation".into())); }
-                    self.segment(true)?;
+                    self.segment(SegmentTrigger::Timer)?;
                 },
             }
         }
@@ -586,6 +587,9 @@ impl Actor {
         let synthesis_work = async move {
             let result: Result<()> = async {
                 while let Some((index, text)) = segments.recv().await {
+                    tx.send((generation, Work::SynthesisText(index, text.clone())))
+                        .await
+                        .map_err(|_| Error::Cancelled)?;
                     let mut stream = tokio::time::timeout(
                         Duration::from_secs(15),
                         speech.synthesize(&text, cancel.clone()),
@@ -675,12 +679,12 @@ impl Actor {
                         text_output: true,
                     }],
                 )?;
-                self.segment(false)
+                self.segment(SegmentTrigger::Update)
             }
             Work::Done(result) => {
                 let message = result?;
                 self.work(Work::Text(message.answer()))?;
-                self.segment(true)?;
+                self.segment(SegmentTrigger::Finished)?;
                 let round = self.round.as_mut().unwrap();
                 round.model_done = true;
                 // Closing this sender lets synthesis drain its queued segments.
@@ -737,6 +741,7 @@ impl Actor {
                     }],
                 )
             }
+            Work::SynthesisText(index, text) => self.diagnostic(json!({"kind":"tts-input","itemId":self.round.as_ref().unwrap().id.to_string(),"contentIndex":index,"text":text})),
             Work::SegmentDone(index) => {
                 let round = self.round.as_mut().unwrap();
                 round.segments[index].done = true;
@@ -755,13 +760,13 @@ impl Actor {
             Work::Failed(error) => Err(error),
         }
     }
-    fn segment(&mut self, flush: bool) -> Result<()> {
+    fn segment(&mut self, trigger: SegmentTrigger) -> Result<()> {
         let Some(round) = self.round.as_mut().filter(|r| !r.cut && !r.model_done) else {
             return Ok(());
         };
         loop {
             let remaining = &round.text[round.segmented..];
-            let end = segment_end(remaining, flush);
+            let end = segment_end(remaining, trigger);
             if end == 0 {
                 break;
             }
@@ -789,13 +794,45 @@ impl Actor {
     }
 }
 
-fn segment_end(text: &str, flush: bool) -> usize {
-    for (n, (index, c)) in text.char_indices().enumerate() {
-        if ".!?。！？\n".contains(c) || n >= 159 {
-            return index + c.len_utf8();
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SegmentTrigger {
+    Update,
+    Timer,
+    Finished,
+}
+
+fn segment_end(text: &str, trigger: SegmentTrigger) -> usize {
+    let mut whitespace = 0;
+    let mut chars = text.char_indices().peekable();
+    let mut count = 0;
+    while let Some((index, c)) = chars.next() {
+        count += 1;
+        let end = index + c.len_utf8();
+        if c.is_whitespace() {
+            whitespace = end;
+        }
+        let followed_by_space = chars.peek().is_some_and(|(_, next)| next.is_whitespace());
+        let final_character = trigger == SegmentTrigger::Finished && end == text.len();
+        // A trailing period in a streamed snapshot may still become a decimal,
+        // abbreviation or URL. Wait for the next character (or model completion).
+        if "。！？\n".contains(c)
+            || (".!?".contains(c) && (followed_by_space || final_character))
+            || (",;:".contains(c) && count >= 40 && followed_by_space)
+        {
+            return end;
+        }
+        // 160 characters is a target, not permission to cut an unfinished word.
+        // A long unbroken token waits for its boundary or the final model result;
+        // the response's existing 64 KiB limit still bounds storage.
+        if count >= 160 && whitespace > 0 {
+            return whitespace;
         }
     }
-    if flush { text.len() } else { 0 }
+    match trigger {
+        SegmentTrigger::Finished => text.len(),
+        SegmentTrigger::Timer if text[..whitespace].trim().chars().count() >= 40 => whitespace,
+        _ => 0,
+    }
 }
 
 /// Edit only visible text, retaining opaque reasoning and tool replay fields.
@@ -884,12 +921,38 @@ mod tests {
         assert_eq!(message, original);
     }
     #[test]
-    fn segmentation_caps_unpunctuated_text_and_keeps_unicode_boundaries() {
-        assert_eq!(segment_end("你好。再见", false), "你好。".len());
-        let long = "界".repeat(300);
-        let end = segment_end(&long, false);
-        assert_eq!(long[..end].chars().count(), 160);
-        assert_eq!(segment_end("unfinished", false), 0);
-        assert_eq!(segment_end("unfinished", true), 10);
+    fn segmentation_waits_for_whole_words_on_timer_and_length_limit() {
+        let text = "This is a complete opening phrase and you look contempl";
+        let end = segment_end(text, SegmentTrigger::Timer);
+        assert_eq!(
+            &text[..end],
+            "This is a complete opening phrase and you look "
+        );
+        assert_eq!(segment_end("contempl", SegmentTrigger::Timer), 0);
+        assert_eq!(
+            segment_end("contemplative.", SegmentTrigger::Finished),
+            "contemplative.".len()
+        );
+        let long = format!("{}contemplative", "word ".repeat(31));
+        let end = segment_end(&long, SegmentTrigger::Update);
+        assert_eq!(&long[end..], "contemplative");
+        let token = "x".repeat(300);
+        assert_eq!(segment_end(&token, SegmentTrigger::Timer), 0);
+        assert_eq!(segment_end(&token, SegmentTrigger::Finished), token.len());
+    }
+    #[test]
+    fn segmentation_preserves_decimals_contractions_and_unicode() {
+        assert_eq!(
+            segment_end("你好。再见", SegmentTrigger::Update),
+            "你好。".len()
+        );
+        assert_eq!(segment_end("It costs 3.", SegmentTrigger::Update), 0);
+        assert_eq!(
+            segment_end("It costs 3.14. Next", SegmentTrigger::Update),
+            "It costs 3.14.".len()
+        );
+        assert_eq!(segment_end("It's thought-provok", SegmentTrigger::Timer), 0);
+        let text = "界".repeat(300);
+        assert_eq!(segment_end(&text, SegmentTrigger::Finished), text.len());
     }
 }

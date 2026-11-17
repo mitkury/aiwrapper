@@ -81,6 +81,82 @@ async fn playback_cut_keeps_only_fully_heard_segments_and_cannot_replay_raw_text
 struct GatedLanguage {
     gate: CancellationToken,
 }
+
+struct PartialWordLanguage(CancellationToken);
+#[async_trait]
+impl LanguageProvider for PartialWordLanguage {
+    async fn complete(
+        &self,
+        _: &Conversation,
+        options: &ChatOptions,
+        update: &mut (dyn for<'m> FnMut(&'m Message) + Send),
+    ) -> Result<Message> {
+        update(&Message::assistant(
+            "This is a complete opening phrase and you look contempl",
+        ));
+        tokio::select! {_=self.0.cancelled()=>{},_=options.cancellation.cancelled()=>return Err(Error::Cancelled)};
+        Ok(Message::assistant(
+            "This is a complete opening phrase and you look contemplative.",
+        ))
+    }
+}
+struct RecordedSpeech(Arc<Mutex<Vec<String>>>);
+#[async_trait]
+impl SpeechOutput for RecordedSpeech {
+    async fn synthesize(
+        &self,
+        text: &str,
+        cancellation: CancellationToken,
+    ) -> Result<BoxStream<'static, Result<PcmFrame>>> {
+        self.0.lock().unwrap().push(text.into());
+        MockSpeechOutput.synthesize(text, cancellation).await
+    }
+}
+#[tokio::test]
+async fn timer_streams_complete_words_and_reports_exact_synthesis_input() {
+    let gate = CancellationToken::new();
+    let inputs = Arc::new(Mutex::new(vec![]));
+    let mut session = CascadeConfig::new(
+        Arc::new(PartialWordLanguage(gate.clone())),
+        Arc::new(RecordedSpeech(inputs.clone())),
+    )
+    .connect()
+    .unwrap();
+    session.sender.send_realtime_text("hi").await.unwrap();
+    let mut reported = vec![];
+    loop {
+        let events = next(&mut session).await;
+        let mut done = false;
+        for event in events {
+            if let LiveEvent::ProviderState { state } = event {
+                if state["kind"] == "tts-input" {
+                    reported.push(state["text"].as_str().unwrap().to_owned());
+                }
+                if state["kind"] == "segment-done" && state["contentIndex"] == 0 {
+                    assert_eq!(
+                        inputs.lock().unwrap().as_slice(),
+                        ["This is a complete opening phrase and you look "]
+                    );
+                    assert!(!gate.is_cancelled());
+                    gate.cancel();
+                }
+                done |= state["kind"] == "synthesis-complete";
+            }
+        }
+        if done {
+            break;
+        }
+    }
+    assert_eq!(
+        inputs.lock().unwrap().as_slice(),
+        [
+            "This is a complete opening phrase and you look ",
+            "contemplative."
+        ]
+    );
+    assert_eq!(reported, *inputs.lock().unwrap());
+    session.sender.close().await.unwrap();
+}
 #[async_trait]
 impl LanguageProvider for GatedLanguage {
     async fn complete(
@@ -89,7 +165,7 @@ impl LanguageProvider for GatedLanguage {
         options: &ChatOptions,
         update: &mut (dyn for<'m> FnMut(&'m Message) + Send),
     ) -> Result<Message> {
-        update(&Message::assistant("First sentence."));
+        update(&Message::assistant("First sentence. "));
         tokio::select! {_=self.gate.cancelled()=>{},_=options.cancellation.cancelled()=>return Err(Error::Cancelled)};
         Ok(Message::assistant("First sentence. Last sentence."))
     }

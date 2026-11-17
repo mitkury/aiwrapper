@@ -20,7 +20,9 @@ Open `/cascade` at the URL printed by Vite. The launch command builds both nativ
 example binaries. Chat at `/` also uses Rust; `/realtime` remains the older
 TypeScript pipeline and is separate from this test path.
 
-The page starts in **Offline test** mode. Connect and send
+When the default language, Deepgram, and ElevenLabs keys are configured, the page
+starts with real speech and Microphone selected. Capture begins only on Connect.
+Otherwise it starts in **Offline test** mode. Connect and send
 `tool: add {"a":2,"b":3}` to exercise real local tool execution and PCM playback.
 Offline output is a tone, not synthesized speech. No microphone transcription or
 provider requests occur in offline mode.
@@ -50,7 +52,11 @@ is attached. Select a vision-capable language model for camera testing.
 
 The event list retains up to 300 events / 8 MiB after disconnect. Select `request`
 to inspect the neutral conversation and tools passed to the language provider,
-`history` to see a playback correction, or tool events to inspect results. This
+`history` to see a playback correction, `tts-input` for each exact text segment
+submitted to synthesis, or tool events to inspect results. `microphone-settings`
+shows browser-reported echo cancellation and noise suppression settings. The
+browser is asked to enable both at capture; effectiveness against speaker
+playback still depends on the browser/device and is not measured by this event. This
 is an initial diagnostic list, not the planned recording/timeline inspector.
 It does not show the provider's final wire payload or record microphone audio.
 
@@ -64,6 +70,13 @@ PCM for one text segment. Hosts can inject deterministic providers through these
 contracts. `DeepgramFlux` supplies the initial persistent STT adapter;
 `HttpSpeechOutput` wraps the existing speech clients. `MockSpeechOutput` emits a
 tone for offline tests.
+
+Speech segmentation prefers sentence and clause boundaries. A 200 ms timer can
+release a complete-word prefix of at least 40 characters; the 160-character
+target also splits only at whitespace. Unfinished words wait for a boundary or
+model completion. Each segment remains a separate HTTP synthesis request, so
+prosody can still differ across segments. Incremental text-input synthesis with
+shared context is follow-up work.
 
 Wrap the session in `LiveAgent` for tools. When interrupted during a tool, its
 actual result must resolve before a queued user turn starts. The cascade does

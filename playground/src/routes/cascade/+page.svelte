@@ -185,6 +185,14 @@
 			return;
 		}
 		if (mic && !offline) {
+			const settings = media.getAudioTracks()[0].getSettings();
+			log('microphone-settings', {
+				echoCancellation: settings.echoCancellation ?? 'not reported',
+				noiseSuppression: settings.noiseSuppression ?? 'not reported',
+				autoGainControl: settings.autoGainControl ?? 'not reported',
+				sampleRate: settings.sampleRate,
+				channelCount: settings.channelCount
+			});
 			muted = false;
 			capture = new AudioContext();
 			await capture.resume();
@@ -276,6 +284,10 @@
 				keys = v;
 				if (v.voice) voice = v.voice;
 				chooseProvider();
+				if (configured[provider]?.configured && keys.deepgram && keys.elevenlabs) {
+					offline = false;
+					mic = true;
+				}
 			})
 			.catch(fail);
 		return () => {
@@ -293,13 +305,13 @@
 		</p>
 	</div>
 	<fieldset
-		disabled={phase !== 'Disconnected'}
+		disabled={!ready || phase !== 'Disconnected'}
 		class="space-y-4 rounded-xl border border-neutral-200 p-4"
 	>
 		<legend class="px-2 font-medium">Providers</legend>
 		<label class="flex items-center gap-2"
 			><input type="checkbox" bind:checked={offline} />Offline test — echo replies and a short tone,
-			no API calls</label
+			no API calls (typed input only; microphone disabled)</label
 		>
 		<div class="grid gap-4 md:grid-cols-3">
 			<div class="space-y-2">
