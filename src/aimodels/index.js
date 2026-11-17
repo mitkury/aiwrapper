@@ -613,6 +613,24 @@ var models = {
     "releasedAt": "2026-01-22",
     "creatorId": "baidu"
   },
+  "doubao-seedance-2-5-flash-261115": {
+    "id": "doubao-seedance-2-5-flash-261115",
+    "name": "Seedance 2.5 Flash",
+    "license": "proprietary",
+    "capabilities": [
+      "txt-in",
+      "img-in",
+      "audio-in",
+      "video-in",
+      "video-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": null,
+      "maxOutput": null
+    },
+    "creatorId": "bytedance"
+  },
   "doubao-seedream-5-5-261028": {
     "id": "doubao-seedream-5-5-261028",
     "name": "Seedream 5.5",
@@ -2612,6 +2630,88 @@ var models = {
     "releasedAt": "2026-03-31",
     "creatorId": "google"
   },
+  "heygen-decision-1": {
+    "id": "heygen-decision-1",
+    "name": "HeyGen Decision 1",
+    "license": "proprietary",
+    "capabilities": [
+      "txt-in",
+      "img-in"
+    ],
+    "context": {
+      "type": "token",
+      "total": 131072,
+      "maxOutput": 0
+    },
+    "creatorId": "heygen"
+  },
+  "heygen-decision-1-turbo": {
+    "id": "heygen-decision-1-turbo",
+    "name": "HeyGen Decision 1 Turbo",
+    "license": "proprietary",
+    "capabilities": [
+      "txt-in",
+      "img-in"
+    ],
+    "context": {
+      "type": "token",
+      "total": 262144,
+      "maxOutput": 0
+    },
+    "creatorId": "heygen"
+  },
+  "ibm-granite/granite-4.1-3b-llmon-preview": {
+    "id": "ibm-granite/granite-4.1-3b-llmon-preview",
+    "name": "Granite 4.1 3B LLMON Preview",
+    "license": "apache-2.0",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "fn-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": null,
+      "maxOutput": null
+    },
+    "creatorId": "ibm"
+  },
+  "ibm-granite/granite-4.1-8b-llmon-preview": {
+    "id": "ibm-granite/granite-4.1-8b-llmon-preview",
+    "name": "Granite 4.1 8B LLMON Preview",
+    "license": "apache-2.0",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "fn-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": null,
+      "maxOutput": null
+    },
+    "creatorId": "ibm"
+  },
+  "internlm/Sage-S2.1-Flash": {
+    "id": "internlm/Sage-S2.1-Flash",
+    "name": "Sage S2.1 Flash",
+    "license": "mit",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "fn-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": null,
+      "maxOutput": null
+    },
+    "creatorId": "internlm"
+  },
   "kimi-k3.1-pro": {
     "id": "kimi-k3.1-pro",
     "extends": "kimi-k3",
@@ -2782,6 +2882,51 @@ var models = {
     },
     "creatorId": "kimi"
   },
+  "KittenML/kitten-tts-2-mini": {
+    "id": "KittenML/kitten-tts-2-mini",
+    "name": "KittenTTS 2 Mini",
+    "license": "apache-2.0",
+    "capabilities": [
+      "txt-in",
+      "audio-out"
+    ],
+    "context": {
+      "type": "character",
+      "total": null,
+      "maxOutput": null
+    },
+    "creatorId": "kittenml"
+  },
+  "KittenML/kitten-tts-2-nano": {
+    "id": "KittenML/kitten-tts-2-nano",
+    "name": "KittenTTS 2 Nano",
+    "license": "apache-2.0",
+    "capabilities": [
+      "txt-in",
+      "audio-out"
+    ],
+    "context": {
+      "type": "character",
+      "total": null,
+      "maxOutput": null
+    },
+    "creatorId": "kittenml"
+  },
+  "KittenML/kitten-tts-2-pico": {
+    "id": "KittenML/kitten-tts-2-pico",
+    "name": "KittenTTS 2 Pico",
+    "license": "apache-2.0",
+    "capabilities": [
+      "txt-in",
+      "audio-out"
+    ],
+    "context": {
+      "type": "character",
+      "total": null,
+      "maxOutput": null
+    },
+    "creatorId": "kittenml"
+  },
   "k-exaone_v2.5": {
     "id": "k-exaone_v2.5",
     "name": "K-EXAONE 2.5",
@@ -2801,6 +2946,40 @@ var models = {
     "releasedAt": "2026-11-09",
     "creatorId": "lgai"
   },
+  "d1.2": {
+    "id": "d1.2",
+    "name": "d1.2",
+    "license": "proprietary",
+    "capabilities": [
+      "txt-in",
+      "img-in",
+      "audio-in"
+    ],
+    "context": {
+      "type": "token",
+      "total": null,
+      "maxOutput": 0
+    },
+    "releasedAt": "2026-11-16",
+    "creatorId": "liquid"
+  },
+  "d1.2-ultra": {
+    "id": "d1.2-ultra",
+    "name": "d1.2-ultra",
+    "license": "proprietary",
+    "capabilities": [
+      "txt-in",
+      "img-in",
+      "audio-in"
+    ],
+    "context": {
+      "type": "token",
+      "total": null,
+      "maxOutput": 0
+    },
+    "releasedAt": "2026-11-16",
+    "creatorId": "liquid"
+  },
   "lfm3-1.7b": {
     "id": "lfm3-1.7b",
     "name": "LFM3-1.7B",
@@ -2819,6 +2998,24 @@ var models = {
     },
     "releasedAt": "2026-10-27",
     "creatorId": "liquid"
+  },
+  "meituan-longcat/LongCat-Video-Avatar-1.6": {
+    "id": "meituan-longcat/LongCat-Video-Avatar-1.6",
+    "name": "LongCat Video Avatar 1.6",
+    "license": "mit",
+    "capabilities": [
+      "txt-in",
+      "img-in",
+      "audio-in",
+      "video-in",
+      "video-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": null,
+      "maxOutput": null
+    },
+    "creatorId": "meituan"
   },
   "LongCat-2.5": {
     "id": "LongCat-2.5",
@@ -4794,6 +4991,60 @@ var models = {
     },
     "creatorId": "openbmb"
   },
+  "pplx-decider-v1.3": {
+    "id": "pplx-decider-v1.3",
+    "name": "Perplexity Decider v1.3",
+    "license": "apache-2.0",
+    "capabilities": [
+      "txt-in",
+      "img-in"
+    ],
+    "context": {
+      "type": "token",
+      "total": 262144,
+      "maxOutput": 0
+    },
+    "releasedAt": "2026-11-12",
+    "creatorId": "perplexity"
+  },
+  "pplx-decider-flash-v1.3": {
+    "id": "pplx-decider-flash-v1.3",
+    "name": "Perplexity Decider Flash v1.3",
+    "license": "apache-2.0",
+    "capabilities": [
+      "txt-in",
+      "img-in"
+    ],
+    "context": {
+      "type": "token",
+      "total": 262144,
+      "maxOutput": 0
+    },
+    "releasedAt": "2026-11-12",
+    "creatorId": "perplexity"
+  },
+  "qwen4-max": {
+    "id": "qwen4-max",
+    "name": "Qwen 4 Max",
+    "license": "proprietary",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "img-in",
+      "video-in",
+      "fn-out",
+      "json-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 1e6,
+      "maxOutput": 262144
+    },
+    "releasedAt": "2026-11-16",
+    "creatorId": "qwen"
+  },
   "qwen4-max-preview": {
     "id": "qwen4-max-preview",
     "name": "Qwen 4 Max Preview",
@@ -5358,6 +5609,52 @@ var models = {
     },
     "creatorId": "qwen"
   },
+  "recraftv4_1_flash_v2": {
+    "id": "recraftv4_1_flash_v2",
+    "name": "Recraft V4.1 Flash V2",
+    "license": "proprietary",
+    "capabilities": [
+      "txt-in",
+      "img-out"
+    ],
+    "context": {
+      "maxOutput": 6,
+      "sizes": [
+        "1024x1024",
+        "1536x768",
+        "768x1536",
+        "1280x832",
+        "832x1280",
+        "1216x896",
+        "896x1216",
+        "1152x896",
+        "896x1152",
+        "832x1344",
+        "1280x896",
+        "896x1280",
+        "1344x768",
+        "768x1344"
+      ]
+    },
+    "releasedAt": "2026-11-13",
+    "creatorId": "recraft"
+  },
+  "salesforce-sovereign-intelligence/SOV-Transcribe-1": {
+    "id": "salesforce-sovereign-intelligence/SOV-Transcribe-1",
+    "name": "SOV-Transcribe-1",
+    "license": "apache-2.0",
+    "capabilities": [
+      "audio-in",
+      "txt-in",
+      "txt-out"
+    ],
+    "context": {
+      "type": "audio-in",
+      "total": null,
+      "maxOutput": null
+    },
+    "creatorId": "salesforce"
+  },
   "step-5-preview": {
     "id": "step-5-preview",
     "name": "Step 5 Preview",
@@ -5461,6 +5758,42 @@ var models = {
     },
     "releasedAt": "2026-05-29",
     "creatorId": "stepfun"
+  },
+  "hy4-flash": {
+    "id": "hy4-flash",
+    "name": "Tencent Hy4 Flash",
+    "license": "proprietary",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "img-in",
+      "json-out",
+      "fn-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 1048576,
+      "maxOutput": null
+    },
+    "releasedAt": "2026-11-16",
+    "creatorId": "tencent"
+  },
+  "hy-world2-panorama": {
+    "id": "hy-world2-panorama",
+    "name": "Tencent HY-World 2.1 Panorama",
+    "license": "proprietary",
+    "capabilities": [
+      "txt-in",
+      "img-in",
+      "img-out"
+    ],
+    "context": {
+      "maxOutput": 1,
+      "sizes": []
+    },
+    "creatorId": "tencent"
   },
   "hy4": {
     "id": "hy4",
@@ -6614,10 +6947,28 @@ var providers = {
       {
         "creator": "bytedance",
         "include": [
+          "doubao-seedance-2-5-flash-261115",
           "doubao-seedream-5-5-261028"
         ],
         "idOverrides": {
-          "doubao-seedream-5-5-261028": "dola-seedream-5-5-261028"
+          "doubao-seedream-5-5-261028": "dola-seedream-5-5-261028",
+          "doubao-seedance-2-5-flash-261115": "dreamina-seedance-2-5-flash-261115"
+        }
+      }
+    ]
+  },
+  "cloudflare-workers-ai": {
+    "id": "cloudflare-workers-ai",
+    "name": "Cloudflare Workers AI",
+    "apiDocsUrl": "https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/",
+    "models": [
+      {
+        "creator": "thinkingmachines",
+        "include": [
+          "thinkingmachines/Inkling-2-Small"
+        ],
+        "idOverrides": {
+          "thinkingmachines/Inkling-2-Small": "@cf/thinkingmachines/inkling-2-small"
         }
       }
     ]
@@ -6720,6 +7071,20 @@ var providers = {
       }
     ]
   },
+  "hugging-face": {
+    "id": "hugging-face",
+    "name": "Hugging Face Inference Providers",
+    "apiUrl": "https://router.huggingface.co/v1",
+    "apiDocsUrl": "https://huggingface.co/docs/inference-providers/routing",
+    "models": [
+      {
+        "creator": "qwen",
+        "include": [
+          "Qwen/Qwen3.8-27B"
+        ]
+      }
+    ]
+  },
   "kimi": {
     "id": "kimi",
     "name": "Moonshot AI",
@@ -6745,12 +7110,37 @@ var providers = {
     "apiDocsUrl": "https://docs.exaone.ai/en/docs/overview",
     "pricing": {}
   },
+  "liquid-decisions": {
+    "id": "liquid-decisions",
+    "name": "Liquid AI Decisions",
+    "apiUrl": "https://api.liquid.ai/decisions/v1",
+    "apiDocsUrl": "https://www.liquid.ai/blog/d1-2",
+    "models": [
+      {
+        "creator": "liquid",
+        "include": [
+          "d1.2",
+          "d1.2-ultra"
+        ]
+      }
+    ]
+  },
   "liquid": {
     "id": "liquid",
     "name": "Liquid AI",
     "apiUrl": "https://api.liquid.ai/openai/v1",
     "apiDocsUrl": "https://docs.liquid.ai/api/overview",
-    "pricing": {}
+    "pricing": {},
+    "models": [
+      {
+        "creator": "liquid",
+        "include": "all",
+        "exclude": [
+          "d1.2",
+          "d1.2-ultra"
+        ]
+      }
+    ]
   },
   "meituan": {
     "id": "meituan",
@@ -6845,6 +7235,23 @@ var providers = {
           "nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB",
           "nvidia/NVIDIA-Nemotron-Labs-Dory1.0-4B-BF16"
         ]
+      }
+    ]
+  },
+  "ollama-cloud": {
+    "id": "ollama-cloud",
+    "name": "Ollama Cloud",
+    "apiUrl": "https://ollama.com/api",
+    "apiDocsUrl": "https://docs.ollama.com/cloud",
+    "models": [
+      {
+        "creator": "thinkingmachines",
+        "include": [
+          "thinkingmachines/Inkling-2-Small"
+        ],
+        "idOverrides": {
+          "thinkingmachines/Inkling-2-Small": "inkling-2-small"
+        }
       }
     ]
   },
@@ -6972,6 +7379,7 @@ var providers = {
       {
         "creator": "google",
         "include": [
+          "gemini-decision-1",
           "gemini-4-carbon",
           "gemini-4-hydrogen",
           "gemini-omni-1.2-flash",
@@ -7048,6 +7456,7 @@ var providers = {
       {
         "creator": "qwen",
         "include": [
+          "qwen4-max",
           "qwen3.8-omni-flash",
           "qwen3.8-max-0902",
           "qwen3.8-flash",
@@ -7078,6 +7487,7 @@ var providers = {
       {
         "creator": "antgroup",
         "include": [
+          "Ling-3.2-flash",
           "Ling-3.1-flash",
           "Ling-3.0-flash-VL",
           "Ling-3.0-tiny"
@@ -7085,16 +7495,21 @@ var providers = {
         "idOverrides": {
           "Ling-3.1-flash": "inclusionai/ling-3.1-flash",
           "Ling-3.0-flash-VL": "inclusionai/ling-3.0-flash-vl",
-          "Ling-3.0-tiny": "inclusionai/ling-3.0-tiny"
+          "Ling-3.0-tiny": "inclusionai/ling-3.0-tiny",
+          "Ling-3.2-flash": "inclusionai/ling-3.2-flash:free"
         }
       },
       {
         "creator": "liquid",
         "include": [
+          "d1.2-ultra",
+          "d1.2",
           "lfm3-1.7b"
         ],
         "idOverrides": {
-          "lfm3-1.7b": "liquid/lfm-3-1.7b"
+          "lfm3-1.7b": "liquid/lfm-3-1.7b",
+          "d1.2": "liquid/d1.2",
+          "d1.2-ultra": "liquid/d1.2-ultra"
         }
       },
       {
@@ -7110,10 +7525,15 @@ var providers = {
       {
         "creator": "tencent",
         "include": [
+          "hy-world2-panorama",
+          "hy4-flash",
           "hy4-preview",
           "hy4"
         ],
-        "idPrefix": "tencent/"
+        "idPrefix": "tencent/",
+        "idOverrides": {
+          "hy-world2-panorama": "tencent/hy-world-2.1-panorama"
+        }
       },
       {
         "creator": "thinkingmachines",
@@ -7233,10 +7653,43 @@ var providers = {
       {
         "creator": "bytedance",
         "include": [
+          "doubao-seedance-2-5-flash-261115",
           "doubao-seedream-5-5-261028"
         ],
         "idOverrides": {
-          "doubao-seedream-5-5-261028": "bytedance-seed/seedream-5-5"
+          "doubao-seedream-5-5-261028": "bytedance-seed/seedream-5-5",
+          "doubao-seedance-2-5-flash-261115": "bytedance/seedance-2.5-flash"
+        }
+      },
+      {
+        "creator": "perplexity",
+        "include": [
+          "pplx-decider-v1.3",
+          "pplx-decider-flash-v1.3"
+        ],
+        "idOverrides": {
+          "pplx-decider-v1.3": "perplexity/pplx-decider-v1.3:free",
+          "pplx-decider-flash-v1.3": "perplexity/pplx-decider-flash-v1.3:free"
+        }
+      },
+      {
+        "creator": "heygen",
+        "include": [
+          "heygen-decision-1",
+          "heygen-decision-1-turbo"
+        ],
+        "idOverrides": {
+          "heygen-decision-1": "heygen/heygen-decision-1",
+          "heygen-decision-1-turbo": "heygen/heygen-decision-1-turbo"
+        }
+      },
+      {
+        "creator": "recraft",
+        "include": [
+          "recraftv4_1_flash_v2"
+        ],
+        "idOverrides": {
+          "recraftv4_1_flash_v2": "recraft/recraft-v4.1-flash-v2"
         }
       }
     ]
@@ -7247,6 +7700,21 @@ var providers = {
     "apiUrl": "https://ai.oraclecloud.com",
     "apiDocsUrl": "https://docs.oracle.com/en-us/iaas/Content/generative-ai/overview.htm",
     "pricing": {}
+  },
+  "perplexity": {
+    "id": "perplexity",
+    "name": "Perplexity",
+    "apiUrl": "https://api.perplexity.ai/v1",
+    "apiDocsUrl": "https://docs.perplexity.ai/docs/decisions/quickstart",
+    "models": [
+      {
+        "creator": "perplexity",
+        "include": [
+          "pplx-decider-v1.3",
+          "pplx-decider-flash-v1.3"
+        ]
+      }
+    ]
   },
   "qwen": {
     "id": "qwen",
@@ -7279,6 +7747,20 @@ var providers = {
         "creator": "qwen",
         "include": [
           "qwen4-max-preview"
+        ]
+      }
+    ]
+  },
+  "recraft": {
+    "id": "recraft",
+    "name": "Recraft",
+    "apiUrl": "https://external.api.recraft.ai/v1",
+    "apiDocsUrl": "https://www.recraft.ai/docs",
+    "models": [
+      {
+        "creator": "recraft",
+        "include": [
+          "recraftv4_1_flash_v2"
         ]
       }
     ]
@@ -7374,6 +7856,52 @@ var providers = {
       }
     ]
   },
+  "vercel-ai-gateway": {
+    "id": "vercel-ai-gateway",
+    "name": "Vercel AI Gateway",
+    "apiUrl": "https://ai-gateway.vercel.sh/v1",
+    "apiDocsUrl": "https://vercel.com/docs/ai-gateway/sdks-and-apis/openai-chat-completions",
+    "models": [
+      {
+        "creator": "thinkingmachines",
+        "include": [
+          "thinkingmachines/Inkling-2-Small"
+        ],
+        "idOverrides": {
+          "thinkingmachines/Inkling-2-Small": "thinkingmachines/inkling-2-small"
+        }
+      },
+      {
+        "creator": "qwen",
+        "include": [
+          "qwen4-max"
+        ],
+        "idOverrides": {
+          "qwen4-max": "alibaba/qwen4-max"
+        }
+      },
+      {
+        "creator": "tencent",
+        "include": [
+          "hy4-flash"
+        ],
+        "idOverrides": {
+          "hy4-flash": "tencent/hy4-flash"
+        }
+      },
+      {
+        "creator": "perplexity",
+        "include": [
+          "pplx-decider-v1.3",
+          "pplx-decider-flash-v1.3"
+        ],
+        "idOverrides": {
+          "pplx-decider-v1.3": "perplexity/pplx-decider-v1.3",
+          "pplx-decider-flash-v1.3": "perplexity/pplx-decider-flash-v1.3"
+        }
+      }
+    ]
+  },
   "volcano-ark": {
     "id": "volcano-ark",
     "name": "Volcano Ark",
@@ -7384,6 +7912,7 @@ var providers = {
       {
         "creator": "bytedance",
         "include": [
+          "doubao-seedance-2-5-flash-261115",
           "doubao-seedream-5-5-261028"
         ]
       }
@@ -7432,6 +7961,23 @@ var providers = {
     "apiUrl": "https://api.z.ai/api/paas/v4",
     "apiDocsUrl": "https://docs.z.ai/guides/overview/overview",
     "pricing": {}
+  },
+  "zenmux": {
+    "id": "zenmux",
+    "name": "ZenMux",
+    "apiUrl": "https://zenmux.ai/api/v1",
+    "apiDocsUrl": "https://zenmux.ai/docs/guide/quickstart",
+    "models": [
+      {
+        "creator": "tencent",
+        "include": [
+          "hy4-flash"
+        ],
+        "idOverrides": {
+          "hy4-flash": "tencent/hy4-flash"
+        }
+      }
+    ]
   }
 };
 var organizations = {
@@ -7620,6 +8166,48 @@ var organizations = {
     "websiteUrl": "https://www.together.ai",
     "country": "USA",
     "founded": 2022
+  },
+  "perplexity": {
+    "name": "Perplexity",
+    "websiteUrl": "https://www.perplexity.ai",
+    "country": "USA",
+    "founded": 2022
+  },
+  "recraft": {
+    "name": "Recraft",
+    "websiteUrl": "https://www.recraft.ai",
+    "country": "GBR",
+    "founded": 2022
+  },
+  "heygen": {
+    "name": "HeyGen",
+    "websiteUrl": "https://www.heygen.com",
+    "country": "USA",
+    "founded": 2020
+  },
+  "salesforce": {
+    "name": "Salesforce",
+    "websiteUrl": "https://www.salesforce.com",
+    "country": "USA",
+    "founded": 1999
+  },
+  "ibm": {
+    "name": "IBM",
+    "websiteUrl": "https://www.ibm.com",
+    "country": "USA",
+    "founded": 1911
+  },
+  "kittenml": {
+    "name": "KittenML",
+    "websiteUrl": "https://kittenml.com",
+    "country": "USA",
+    "founded": 2025
+  },
+  "internlm": {
+    "name": "Shanghai Artificial Intelligence Laboratory",
+    "websiteUrl": "https://www.shlab.org.cn",
+    "country": "CHN",
+    "founded": 2020
   }
 };
 
