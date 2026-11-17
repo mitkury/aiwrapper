@@ -10,18 +10,28 @@
 			? 'Session ended'
 			: chart.reason === 'error'
 				? 'Session error'
-				: 'Interrupted'
+				: 'Interrupted by user'
 	);
 	const position = (at: number) => Math.max(0, ((at - chart.origin) / chart.span) * 100);
 </script>
 
-<section class="activity-chart" aria-label="Parallel activity timeline">
+<section
+	class="activity-chart"
+	class:failure={chart.reason === 'error'}
+	aria-label="Parallel activity timeline"
+>
 	<div class="heading">
 		<strong>What happened, and when</strong><span>One shared time axis · from turn start</span>
 	</div>
 	{#if chart.stop !== undefined}<p class="stop-caption">
 			{stopLabel} at +{duration(Math.max(0, chart.stop - chart.origin))}
 		</p>{/if}
+	{#if chart.stop !== undefined && chart.reason === 'interrupted'}
+		<p class="stop-explanation">
+			User input or Stop reply ended the response. Microphone sounds detected as speech can trigger
+			this before any words are transcribed.
+		</p>
+	{/if}
 	<div class="plot">
 		{#each chart.lanes as lane}
 			<button
@@ -74,11 +84,20 @@
 
 <style>
 	.activity-chart {
+		--stop-color: #94621d;
 		--label: 150px;
 		--value: 85px;
 		--gap: 14px;
 		margin: 24px 0 14px;
 		color: #35474e;
+	}
+	.activity-chart.failure {
+		--stop-color: #a13f3a;
+	}
+	.stop-explanation {
+		font-size: 12px;
+		color: #73818a;
+		margin-bottom: 12px;
 	}
 	.heading {
 		display: flex;
@@ -140,7 +159,7 @@
 		);
 	}
 	.activity-bar.cut {
-		border-right: 3px solid #bc4e49;
+		border-right: 3px solid var(--stop-color);
 	}
 	.duration {
 		text-align: right;
@@ -173,11 +192,11 @@
 		position: absolute;
 		top: 0;
 		bottom: 0;
-		border-left: 2px dashed #bc4e49;
+		border-left: 2px dashed var(--stop-color);
 	}
 	.stop-caption {
 		font-size: 12px;
-		color: #a13f3a;
+		color: var(--stop-color);
 		margin-bottom: 8px;
 	}
 	.hint,

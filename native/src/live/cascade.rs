@@ -719,7 +719,7 @@ impl Actor {
                 .into_iter()
                 .rev()
                 .collect();
-            conversation.instructions.push_str(&format!("\nPlayback context: an earlier assistant reply was interrupted. Its retained text ends with {}. Any generated continuation was not played and has been removed. The cutoff may be approximate; acknowledge interruptions without claiming the user heard the full reply.", serde_json::to_string(&quote)?));
+            conversation.instructions.push_str(&format!("\nPlayback context: the user interrupted an earlier assistant reply. User interruptions include speech or microphone sounds detected as speech, a new typed message, or an explicit stop action; they may occur without recognized words. This is normal turn-taking, not a provider or playback failure, and does not imply deliberate intent. The retained assistant text ends with {}. Any generated continuation was not played and has been removed. The cutoff may be approximate. Respond to the latest user input without claiming they heard the full reply. Mention the interruption only when relevant; do not routinely apologize or announce that you were cut off.", serde_json::to_string(&quote)?));
         }
         let camera = last_user
             .and_then(|i| conversation.messages.get(i))

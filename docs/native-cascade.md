@@ -83,6 +83,16 @@ browser is asked to enable both at capture; effectiveness against speaker
 playback still depends on the browser/device and is not measured by this event.
 The event list does not show the provider's final wire payload or record microphone audio.
 
+### Choosing silence
+
+The Rust playground host exposes `keep_silent` in Cascade, Simulator, and Live
+voice. Default instructions ask the model to call it alone, without spoken text,
+when the current input needs no reply (such as a filler, background remark, or a
+request to wait). It uses the existing silent-tool behavior: record the result
+without starting a follow-up response, and keep listening. The call and result
+remain visible in session events and request history. The model decides when to
+use it; silence does not undo audio already generated before the tool call.
+
 ### Turn timeline
 
 On Cascade and Simulator, expand **Turn timeline** under **Configure & inspect**.
@@ -190,8 +200,12 @@ under `cut`: response ID, played/generated milliseconds, retained text, generate
 remainder, boundary accuracy and acknowledgement status. It is emitted only
 when generated text was removed. Fully played replies are not marked interrupted.
 The same retained text is used in model history and the playground transcript.
-A short playback-context note tells the model an earlier reply was interrupted;
-the discarded continuation is not sent back to the model.
+A playback-context note tells the model the user interrupted an earlier reply,
+through detected speech (including microphone sounds detected as speech without
+recognized words), a new typed message, or Stop reply. It describes normal
+turn-taking rather than a technical failure, without assuming deliberate intent.
+The model is asked to mention interruptions only when relevant. The discarded
+continuation is not sent back to the model.
 
 `SpeechOutput::synthesize_timed` optionally supplies `SpeechEvent::Timing` points
 alongside audio. Points use UTF-8 byte offsets in the original segment text and
@@ -207,7 +221,7 @@ when incomplete synthesis has no reliable finer boundary. Estimates are labelled
 they are not word-level measurements. Playback tracks browser scheduling, not
 proof that sound reached the listener's ears.
 
-In Cascade and Simulator, interrupted replies show a marker with played time,
+In Cascade and Simulator, interrupted replies show an **Interrupted by user** marker with played time,
 timing accuracy and an expandable **Generated remainder · excluded from model
 history**. This stays available after End session. Native OpenAI/Gemini Live
 voice retains its provider-specific interruption behavior; this cutoff viewer

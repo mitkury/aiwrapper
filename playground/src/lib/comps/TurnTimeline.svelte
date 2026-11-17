@@ -83,7 +83,7 @@
 				? 'Session ended'
 				: (round?.stopReason ?? turn?.stopReason) === 'error'
 					? 'Session error'
-					: 'Stopped / interrupted'
+					: 'Interrupted by user'
 			: round && finished(round)
 				? 'Complete'
 				: round?.play !== undefined
@@ -211,7 +211,7 @@
 								render clock; device output latency is not measured. Streaming stages can overlap.
 							</p>
 							<dl>
-								{#each [['Input started', turn.start], ['Transcript ready', turn.ready], ['Model request observed', round.request], ['First model text', round.text], ['First speech request', round.tts], ['First audio received', round.audio], ['First playback', round.play], ['Model finished', round.modelEnd], ['Speech generation finished', round.synthesisEnd], ['Playback drained', round.end], ['Stopped / interrupted', round.stopped]] as [label, time]}
+								{#each [['Input started', turn.start], ['Transcript ready', turn.ready], ['Model request observed', round.request], ['First model text', round.text], ['First speech request', round.tts], ['First audio received', round.audio], ['First playback', round.play], ['Model finished', round.modelEnd], ['Speech generation finished', round.synthesisEnd], ['Playback drained', round.end], [status, round.stopped]] as [label, time]}
 									{#if typeof time === 'number'}<div>
 											<dt>{label}</dt>
 											<dd>{(time / 1000).toFixed(3)}s</dd>

@@ -788,7 +788,7 @@
 							{#if t.cut.retainedText}<p class="message-text">{t.cut.retainedText}</p>{/if}
 							<p class="interruption-marker">
 								<Square size={11} fill="currentColor" />
-								Interrupted · {(t.cut.playedMs / 1000).toFixed(1)}s played
+								Interrupted by user · {(t.cut.playedMs / 1000).toFixed(1)}s played
 							</p>
 							<p class="cut-accuracy">
 								{t.cut.accuracy === 'provider-timed'

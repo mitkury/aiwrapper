@@ -112,6 +112,12 @@ async fn run() -> Result<()> {
     let cancel = CancellationToken::new();
     let tools = vec![
         Tool::new(
+            "keep_silent",
+            "Stay silent for this turn when no reply is needed, for example a filler, background remark, or a request to wait. Call this tool alone without spoken text. Keep listening for the next user input.",
+            json!({"type":"object","properties":{},"additionalProperties":false}),
+            |_, _| async { Ok(json!({"silent":true})) },
+        ).silent(),
+        Tool::new(
             "get_time",
             "Get the current Unix time",
             json!({"type":"object","properties":{},"additionalProperties":false}),
