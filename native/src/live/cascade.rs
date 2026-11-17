@@ -837,7 +837,9 @@ fn segment_end(text: &str, trigger: SegmentTrigger) -> usize {
 
 /// Edit only visible text, retaining opaque reasoning and tool replay fields.
 fn replace_visible_text(message: &mut Message, text: &str) -> Result<()> {
-    if message.answer() == text {
+    // Even an unchanged empty answer must lose its placeholder text item.
+    // Otherwise an interruption before the first token replays an empty block.
+    if !text.is_empty() && message.answer() == text {
         return Ok(());
     }
     let mut meta = message.meta.clone();

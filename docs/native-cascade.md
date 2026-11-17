@@ -50,6 +50,13 @@ capture, playback, and the native process. Camera input is opt-in: a JPEG up to
 640 pixels wide is sampled once per second; only the latest frame at turn commit
 is attached. Select a vision-capable language model for camera testing.
 
+The microphone meter shows captured input level, independently of transcription.
+Its status distinguishes muted/unavailable input, paused or stalled capture, and
+audio waiting to send. “Audio sent” means the development host accepted browser
+audio; it is not proof that the transcription provider recognized speech.
+Capture status changes are retained as `microphone-status` events. A disconnected
+microphone ends the session with an explicit error.
+
 The event list retains up to 300 events / 8 MiB after disconnect. Select `request`
 to inspect the neutral conversation and tools passed to the language provider,
 `history` to see a playback correction, `tts-input` for each exact text segment
@@ -128,6 +135,13 @@ synthesized PCM into Flux, obtained the expected transcript, and generated a
 spoken answer. This validates the media protocol, not physical microphone or
 echo behavior on every device. Headless Chrome checks covered offline and real-provider connect, tool use,
 synthetic microphone/camera capture, Stop, and disconnect.
+
+A repeated-speech browser check also exercised four exchanges in one minute
+with Deepgram, Anthropic, and ElevenLabs, including new speech before the first
+model token. That exposed and verified a fix for empty assistant placeholders
+being replayed after interruption. Capture pause/resume checks verified the
+microphone status changes. Synthetic media cannot establish physical-device
+reliability or identify an earlier session's cause without its trace.
 
 Incremental text-input TTS, word alignment, context compression, nuanced
 interruption detection, full session recording/inspection, and measured latency

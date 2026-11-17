@@ -12,6 +12,8 @@
 		ttsModel = $state('eleven_flash_v2_5'),
 		voice = $state('CwhRBWXzGAHq8TQ4Fs17');
 	let muted = $state(false);
+	let micStatus = $state('Waiting for microphone'),
+		micLevel = $state(0);
 	let phase = $state('Disconnected'),
 		error = $state(''),
 		id = $state(''),
@@ -30,6 +32,7 @@
 		capture: AudioContext | undefined,
 		processor: ScriptProcessorNode | undefined;
 	let cameraTimer: ReturnType<typeof setInterval> | undefined;
+	let micTimer: ReturnType<typeof setInterval> | undefined;
 	let tail = Promise.resolve(),
 		queued = 0,
 		acceptAudio = false,
@@ -122,6 +125,8 @@
 	}
 	async function connect() {
 		error = '';
+		micStatus = 'Waiting for microphone';
+		micLevel = 0;
 		entries = [];
 		transcripts = [];
 		selected = null;
@@ -185,7 +190,8 @@
 			return;
 		}
 		if (mic && !offline) {
-			const settings = media.getAudioTracks()[0].getSettings();
+			const track = media.getAudioTracks()[0];
+			const settings = track.getSettings();
 			log('microphone-settings', {
 				echoCancellation: settings.echoCancellation ?? 'not reported',
 				noiseSuppression: settings.noiseSuppression ?? 'not reported',
@@ -194,16 +200,62 @@
 				channelCount: settings.channelCount
 			});
 			muted = false;
+			micStatus = 'Waiting for microphone';
+			const sessionId = id;
+			track.onended = () => {
+				if (id === sessionId)
+					fail('Microphone disconnected. Check the input device and reconnect.');
+			};
 			capture = new AudioContext();
 			await capture.resume();
+			let lastCaptured = performance.now(),
+				lastSent = lastCaptured,
+				capturedSamples = 0,
+				sentSamples = 0;
+			micTimer = setInterval(() => {
+				const now = performance.now();
+				let status = 'Microphone active · audio sent';
+				if (muted) status = 'Microphone muted';
+				else if (track.muted) status = 'Microphone unavailable — check your input device';
+				else if (capture?.state !== 'running') status = 'Microphone paused — reconnect to resume';
+				else if (now - lastCaptured > 2500) status = 'Microphone capture stalled — reconnect';
+				else if (!capturedSamples) status = 'Waiting for microphone';
+				else if (!sentSamples || now - lastSent > 2500) status = 'Microphone audio waiting to send';
+				if (status !== micStatus) {
+					log('microphone-status', {
+						status,
+						captureState: capture?.state,
+						trackState: track.readyState,
+						capturedSamples,
+						sentSamples,
+						queued
+					});
+					micStatus = status;
+				}
+				if (now - lastCaptured > 2500) micLevel = 0;
+			}, 1000);
 			const source = capture.createMediaStreamSource(media);
 			processor = capture.createScriptProcessor(4096, 1, 1);
 			const mute = capture.createGain();
 			mute.gain.value = 0;
 			processor.onaudioprocess = (e) => {
-				if (!id) return;
+				if (id !== sessionId) return;
 				const samples = resampleToPcm(e.inputBuffer.getChannelData(0), capture!.sampleRate, 24000);
-				command({ type: 'audio', samples: Array.from(samples) }).catch(fail);
+				lastCaptured = performance.now();
+				capturedSamples += samples.length;
+				const rms =
+					Math.sqrt(samples.reduce((sum, sample) => sum + sample * sample, 0) / samples.length) /
+					32768;
+				micLevel = Math.max(0, Math.min(1, (20 * Math.log10(Math.max(rms, 0.00001)) + 60) / 60));
+				command({ type: 'audio', samples: Array.from(samples) })
+					.then(() => {
+						if (id !== sessionId) return;
+						lastSent = performance.now();
+						sentSamples += samples.length;
+					})
+					.catch((e) => {
+						if (id === sessionId) fail(e);
+					});
 			};
 			source.connect(processor);
 			processor.connect(mute);
@@ -251,12 +303,18 @@
 		acceptAudio = false;
 		if (cameraTimer) clearInterval(cameraTimer);
 		cameraTimer = undefined;
+		if (micTimer) clearInterval(micTimer);
+		micTimer = undefined;
+		micLevel = 0;
 		if (processor) {
 			processor.onaudioprocess = null;
 			processor.disconnect();
 			processor = undefined;
 		}
-		media?.getTracks().forEach((t) => t.stop());
+		media?.getTracks().forEach((t) => {
+			t.onended = null;
+			t.stop();
+		});
 		media = undefined;
 		await capture?.close();
 		capture = undefined;
@@ -367,6 +425,12 @@
 				>{/if}{/if}
 		<span role="status" class="text-sm text-neutral-600">{phase}</span>
 	</div>
+	{#if connected && mic && !offline}
+		<div class="flex items-center gap-3 text-sm text-neutral-600">
+			<meter min="0" max="1" value={micLevel} aria-label="Microphone input level"></meter>
+			<span>{micStatus}</span>
+		</div>
+	{/if}
 	{#if error}<p role="alert" class="rounded-lg bg-red-50 p-3 text-red-800">{error}</p>{/if}
 	{#if camera}<video
 			bind:this={video}

@@ -157,6 +157,60 @@ async fn timer_streams_complete_words_and_reports_exact_synthesis_input() {
     assert_eq!(reported, *inputs.lock().unwrap());
     session.sender.close().await.unwrap();
 }
+
+struct PendingFirstReply {
+    started: CancellationToken,
+    requests: Arc<Mutex<Vec<Conversation>>>,
+}
+#[async_trait]
+impl LanguageProvider for PendingFirstReply {
+    async fn complete(
+        &self,
+        conversation: &Conversation,
+        options: &ChatOptions,
+        _: &mut (dyn for<'m> FnMut(&'m Message) + Send),
+    ) -> Result<Message> {
+        let first = {
+            let mut requests = self.requests.lock().unwrap();
+            requests.push(conversation.clone());
+            requests.len() == 1
+        };
+        if first {
+            self.started.cancel();
+            options.cancellation.cancelled().await;
+            return Err(Error::Cancelled);
+        }
+        Ok(Message::assistant("Still listening."))
+    }
+}
+#[tokio::test]
+async fn interrupt_before_first_token_does_not_replay_an_empty_assistant() {
+    let started = CancellationToken::new();
+    let requests = Arc::new(Mutex::new(vec![]));
+    let mut session = CascadeConfig::new(
+        Arc::new(PendingFirstReply {
+            started: started.clone(),
+            requests: requests.clone(),
+        }),
+        Arc::new(MockSpeechOutput),
+    )
+    .connect()
+    .unwrap();
+    session.sender.send_realtime_text("first").await.unwrap();
+    tokio::time::timeout(Duration::from_secs(3), started.cancelled())
+        .await
+        .unwrap();
+    session.sender.interrupt().await.unwrap();
+    session.sender.send_realtime_text("second").await.unwrap();
+    synthesized(&mut session).await;
+    {
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[1].messages.len(), 2);
+        assert!(requests[1].messages.iter().all(|m| m.role == Role::User));
+    }
+    session.sender.close().await.unwrap();
+}
 #[async_trait]
 impl LanguageProvider for GatedLanguage {
     async fn complete(
