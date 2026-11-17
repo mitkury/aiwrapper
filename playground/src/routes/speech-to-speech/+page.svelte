@@ -1,9 +1,5 @@
 <script lang="ts">
-	import SpeechToSpeechPlayground from '$lib/comps/SpeechToSpeechPlayground.svelte';
+	import NativeVoice from '$lib/comps/NativeVoice.svelte';
 </script>
 
-<svelte:head>
-	<title>Live voice models · AIWrapper</title>
-</svelte:head>
-
-<SpeechToSpeechPlayground />
+<NativeVoice live />

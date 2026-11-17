@@ -1,101 +1,91 @@
 # AIWrapper playground
 
-One browser app for manually testing the local library source.
+The playground runs AI inference, speech providers, live sessions, and tools in
+Rust. TypeScript supplies browser UI/media, preferences, and a development bridge
+that launches native processes. There is no TypeScript inference fallback.
+The existing TypeScript library remains in the repository for now.
 
 ## Run
 
-From the repository root:
+Install Node.js 20+ and Rust, then from the repository root:
 
 ```sh
 npm ci
 npm ci --prefix playground
-npm --prefix playground run dev
+npm run sandbox:native
 ```
 
-Fill in the providers you use in the root `.env`; see [`.env.example`](../.env.example).
-Open the URL printed by Vite. After editing catalog data, run
-`npm run aimodels:build`.
+`npm --prefix playground run dev` uses the same Rust backend. Its `predev` step
+builds the native examples. Put credentials in the root `.env`; they remain on
+the server. Open the URL printed by Vite. Editing source or `.env` may reload the
+development app; reconnect sessions after a rebuild.
 
-| Page | Route | What it tests |
+| Page | Route | Rust capability |
 | --- | --- | --- |
-| Playground | `/` | ChatAgent, providers, tools, message inspection |
-| Voice | `/speech` | Recorded transcription and text-to-speech |
-| Rust cascade | `/cascade` | Rust voice pipeline, independent providers, tools, playback cursors, offline mode |
-| Realtime | `/realtime` | Streaming STT → selected LLM → TTS, interruptions, optional camera |
-| Live voice | `/speech-to-speech` | OpenAI Realtime, Gemini Live, xAI Voice, Azure Voice Live, Nova Sonic |
+| Chat | `/` | Language providers, ChatAgent, local tools, message inspection |
+| Voice | `/speech` | Recorded OpenAI transcription; OpenAI or ElevenLabs synthesis |
+| Cascade | `/cascade` | Deepgram Flux → selected language provider → OpenAI/ElevenLabs speech |
+| Live voice | `/speech-to-speech` | OpenAI Realtime or Gemini Live through LiveSession/LiveAgent |
 
-## Providers and models
+`/realtime` redirects to Cascade. The duplicate TypeScript pipeline and its API
+routes are removed. xAI Voice, Azure Voice Live, Nova Sonic, and OpenAI/ElevenLabs
+realtime transcription are not exposed here until native adapters support them.
+The Voice page accepts a voice ID; the old account voice-list endpoint is removed.
 
-Keys stay on the playground server. **Providers & Models** selects chat
-providers and models from the bundled catalog. Realtime shares the language
-settings and adds independent STT and TTS controls.
+## Configuration
 
-Model precedence is the browser's explicit selection, then a provider's `.env`
-override, then the playground default. **Use default** clears a saved model
-choice. Chat/Realtime preferences live in browser storage under
-`provider-settings`; credentials are read from `.env`.
+Chat model precedence is browser selection, server `.env`, then the playground
+default. Chat preferences live in browser storage; model catalog data is used
+only for display/selection. Rust translates provider requests. See
+[provider-config.ts](src/lib/provider-config.ts) for display defaults.
 
-Default models and provider options are defined in
-[provider-config.ts](src/lib/provider-config.ts),
-[realtime-speech.ts](src/lib/server/realtime-speech.ts), and
-[speech-to-speech-sessions.ts](src/lib/server/speech-to-speech-sessions.ts).
-The playground defaults are separate from library constructor defaults.
-Changing `.env` restarts the dev server; reload the page to refresh its settings.
+- Chat: the selected provider's API key; Ollama and a configured compatible
+  endpoint can operate without a key.
+- Voice: `OPENAI_API_KEY` for recorded transcription and OpenAI output;
+  `ELEVENLABS_API_KEY` and a voice ID for ElevenLabs output.
+- Cascade: `DEEPGRAM_API_KEY`, a language provider key, and a speech-output key.
+  Its explicit offline mode uses typed input, mock replies, real local tools,
+  and a short playback tone.
+- Live voice: `OPENAI_API_KEY` or `GOOGLE_API_KEY`. The respective model/voice
+  overrides are `OPENAI_SPEECH_TO_SPEECH_MODEL` / `OPENAI_SPEECH_TO_SPEECH_VOICE`
+  and `GEMINI_LIVE_MODEL` / `GEMINI_LIVE_VOICE`.
 
-## Voice setup
+The live page resamples input to the Rust session's rate: 24 kHz for OpenAI,
+16 kHz for Gemini. Gemini supports the optional camera. Speak to interrupt
+Gemini; its Stop playback button only silences browser output. OpenAI supports
+server cancellation and truncation at the browser's played cursor.
 
-- OpenAI speech uses `OPENAI_API_KEY`.
-- Deepgram Flux transcription uses `DEEPGRAM_API_KEY`.
-- ElevenLabs uses `ELEVENLABS_API_KEY`; `ELEVENLABS_VOICE_ID` sets the initial
-  synthesis voice. Realtime can also list available voices from the account.
-- Gemini Live uses `GOOGLE_API_KEY`; xAI uses `XAI_API_KEY`.
-- Azure needs `AZURE_VOICE_LIVE_ENDPOINT` and an API key or access token.
-- Nova uses the AWS SDK credential chain. Export `AWS_PROFILE` in the shell when
-  using a named profile; the SDK does not read it from the playground `.env`.
-  Running `npm ci` at the repository root installs the SDK used here.
-
-The [environment template](../.env.example) lists model/voice overrides and
-other optional settings. Provider and model controls lock during live sessions.
-
-For Gemini, select **Live voice → Gemini Live → Connect microphone**. The default
-is `gemini-3.8-live`, voice `Kore`, with the detection settings used by the
-[live voice test](../tests/speech/gemini-live.integration.test.ts): high start/end
-sensitivity, 300 ms prefix padding, and 500 ms silence to finish a turn.
+`AIWRAPPER_NATIVE_MOCK=1` enables offline Chat. Send
+`tool: add {"a":2,"b":3}` to exercise Rust tools. This flag does not mock Voice
+or native live providers. `AIWRAPPER_RUNTIME` is no longer used.
 
 ## Transport and diagnostics
 
-The browser captures microphone audio, resamples it, plays PCM, and displays
-transcripts and timing. Provider sessions and tools run on the server. HTTPS
-with HTTP/2 or HTTP/3 supports a framed streaming upload; plain HTTP development
-uses ordered PCM posts. The server returns framed events and audio.
+Rust examples communicate through stdin/stdout. Chat and recorded-speech requests
+use one process per request; Cascade and Live voice use a persistent process per
+session. HTTP routes validate input and relay results; they do not call providers.
+This is a development bridge, not a production hosting service or WebRTC server.
 
-Timing measures server arrival and processing, not billing or words actually
-heard. Realtime camera input starts disabled. Enable it when a turn needs vision.
-Session registries are in memory and expire lazily when requests inspect them;
-this app is a local testing tool, not a production session service.
+Cascade and Live voice share capture, playback, microphone health indicators,
+and a retained event list. Select `error` for provider/runtime errors. See the
+[cascade guide](../docs/native-cascade.md) for playback and diagnostic limits.
+Cancelling a request or disconnecting terminates its native process.
+
+Trusted host settings can override example binaries with
+`AIWRAPPER_NATIVE_BINARY`, `AIWRAPPER_SPEECH_BINARY`, and
+`AIWRAPPER_CASCADE_BINARY`. `AIWRAPPER_LIVE_ENDPOINT` is a host-only WebSocket
+endpoint override for protocol fixtures; leave it unset for normal provider use.
 
 ## Validate
 
 ```sh
+npm run native:check
+npm run native:test:sandbox
+npm run native:test:cascade
+npm run native:test:media
 npm run check:playground
 ```
 
-This builds the catalog, runs Svelte/TypeScript checks and playground tests,
-and creates a production build against the local AIWrapper source.
-
-## Native Rust chat
-
-Run `npm run sandbox:native` from the repository root to build the Rust example
-host and launch this playground with native chat. Credentials still come from
-the server `.env`. Chat uses the Rust crate; speech and live pages retain their
-TypeScript implementation. See the [native guide](../docs/native.md) for transport
-injection, compression, examples and current feature coverage.
-
-For offline chat and real local tool execution, run
-`AIWRAPPER_NATIVE_MOCK=1 npm run sandbox:native`. Ordinary messages receive
-streamed echoes. Send `tool: add {"a":2,"b":3}` or `tool: get_time {}` to
-exercise the agent loop. Keep `AIWRAPPER_COMPRESSION_TOKENS` unset here; the
-[programmable mock tests](../native/tests/mock_compression.rs) exercise compression
-with explicit summary fixtures.
-
-For the new Rust voice pipeline, use `/cascade`; see the [cascade guide](../docs/native-cascade.md).
+Media smoke tests run real native processes against local HTTP/WebSocket fixtures.
+They cover transcription, both synthesis providers, both live protocols, tool
+execution, PCM, and provider errors without credentials or remote calls.

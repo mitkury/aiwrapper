@@ -56,8 +56,7 @@ interrupted history still requires the application's actual playback cursor.
 
 ## Playground
 
-The [playground](../playground/README.md) runs this pipeline at `/realtime`, with
-independent STT, LLM, and TTS controls and optional camera input. Its server owns
-providers and conversation state; the browser captures media and plays PCM.
-The reusable agent does not select a media transport, manage credentials, or
-persist sessions.
+The [playground](../playground/README.md) now uses the [Rust cascade](native-cascade.md)
+at `/cascade`; `/realtime` redirects there. The TypeScript agent documented above
+remains a library API but no longer runs behind the playground. Rust owns
+providers, tools, and conversation state; the browser captures media and plays PCM.

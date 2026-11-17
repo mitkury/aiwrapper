@@ -45,9 +45,6 @@ image tool results, provider-owned tools or live interruption semantics.
    boundary. Preserve manual tool delivery, connection errors and truncation
    capabilities explicitly. Test each protocol before advertising compatibility.
 5. Finish image generation's standalone facade and the patch helper.
-6. Adapt the playground's speech and live routes to a native example host. Keep
-   all listeners, session registries and browser transport outside the library.
-   Chat already exercises the native runtime through the existing host route.
 
 ## Tighten conversation replay
 

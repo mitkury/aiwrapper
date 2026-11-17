@@ -1,10 +1,8 @@
-import { env } from '$env/dynamic/private';
 import { nativeChat } from '$lib/server/native-chat';
-import { ChatAgent, LangMessages } from 'aiwrapper';
 import { json } from '@sveltejs/kit';
 import { getProviderConfig, isProviderId } from '$lib/provider-config';
-import { createServerLanguageProvider, chatConfig } from '$lib/server/language';
-import type { ChatEvent, ChatMessage } from '$lib/chat';
+import { chatConfig } from '$lib/server/language';
+import type { ChatMessage } from '$lib/chat';
 import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ request }) => {
@@ -37,59 +35,12 @@ export const POST: RequestHandler = async ({ request }) => {
 			{ status: 503 }
 		);
 	}
-	if (env.AIWRAPPER_RUNTIME === 'rust') {
-		return nativeChat(
-			{
-				provider: providerId,
-				model: body.model.trim() || config.model,
-				messages: body.messages
-			},
-			request.signal
-		);
-	}
-	const provider = getProviderConfig(providerId);
-	const agent = new ChatAgent(createServerLanguageProvider(providerId, body.model), {
-		tools: provider.supportsOpenAIBuiltInTools
-			? [{ name: 'web_search' }, { name: 'image_generation' }]
-			: []
-	});
-	agent.messages = new LangMessages(body.messages);
-	const abortController = new AbortController();
-	const signal = AbortSignal.any([request.signal, abortController.signal]);
-	const encoder = new TextEncoder();
-	let cancelled = false;
-	const stream = new ReadableStream<Uint8Array>({
-		start(controller) {
-			const send = (extra: Partial<ChatEvent> = {}) => {
-				if (!cancelled)
-					controller.enqueue(
-						encoder.encode(JSON.stringify({ messages: agent.messages, ...extra }) + '\n')
-					);
-			};
-			const unsubscribe = agent.subscribe((event) => {
-				if (event.type === 'streaming') send();
-			});
-			void agent
-				.run(undefined, { signal })
-				.then(
-					() => send({ done: true }),
-					(error: unknown) =>
-						send({
-							done: true,
-							error: error instanceof Error ? error.message : 'Chat request failed'
-						})
-				)
-				.finally(() => {
-					unsubscribe();
-					if (!cancelled) controller.close();
-				});
+	return nativeChat(
+		{
+			provider: providerId,
+			model: body.model.trim() || config.model,
+			messages: body.messages
 		},
-		cancel() {
-			cancelled = true;
-			abortController.abort();
-		}
-	});
-	return new Response(stream, {
-		headers: { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store' }
-	});
+		request.signal
+	);
 };

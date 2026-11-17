@@ -17,8 +17,9 @@ npm run sandbox:native -- --host 127.0.0.1
 ```
 
 Open `/cascade` at the URL printed by Vite. The launch command builds both native
-example binaries. Chat at `/` also uses Rust; `/realtime` remains the older
-TypeScript pipeline and is separate from this test path.
+example binaries. All playground AI operations use Rust. `/realtime` redirects
+to this page; the duplicate TypeScript pipeline has been removed. Native
+OpenAI/Gemini audio models are available at `/speech-to-speech`.
 
 When the default language, Deepgram, and ElevenLabs keys are configured, the page
 starts with real speech and Microphone selected. Capture begins only on Connect.

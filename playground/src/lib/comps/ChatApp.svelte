@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { LangMessage, LangMessages } from 'aiwrapper';
+	import { LangMessage, LangMessages } from '../../../../src/lang/messages.js';
 	import ChatInput from './ChatInput.svelte';
 	import ChatMessages from './ChatMessages.svelte';
 	import ChatMessagesJson from './ChatMessagesJson.svelte';

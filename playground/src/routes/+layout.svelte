@@ -6,10 +6,9 @@
 	let { children } = $props();
 
 	const sections = [
-		{ href: '/', label: 'Playground' },
+		{ href: '/', label: 'Chat' },
 		{ href: '/speech', label: 'Voice' },
-		{ href: '/realtime', label: 'Realtime' },
-		{ href: '/cascade', label: 'Rust cascade' },
+		{ href: '/cascade', label: 'Cascade' },
 		{ href: '/speech-to-speech', label: 'Live voice' }
 	];
 </script>

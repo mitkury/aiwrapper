@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
-import { createTextToSpeech } from '$lib/server/realtime-speech';
+import { env } from '$env/dynamic/private';
 import type { RequestHandler } from './$types';
-import { pcmStreamResponse, speechError } from '$lib/server/speech-response';
+import { nativeSpeak, speechError } from '$lib/server/native-speech';
 
 type SpeakRequest = {
 	provider?: unknown;
@@ -27,13 +27,21 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		if (model.length > 200) return json({ error: 'Speech model ID is too long' }, { status: 400 });
 
-		const provider = createTextToSpeech({ provider: providerName, voice, model });
-		const frames = provider.speak(text, {
-			signal: request.signal,
-			...(voice ? { voice } : {})
-		});
-
-		return await pcmStreamResponse(frames, provider.outputFormat);
+		const elevenlabs = providerName === 'elevenlabs';
+		return await nativeSpeak(
+			{
+				provider: providerName,
+				text,
+				model:
+					model ||
+					(elevenlabs
+						? env.ELEVENLABS_TTS_MODEL || 'eleven_flash_v2_5'
+						: env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts'),
+				voice:
+					voice || (elevenlabs ? env.ELEVENLABS_VOICE_ID || '' : env.OPENAI_TTS_VOICE || 'coral')
+			},
+			request.signal
+		);
 	} catch (error) {
 		return speechError(error);
 	}

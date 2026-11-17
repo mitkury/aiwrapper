@@ -1,8 +1,7 @@
 import { env } from '$env/dynamic/private';
 import { json } from '@sveltejs/kit';
-import { SpeechToText } from 'aiwrapper';
 import type { RequestHandler } from './$types';
-import { speechError } from '$lib/server/speech-response';
+import { nativeTranscribe, speechError } from '$lib/server/native-speech';
 
 const maximumAudioBytes = 24 * 1024 * 1024 - 44;
 
@@ -25,28 +24,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ error: 'Recording is too large for transcription' }, { status: 413 });
 		}
 
-		const source = new DataView(bytes);
-		const samples = new Int16Array(bytes.byteLength / 2);
-		for (let index = 0; index < samples.length; index++) {
-			samples[index] = source.getInt16(index * 2, true);
-		}
-
-		const provider = SpeechToText.openai({
-			apiKey: env.OPENAI_API_KEY,
-			model: env.OPENAI_TRANSCRIPTION_MODEL || undefined
-		});
-		const session = await provider.createSession({ signal: request.signal });
-		try {
-			await session.appendAudio({
-				encoding: 'pcm_s16le',
-				channels: 1,
-				sampleRate,
-				samples
-			});
-			return json(await session.finish());
-		} finally {
-			await session.close();
-		}
+		return await nativeTranscribe(bytes, sampleRate, request.signal);
 	} catch (error) {
 		return speechError(error);
 	}

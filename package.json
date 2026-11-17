@@ -77,7 +77,8 @@
     "native:check": "cargo fmt --all -- --check && cargo clippy --locked --workspace --all-targets -- -D warnings && cargo test --locked --workspace",
     "sandbox:native": "node scripts/native-playground.mjs",
     "native:test:cascade": "npm run native:build && node scripts/test-native-cascade.mjs",
-    "native:test:sandbox": "npm run native:build && node scripts/test-native-sandbox.mjs"
+    "native:test:sandbox": "npm run native:build && node scripts/test-native-sandbox.mjs",
+    "native:test:media": "npm run native:build && node scripts/test-native-media.mjs"
   },
   "dependencies": {
     "ajv": "^8.17.1",

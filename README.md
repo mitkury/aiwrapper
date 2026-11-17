@@ -78,8 +78,8 @@ providers, [speech](docs/speech.md) for transcription and synthesis, or
 
 ## Try it and contribute
 
-The [browser playground](playground/README.md) includes chat, speech, realtime
-agents, and native live voice. Start with the [documentation index](docs/README.md)
+The [browser playground](playground/README.md) runs chat, recorded speech,
+cascade agents, and OpenAI/Gemini live voice through the Rust backend. Start with the [documentation index](docs/README.md)
 for setup, tests, and development rules.
 
 Contributors and coding agents use [shared guidance](docs/airul/README.md) with

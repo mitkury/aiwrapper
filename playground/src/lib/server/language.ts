@@ -1,6 +1,5 @@
 import { env } from '$env/dynamic/private';
 import {
-	createLanguageProvider,
 	getProviderConfig,
 	getProviderModel,
 	providerConfigs,
@@ -46,24 +45,8 @@ export function languageConfig() {
 /** Only native chat can run offline; speech/live still need real providers. */
 export function chatConfig() {
 	const config = languageConfig();
-	if (env.AIWRAPPER_RUNTIME === 'rust' && env.AIWRAPPER_NATIVE_MOCK === '1') {
+	if (env.AIWRAPPER_NATIVE_MOCK === '1') {
 		for (const provider of Object.values(config)) provider.configured = true;
 	}
 	return config;
-}
-
-export function createServerLanguageProvider(
-	providerId: ProviderId,
-	model: string,
-	options: { optimizeForLatency?: boolean } = {}
-) {
-	const provider = getProviderConfig(providerId);
-	const values = providerValues(providerId);
-	if (model.trim()) values[provider.modelStorageKey] = model.trim();
-	if (!languageConfig()[providerId].configured) {
-		throw new Error(
-			`${provider.apiKeyRequired ? provider.apiKeyEnvironmentKey : provider.baseURLEnvironmentKey} is not configured`
-		);
-	}
-	return createLanguageProvider(providerId, values, options);
 }

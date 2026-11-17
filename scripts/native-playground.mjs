@@ -12,9 +12,7 @@ function run(command, args, env = process.env) {
     child.on('exit', () => { process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop); });
   });
 }
-await run('cargo', ['build', '--locked', '-p', 'aiwrapper', '--examples']);
 await run('npm', ['--prefix', 'playground', 'run', 'dev', '--', ...process.argv.slice(2)], {
   ...process.env,
-  AIWRAPPER_RUNTIME: 'rust',
   AIWRAPPER_NATIVE_BINARY: fileURLToPath(new URL('../target/debug/examples/' + (process.platform === 'win32' ? 'sandbox.exe' : 'sandbox'), import.meta.url))
 });

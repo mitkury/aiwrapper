@@ -1,13 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { setHttpRequestImpl } from 'aiwrapper';
-import { languageConfig, chatConfig, createServerLanguageProvider } from './language';
+import { languageConfig, chatConfig } from './language';
 import { nativeChat } from './native-chat';
 import { POST } from '../../routes/api/chat/+server';
 import { runChat } from '../chat';
 import { filterProviderPreferences } from '../provider-settings.svelte';
 
 const environment = vi.hoisted(() => ({
-	AIWRAPPER_RUNTIME: '',
 	AIWRAPPER_NATIVE_MOCK: '',
 	OPENROUTER_API_KEY: 'server-key',
 	OPENROUTER_MODEL: 'gpt-5-mini',
@@ -19,11 +17,9 @@ vi.mock('$env/dynamic/private', () => ({ env: environment }));
 vi.mock('./native-chat', () => ({ nativeChat: vi.fn(() => new Response('{"done":true}\n')) }));
 
 afterEach(() => {
-	environment.AIWRAPPER_RUNTIME = '';
 	environment.AIWRAPPER_NATIVE_MOCK = '';
 	vi.clearAllMocks();
 	vi.unstubAllGlobals();
-	setHttpRequestImpl((url, options) => globalThis.fetch(url, options));
 });
 
 function request(body: unknown) {
@@ -36,23 +32,11 @@ function request(body: unknown) {
 	} as Parameters<typeof POST>[0]);
 }
 
-function textResponse(text: string) {
-	return new Response(
-		`data: ${JSON.stringify({ choices: [{ delta: { role: 'assistant', content: text } }] })}\n\ndata: [DONE]\n\n`,
-		{
-			headers: { 'Content-Type': 'text/event-stream' }
-		}
-	);
-}
-
 describe('shared server credentials', () => {
 	it('makes only native mock chat available without credentials', () => {
 		environment.AIWRAPPER_NATIVE_MOCK = '1';
-		expect(chatConfig().openai.configured).toBe(false);
-		environment.AIWRAPPER_RUNTIME = 'rust';
 		expect(chatConfig().openai.configured).toBe(true);
 		expect(languageConfig().openai.configured).toBe(false);
-		expect(() => createServerLanguageProvider('openai', '')).toThrow('not configured');
 	});
 	it('reports availability and model defaults without exposing credentials', () => {
 		const config = languageConfig();
@@ -64,31 +48,6 @@ describe('shared server credentials', () => {
 		expect(config.openai.configured).toBe(false);
 		expect(config['openai-compatible'].configured).toBe(true);
 		expect(JSON.stringify(config)).not.toContain('server-key');
-	});
-
-	it.each([false, true])(
-		'uses the same environment key in latency mode %s',
-		async (optimizeForLatency) => {
-			let headers: Headers | undefined;
-			setHttpRequestImpl(async (_url, options) => {
-				headers = new Headers(options.headers);
-				return textResponse('Hello');
-			});
-			await createServerLanguageProvider('openrouter', '', { optimizeForLatency }).ask('Hi');
-			expect(headers?.get('authorization')).toBe('Bearer server-key');
-		}
-	);
-
-	it('honors OLLAMA_URL and permits a keyless compatible endpoint', async () => {
-		const urls: string[] = [];
-		setHttpRequestImpl(async (url) => {
-			urls.push(String(url));
-			return textResponse('Hello');
-		});
-		await createServerLanguageProvider('ollama', 'llama2:latest').ask('Hi');
-		await createServerLanguageProvider('openai-compatible', '').ask('Hi');
-		expect(urls[0]).toContain('http://ollama.test:11434');
-		expect(urls[1]).toContain('https://compatible.test/v1');
 	});
 
 	it('migrates only preferences, dropping keys and browser endpoint overrides', () => {
@@ -117,7 +76,6 @@ describe('server chat transport', () => {
 	};
 
 	it('routes keyless mock chat to Rust with only the permitted browser fields', async () => {
-		environment.AIWRAPPER_RUNTIME = 'rust';
 		environment.AIWRAPPER_NATIVE_MOCK = '1';
 		const response = await request({
 			...input,
@@ -135,58 +93,19 @@ describe('server chat transport', () => {
 		});
 	});
 
-	it('streams a complete conversation using only server credentials', async () => {
-		setHttpRequestImpl(async (_url, options) => {
-			expect(new Headers(options.headers).get('authorization')).toBe('Bearer server-key');
-			return textResponse('Hello');
-		});
+	it('always routes configured chat to Rust without a runtime flag', async () => {
 		const response = await request({
 			...input,
 			apiKey: 'browser-key',
 			baseURL: 'https://untrusted.test'
 		});
 		expect(response.status).toBe(200);
-		const events = (await response.text())
-			.trim()
-			.split('\n')
-			.map((line) => JSON.parse(line));
-		expect(events.some((event) => !event.done)).toBe(true);
-		expect(events.at(-1)).toMatchObject({
-			done: true,
-			messages: [input.messages[0], { role: 'assistant', items: [{ type: 'text', text: 'Hello' }] }]
-		});
-		expect(JSON.stringify(events)).not.toContain('server-key');
+		expect(nativeChat).toHaveBeenCalledWith(input, expect.any(AbortSignal));
 	});
-
-	it('rejects unknown providers and missing server credentials before requesting a model', async () => {
-		const upstream = vi.fn();
-		setHttpRequestImpl(upstream);
+	it('rejects unknown providers and missing credentials before spawning Rust', async () => {
 		expect((await request({ ...input, provider: 'unknown' })).status).toBe(400);
 		expect((await request({ ...input, provider: 'openai' })).status).toBe(503);
-		expect(upstream).not.toHaveBeenCalled();
-	});
-
-	it('aborts the upstream request when the response reader is cancelled', async () => {
-		let upstreamSignal: AbortSignal | undefined;
-		let started!: () => void;
-		const ready = new Promise<void>((resolve) => {
-			started = resolve;
-		});
-		setHttpRequestImpl(async (_url, options) => {
-			upstreamSignal = options.signal as AbortSignal;
-			started();
-			return new Promise<Response>((_resolve, reject) => {
-				upstreamSignal!.addEventListener(
-					'abort',
-					() => reject(new DOMException('Aborted', 'AbortError')),
-					{ once: true }
-				);
-			});
-		});
-		const response = await request(input);
-		await ready;
-		await response.body!.cancel();
-		expect(upstreamSignal?.aborted).toBe(true);
+		expect(nativeChat).not.toHaveBeenCalled();
 	});
 
 	it('retains streamed partial messages when the server reports a failure', async () => {

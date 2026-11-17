@@ -12,7 +12,17 @@ export function cascadeConfig() {
 		deepgram: Boolean(env.DEEPGRAM_API_KEY),
 		openai: Boolean(env.OPENAI_API_KEY),
 		elevenlabs: Boolean(env.ELEVENLABS_API_KEY),
-		voice: env.ELEVENLABS_VOICE_ID || ''
+		voice: env.ELEVENLABS_VOICE_ID || '',
+		live: {
+			openai: {
+				model: env.OPENAI_SPEECH_TO_SPEECH_MODEL || 'gpt-realtime-2.1',
+				voice: env.OPENAI_SPEECH_TO_SPEECH_VOICE || 'marin'
+			},
+			google: {
+				model: env.GEMINI_LIVE_MODEL || 'gemini-3.8-live',
+				voice: env.GEMINI_LIVE_VOICE || 'Kore'
+			}
+		}
 	};
 }
 export function startCascade(value: unknown, signal: AbortSignal): Response {
@@ -27,22 +37,29 @@ export function startCascade(value: unknown, signal: AbortSignal): Response {
 			throw new Error(`Invalid ${key}`);
 	}
 	if (v.tts !== 'openai' && v.tts !== 'elevenlabs') throw new Error('Invalid speech provider');
+	if (v.live !== undefined && typeof v.live !== 'boolean') throw new Error('Invalid live mode');
+	if (v.live && (v.offline || !['openai', 'google'].includes(v.provider)))
+		throw new Error('Rust live voice requires OpenAI or Google');
 	if (!v.offline) {
 		if (!languageConfig()[v.provider].configured)
 			throw new Error(`${v.provider} key is not configured`);
-		if (v.microphone && !env.DEEPGRAM_API_KEY)
+		if (!v.live && v.microphone && !env.DEEPGRAM_API_KEY)
 			throw new Error('DEEPGRAM_API_KEY is not configured');
-		if (v.tts === 'openai' && !env.OPENAI_API_KEY)
+		if (!v.live && v.tts === 'openai' && !env.OPENAI_API_KEY)
 			throw new Error('OPENAI_API_KEY is not configured');
-		if (v.tts === 'elevenlabs' && !env.ELEVENLABS_API_KEY)
+		if (!v.live && v.tts === 'elevenlabs' && !env.ELEVENLABS_API_KEY)
 			throw new Error('ELEVENLABS_API_KEY is not configured');
-		if (v.tts === 'elevenlabs' && !v.voice && !env.ELEVENLABS_VOICE_ID)
+		if (!v.live && v.tts === 'elevenlabs' && !v.voice && !env.ELEVENLABS_VOICE_ID)
 			throw new Error('Choose an ElevenLabs voice ID');
 	}
 	if (sessions.size >= 8) throw new Error('Too many sessions; disconnect an existing session');
 	const id = crypto.randomUUID();
 	const child = spawn(
-		env.AIWRAPPER_CASCADE_BINARY || resolve(process.cwd(), '../target/debug/examples/cascade'),
+		env.AIWRAPPER_CASCADE_BINARY ||
+			resolve(
+				process.cwd(),
+				'../target/debug/examples/cascade' + (process.platform === 'win32' ? '.exe' : '')
+			),
 		[],
 		{ env: { ...process.env, ...env }, stdio: ['pipe', 'pipe', 'pipe'] }
 	);

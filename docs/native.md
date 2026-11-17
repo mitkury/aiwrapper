@@ -237,7 +237,7 @@ Avoid unbounded event queues. HTTP callbacks are synchronous; keep them short or
 forward into a bounded channel with an explicit slow-consumer policy. Live audio
 arrives through a polled stream, so a host can apply backpressure directly.
 
-Run the existing browser chat sandbox against Rust:
+Run the Rust-backed browser playground:
 
 ```sh
 npm ci
@@ -245,8 +245,9 @@ npm ci --prefix playground
 npm run sandbox:native
 ```
 
-This builds `native/examples/sandbox.rs`, then starts the existing playground
-with `AIWRAPPER_RUNTIME=rust`. Server-side `.env` credentials stay on the server.
+This builds the native examples and starts the playground. All playground AI
+operations use Rust; there is no runtime switch or TypeScript fallback.
+Server-side `.env` credentials stay on the server.
 The frontend keeps its `/api/chat` NDJSON interface. The development host invokes
 one native process per chat request over stdin/stdout; a Rust application imports
 the crate directly and needs no subprocess. Cancelling the browser response
@@ -256,9 +257,9 @@ terminates the development process. Tools in this example are `add` and
 `AIWRAPPER_NATIVE_BINARY` selects an already-built example binary.
 `AIWRAPPER_COMPRESSION_TOKENS` enables text compression in the sandbox, using an
 in-memory checkpoint for that request. `AIWRAPPER_NATIVE_MOCK=1` is a server-only
-offline test mode. Chat uses Rust; the existing speech and live browser pages
-continue to use TypeScript until their native media host adapters are completed.
-The native crate's speech/live APIs can already be embedded independently.
+offline test mode for Chat. Recorded Voice uses the `speech` example; Cascade
+and OpenAI/Gemini Live voice use the persistent `cascade` example. See the
+[playground guide](../playground/README.md) for supported features and configuration.
 
 ## Live voice and speech
 
@@ -415,7 +416,7 @@ voice and language selections. The library does not include media-device access.
 
 ## Compatibility and remaining work
 
-| Area | Native 0.1 |
+| Area | Rust implementation |
 | --- | --- |
 | OpenAI Responses | Streaming, function tools, built-in tool passthrough, image output, reasoning replay, structured output |
 | OpenAI-compatible services | Streaming chat, tools, image input, structured output where the provider accepts the schema |
@@ -431,7 +432,6 @@ voice and language selections. The library does not include media-device access.
 | Native live models | Gemini and OpenAI: PCM, text, images, manual tools, transcripts, interruption events and lifecycle controls |
 | AWS Bedrock / Nova Sonic | Still TypeScript; native AWS adapters proposed |
 | Other realtime STT/live providers and incremental TTS | Still TypeScript; proposed native ports |
-| Continuous STT → LLM → TTS orchestration | Still TypeScript; proposed native port |
 | Model catalog | Embedded AIModels catalog (default `catalog` feature): `models()`, default output limits, Responses reasoning gating |
 | Standalone image-generation facade, patch helper | Still TypeScript; Responses image generation is usable from native |
 
