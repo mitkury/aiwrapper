@@ -9,19 +9,35 @@ type Chunk = {
 	item: string;
 	index: number;
 };
+export class PlaybackQueueFull extends Error {
+	constructor() {
+		super(
+			'Reply stopped because buffered speech reached its limit. The session is still connected.'
+		);
+	}
+}
 export class CascadePlayer {
 	private context = new AudioContext();
 	private next = 0;
 	private chunks = new Set<Chunk>();
 	private totals = new Map<string, number>();
+	private bufferedBytes = 0;
 	constructor(private report: (cursor: Cursor) => void) {}
 	async resume() {
 		await this.context.resume();
 	}
 	enqueue(item: string, index: number, samples: number[], rate: number) {
-		if (this.next - this.context.currentTime > 10)
-			throw new Error('Playback queue exceeded 10 seconds');
 		if (!samples.length) return;
+		// Synthesis routinely runs faster than playback. Bound a burst of speech,
+		// rather than treating an ordinary answer longer than ten seconds as fatal.
+		const start = Math.max(this.next, this.context.currentTime + 0.015);
+		const bytes = samples.length * Float32Array.BYTES_PER_ELEMENT;
+		if (
+			start + samples.length / rate - this.context.currentTime > 120 ||
+			this.bufferedBytes + bytes > 16 * 1024 * 1024 ||
+			this.chunks.size >= 4096
+		)
+			throw new PlaybackQueueFull();
 		const key = `${item}:${index}`;
 		const offset = this.totals.get(key) || 0;
 		this.totals.set(key, offset + samples.length);
@@ -33,11 +49,12 @@ export class CascadePlayer {
 		const source = this.context.createBufferSource();
 		source.buffer = buffer;
 		source.connect(this.context.destination);
-		const start = Math.max(this.next, this.context.currentTime + 0.015);
 		const chunk = { source, start, samples: samples.length, rate, offset, item, index };
 		this.chunks.add(chunk);
+		this.bufferedBytes += bytes;
 		source.onended = () => {
 			if (!this.chunks.delete(chunk)) return;
+			this.bufferedBytes -= bytes;
 			source.disconnect();
 			this.report({
 				type: 'played',
@@ -70,6 +87,7 @@ export class CascadePlayer {
 			c.source.disconnect();
 		}
 		this.chunks.clear();
+		this.bufferedBytes = 0;
 		this.next = this.context.currentTime;
 		for (const cursor of cursors.values()) this.report(cursor);
 	}

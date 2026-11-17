@@ -117,6 +117,12 @@ output. Text/model size, 12 model rounds per turn, 256 history messages, and an
 limits. LLM and speech stalls have deadlines. Closing or dropping the receiver
 cancels owned work without cancelling the caller's parent token.
 
+Browser playback accepts speech generated ahead of listening, up to 120 seconds,
+16 MiB of decoded samples, or 4,096 chunks. Reaching a playback limit stops the
+current reply, records a `playback-limit` event, and keeps the session connected.
+Only audio actually played is acknowledged. Gemini Live stops local playback;
+it does not support explicit generation cancellation through this adapter.
+
 The example host uses one persistent Rust process per session over bounded
 NDJSON. The playground bridge owns process startup, a maximum of eight sessions,
 and a 30-minute lifetime. It is a local development host, not a production

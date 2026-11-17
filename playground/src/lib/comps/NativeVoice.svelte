@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { providerConfigs, type ProviderId } from '$lib/provider-config';
 	import { resampleToPcm } from '$lib/realtime/pcm';
-	import { CascadePlayer, type Cursor } from '$lib/realtime/cascade-player';
+	import { CascadePlayer, PlaybackQueueFull, type Cursor } from '$lib/realtime/cascade-player';
 	let { live = false }: { live?: boolean } = $props();
 	let liveDefaults: Record<string, { model: string; voice: string }> = {};
 	let inputRate = 24000,
@@ -101,7 +101,14 @@
 				const index = e.content_index ?? 0;
 				if (live && e.item_id && (liveCursor?.item !== item || liveCursor?.index !== index))
 					liveCursor = { type: 'played', item, index, ms: 0 };
-				player?.enqueue(item, index, e.frame.samples, e.frame.sampleRate);
+				try {
+					player?.enqueue(item, index, e.frame.samples, e.frame.sampleRate);
+				} catch (e) {
+					if (!(e instanceof PlaybackQueueFull)) throw e;
+					error = e.message;
+					log('playback-limit', { message: error });
+					void stopReply().catch(fail);
+				}
 			}
 			return;
 		}
