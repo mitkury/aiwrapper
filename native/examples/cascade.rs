@@ -209,6 +209,8 @@ async fn run() -> Result<()> {
     result
 }
 
+const SPOKEN_REPLY_INSTRUCTIONS: &str = "Your replies are plain text intended to be spoken aloud. Use natural conversational sentences without visual formatting: no Markdown, headings, bullet or numbered lists, tables, code blocks, or emphasis markers. Express lists and explanations in ordinary spoken prose.";
+
 async fn connect(config: Config, tools: &[Tool], cancel: CancellationToken) -> Result<LiveSession> {
     if config.live {
         if config.offline {
@@ -227,7 +229,9 @@ async fn connect(config: Config, tools: &[Tool], cancel: CancellationToken) -> R
         };
         let mut live = LiveConfig::new(provider, config.model, key(credential)?);
         live.voice = config.voice;
-        live.instructions = "You are a concise voice assistant. Keep spoken replies short and use tools when needed.".into();
+        live.instructions = format!(
+            "You are a concise voice assistant. Keep spoken replies short and use tools when needed. {SPOKEN_REPLY_INSTRUCTIONS}"
+        );
         live.tools = tools.iter().map(|t| t.definition.clone()).collect();
         live.cancellation = cancel;
         if let Ok(endpoint) = std::env::var("AIWRAPPER_LIVE_ENDPOINT") {
@@ -274,7 +278,9 @@ async fn connect(config: Config, tools: &[Tool], cancel: CancellationToken) -> R
     let mut cascade = CascadeConfig::new(language, speech);
     cascade.cancellation = cancel.clone();
     cascade.camera_context = config.camera_context;
-    cascade.conversation.instructions="You are a concise voice assistant. Answer in the user's language. Keep replies short, use timestamped camera frames when relevant; distinguish earlier observations from the latest view and do not infer events between sampled frames, and call tools when needed.".into();
+    cascade.conversation.instructions = format!(
+        "You are a concise voice assistant. Answer in the user's language. Keep replies short, use timestamped camera frames when relevant; distinguish earlier observations from the latest view and do not infer events between sampled frames, and call tools when needed. {SPOKEN_REPLY_INSTRUCTIONS}"
+    );
     cascade.tools = tools.iter().map(|t| t.definition.clone()).collect();
     if !config.offline && config.microphone {
         cascade.transcription = Some(

@@ -48,6 +48,10 @@ failures use summarized diagnostics.
 Edit model IDs to test models available to your account.
 Changing `.env` restarts the development server; reconnect afterward.
 
+The playground's Cascade, Simulator and Live voice instructions request plain
+text meant to be spoken aloud: natural sentences without Markdown, headings,
+lists, tables, code blocks or emphasis markers.
+
 **Stop reply** clears local playback and cancels current inference/synthesis.
 The microphone button mutes or unmutes capture. Muting also asks Flux to finish the active turn.
 **Finish speaking manually** in Session events requests a provider turn boundary. **End session** stops
