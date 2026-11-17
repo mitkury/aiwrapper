@@ -1,6 +1,7 @@
 # Rust cascade voice sessions
 
-Status: proposed; implementation has not started.
+Status: in progress. Live socket internals are isolated; the cascade pipeline and
+browser test path remain to be implemented.
 
 Last updated: November 17, 2026.
 
@@ -51,9 +52,8 @@ describes the existing foundations:
   playground. Its current per-request process cannot own a continuous voice
   session; the speech and live pages currently use TypeScript providers.
 
-Two details affect the design. `LiveSender` and `LiveReceiver` contain concrete
-socket state, and `LiveAgent::replace` accesses that state directly. Backend
-dispatch alone will not make the agent backend-independent. Also,
+The shared live handles now delegate to an internal socket backend, including
+replacement and cancellation operations; see the [native guide](../../native.md#live-voice-and-speech).
 `ResponseEnded` means one model response ended, not that all tools, synthesis,
 or device playback have completed. Preserve that distinction.
 
@@ -70,11 +70,10 @@ Do not squeeze three providers and credentials into `LiveConfig`'s single model,
 key, and socket settings. Factory and trait names below are proposed, not shipped
 APIs.
 
-Internally, give sender and receiver a socket-or-cascade backend. Extract the
-small internal operations that `LiveAgent` needs for pending calls, retirement,
-and resumption; keep provider protocol state inside the socket backend. Preserve
-existing method signatures where possible and test both live providers through
-the refactor. Do not add a general plugin registry or workflow framework.
+Add the cascade variant to the internal sender and receiver dispatch. Preserve
+the shared operations for pending calls, retirement, and resumption, keeping
+provider protocol state inside its backend. Do not add a general plugin registry
+or workflow framework.
 
 The first useful release includes a continuous Rust pipeline, real speech
 providers, tools, explicit Stop, conservative speech interruption, playback
@@ -380,23 +379,20 @@ optimizations and is the main tool for subsequent manual testing.
 
 ## Implementation order and acceptance
 
-1. Refactor live backend internals without changing native provider behavior.
-   Add deterministic compatibility checks for sender cloning, receiver polling,
-   event ordering, tools, replacement, cancellation, and close.
-2. Add Rust streaming speech contracts, scripted STT/TTS mocks, bounded
+1. Add Rust streaming speech contracts, scripted STT/TTS mocks, bounded
    segmentation, and the cascade over `LanguageProvider`. Prove overlapping
    LLM/TTS, tools through `LiveAgent`, cancellation fencing, and history behavior.
    Resolve replay-metadata handling before claiming playback-correct history.
-3. Implement Deepgram Flux and ElevenLabs adapters plus the HTTP TTS fallback.
+2. Implement Deepgram Flux and ElevenLabs adapters plus the HTTP TTS fallback.
    Test formats, transcript revisions, turn boundaries, alignment, flush/end,
    asynchronous errors, and abort through injected transports.
-4. Add the persistent native example host and browser mode. Include playback
+3. Add the persistent native example host and browser mode. Include playback
    acknowledgements, Stop, basic interruption, tools, text, and camera testing.
    Run credential-backed smoke checks and record a comparable live-model
    baseline. This is the first release gate, not an optional demo.
-5. Add the session inspector above, with live events and stopped-session timeline
+4. Add the session inspector above, with live events and stopped-session timeline
    review, image sampling evidence, and exact request snapshots.
-6. Tune interruption policy and first-audio latency from recorded sessions.
+5. Tune interruption policy and first-audio latency from recorded sessions.
    Add speculation only after the baseline path passes and the benefit exceeds
    its extra calls and cancellation cost.
 
@@ -419,8 +415,7 @@ matching final after the speculative deadline, and changed tools or instructions
 Real-provider tests remain opt-in. Browser checks additionally exercise device
 permission failures, echo-prone playback, false speech candidates, pause/resume
 if enabled, reconnect, and clean teardown. Existing Gemini/OpenAI tests must
-continue to pass. No runtime tests or latency results are claimed by this
-proposal itself.
+continue to pass. Cascade runtime and latency results remain to be established.
 
 ## Later work and alternatives
 
@@ -439,6 +434,9 @@ separately measured option, not required for LLM speculation.
 
 Other later work: an optional local VAD/end-of-turn adapter, semantic backchannel
 classification, additional speech providers, and measured connection reuse.
+Optional Rust agent hosting and WebRTC connections can follow the working
+cascade and inspector, using the same embeddable core with transports at the
+host boundary; see the [migration direction](native-rust.md#webrtc-and-frontend-integration).
 Avoid an ONNX dependency until a selected local model demonstrates a benefit.
 A second real STT provider should prove the no-provider-turn-events path before
 that capability is advertised; mocks alone cannot establish its quality.

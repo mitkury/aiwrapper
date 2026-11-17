@@ -328,6 +328,64 @@ async fn a_fresh_connection_fences_late_results_and_scopes_reused_call_ids() {
 }
 
 #[tokio::test]
+async fn unrelated_resumption_preserves_the_original_session_and_pending_tool() {
+    let gate = CancellationToken::new();
+    let count = Arc::new(AtomicUsize::new(0));
+    let tools = vec![slow_tool(gate.clone(), count.clone())];
+    let (session, input, old_sent) = connect(config(&tools)).await;
+    let sender = session.sender.clone();
+    let mut agent = LiveAgent::new(session, tools.clone(), Default::default()).unwrap();
+    input.send(call("pending")).await.unwrap();
+    next(&mut agent).await;
+    input
+        .send(json!({"sessionResumptionUpdate":{"resumable":true,"newHandle":"original"}}))
+        .await
+        .unwrap();
+    next(&mut agent).await;
+
+    let mut unrelated = config(&tools);
+    unrelated
+        .settings
+        .insert("sessionResumption".into(), json!({"handle":"unrelated"}));
+    let (replacement, _new_input, new_sent) = connect(unrelated).await;
+    let retired_sender = replacement.sender.clone();
+    assert!(matches!(
+        agent.replace(replacement, tools).await,
+        Err(Error::Invalid(_))
+    ));
+    assert_eq!(agent.generation(), 0);
+    assert!(
+        retired_sender
+            .send_text("late", Role::User, false)
+            .await
+            .is_err()
+    );
+    sender
+        .send_text("still connected", Role::User, false)
+        .await
+        .unwrap();
+
+    gate.cancel();
+    completed(&mut agent, "pending").await;
+    assert_eq!(count.load(Ordering::SeqCst), 1);
+    assert!(
+        old_sent
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|v| v["toolResponse"]["functionResponses"][0]["id"] == "pending")
+    );
+    assert!(
+        !new_sent
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|v| v.get("toolResponse").is_some())
+    );
+    agent.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn cancelled_receive_poll_retains_the_incoming_provider_message() {
     let started = CancellationToken::new();
     let release = CancellationToken::new();

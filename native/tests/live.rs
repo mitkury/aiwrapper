@@ -658,6 +658,38 @@ async fn send_failure_wakes_the_receiver_and_stops_sender_clones() {
 }
 
 #[tokio::test]
+async fn dropping_the_receiver_stops_all_senders_without_cancelling_the_host() {
+    for provider in [LiveProvider::Google, LiveProvider::Openai] {
+        let parent = CancellationToken::new();
+        let mut config = LiveConfig::new(provider, "test", "key");
+        config.cancellation = parent.clone();
+        let mut fixture = SocketFixture::new(vec![if provider == LiveProvider::Google {
+            json!({"setupComplete":{}})
+        } else {
+            json!({"type":"session.updated"})
+        }]);
+        fixture.stay_open = true;
+        let session = config.connect_with(&fixture).await.unwrap();
+        let cloned = session.sender.clone();
+        drop(session.receiver);
+        for sender in [session.sender, cloned] {
+            assert!(matches!(
+                tokio::time::timeout(
+                    Duration::from_secs(1),
+                    sender.send_text("late", Role::User, false)
+                )
+                .await
+                .unwrap(),
+                Err(Error::Cancelled)
+            ));
+            sender.close().await.unwrap();
+        }
+        assert!(!parent.is_cancelled());
+        assert_eq!(fixture.sent.lock().unwrap().len(), 1, "only setup was sent");
+    }
+}
+
+#[tokio::test]
 async fn pending_tools_resume_with_their_handle_but_completed_calls_can_be_replayed() {
     let fixture = SocketFixture::new(vec![
         json!({"setupComplete":{}}),

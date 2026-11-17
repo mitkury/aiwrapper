@@ -3,7 +3,16 @@
 use super::*;
 use crate::{Tool, ToolContext, agent::validate_tools};
 use futures_util::future::BoxFuture;
-use tokio::{sync::mpsc, task::JoinHandle};
+use serde_json::json;
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
+use tokio::{
+    sync::{Mutex, Notify, mpsc},
+    task::JoinHandle,
+};
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -319,25 +328,11 @@ impl LiveAgent {
             });
         let retired = self.accept_model_events(received)?;
         let mut route = self.route.lock().await;
-        let previous = self.session.sender.connection.state.lock().await;
-        let resumed = match &next.sender.connection.resumed_from {
-            Some(handle) if previous.resume_handle.as_ref() == Some(handle) => true,
-            Some(_) => {
-                return Err(Error::Invalid(
-                    "replacement resumption belongs to another session".into(),
-                ));
-            }
-            None => false,
-        };
-        if resumed {
-            next.sender
-                .connection
-                .state
-                .lock()
-                .await
-                .calls
-                .extend(previous.calls.clone());
-        } else {
+        let resumed = next
+            .sender
+            .inherit_pending_calls(&self.session.sender)
+            .await?;
+        if !resumed {
             for token in self.pending.values() {
                 token.cancel();
             }
@@ -346,7 +341,6 @@ impl LiveAgent {
             route.generation = self.generation;
             route.unsent.clear();
         }
-        drop(previous);
         let old = std::mem::replace(&mut self.session, next);
         route.sender = self.session.sender.clone();
         self.tools = tools
@@ -363,9 +357,7 @@ impl LiveAgent {
     pub async fn close(mut self) -> Result<()> {
         self.cancellation.cancel();
         self.requests.take();
-        if let Some(processing) = self.session.receiver.processing.take() {
-            processing.abort();
-        }
+        self.session.receiver.cancel_pending_receive();
         let closed = self.session.sender.close().await;
         if let Some(worker) = self.worker.take() {
             worker

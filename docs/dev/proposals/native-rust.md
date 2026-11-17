@@ -6,10 +6,13 @@ compatibility matrix are in the [native runtime guide](../../native.md).
 
 ## Direction
 
-Make Rust a first-class embedding target, eventually covering the existing
-runtime features with a smaller implementation. Keep the npm package usable
-while native compatibility is established. Do not require a Node process,
-separate AIWrapper server, frontend framework or application-specific service.
+Make Rust the sole agent runtime, covering the needed runtime features with a
+smaller implementation. Retire the TypeScript runtime as usable Rust replacements
+land; keep TypeScript for browser interfaces and thin clients where useful.
+Do not build new runtime features twice. Keep the existing npm package usable
+during migration, with removal decisions based on tested replacement paths.
+Embedding must not require a Node process, separate AIWrapper server, frontend
+framework or application-specific service.
 
 The first version establishes three boundaries: neutral conversation values,
 provider protocol translation, and a tool loop. Hosts supply credentials, tools,
@@ -32,10 +35,12 @@ image tool results, provider-owned tools or live interruption semantics.
 2. Port realtime STT for OpenAI, Deepgram Flux and ElevenLabs, followed by
    incremental ElevenLabs TTS. Retain explicit sample rates, bounded buffers,
    utterance commit rules and observable transport errors.
-3. Port continuous STT → LLM → TTS orchestration. Compose the existing Rust chat
-   agent with streaming speech, bounded text segmentation and cancellation.
-   Handle barge-in without replaying tool side effects. Playback cursors remain
-   host-owned. A turn-based transcription demo alone would not be parity.
+3. Add continuous STT → LLM → TTS orchestration following the
+   [Rust cascade proposal](rust-cascade-agent.md). Reuse `LiveSession` and
+   `LiveAgent` for session handling and tool execution; call the language provider
+   directly without nesting a second agent loop. Handle barge-in without replaying
+   tool side effects. Playback cursors remain host-owned. A turn-based
+   transcription demo alone would not be parity.
 4. Add xAI and Azure live presets/protocol differences over the shared socket
    boundary. Preserve manual tool delivery, connection errors and truncation
    capabilities explicitly. Test each protocol before advertising compatibility.
@@ -83,6 +88,12 @@ so the same crate works with WebRTC, an application WebSocket or local audio.
 Adding libwebrtc or a WebRTC server to the core would make every embedding host
 pay for a transport it may not use.
 
+After the cascade and browser session inspector are usable, consider an optional
+Rust executable that hosts agents and exposes client connections. It would embed
+the same runtime and own authentication, session lifecycle and transports. WebRTC
+can be added at that host boundary later. Neither hosting nor WebRTC is required
+for the first cascade implementation.
+
 An existing Rust server can map the serializable agent events to its own HTTP,
 SSE or WebSocket endpoints. Keep authorization and tool permissions there. A
 frontend should send a model choice and conversation input, not API keys, trusted
@@ -104,8 +115,9 @@ once voice parity is in place. Rust will not remove remote provider latency.
 
 Keep code size under review as ports land. Remove duplicate adapters and old
 migration scaffolding after compatibility is proven, rather than adding a generic
-provider framework. Native bindings for npm are optional future work: first
-establish the Rust API and retain the working TypeScript distribution.
+provider framework. Native bindings or a thin npm client are optional future
+work; they must reuse the Rust runtime rather than preserve a parallel agent
+implementation.
 
 ## Acceptance before calling the migration complete
 

@@ -288,6 +288,12 @@ Clone the sender for a microphone task while another task reads events. Frames
 are mono signed 16-bit little-endian PCM: Gemini input is 16 kHz, OpenAI input
 24 kHz, and output is 24 kHz. The host resamples and owns device playback.
 
+The public session handles delegate to a private socket backend. Gemini/OpenAI
+protocol state, pending-call transfer during resumption, and receive-task
+cancellation stay inside that backend; `LiveAgent` uses the shared handles.
+Only native live models are available through this API today. The proposed Rust
+cascade will use the same session and tool interfaces.
+
 Live tool results contain JSON plus an optional `images: Vec<LiveImage>`.
 Use base64 JPEG/PNG bytes. Gemini keeps images inside their function response;
 OpenAI sends them as an adjacent user image item before continuing. Cancelled
