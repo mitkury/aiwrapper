@@ -98,3 +98,8 @@ npm run check:playground
 Media smoke tests run real native processes against local HTTP/WebSocket fixtures.
 They cover transcription, both synthesis providers, both live protocols, tool
 execution, PCM, and provider errors without credentials or remote calls.
+
+Cascade and Simulator mark interrupted replies at the Rust runtime's retained
+text boundary. Expand the generated remainder to compare it with the model's
+next request. ElevenLabs supplies speech timing; providers without alignment
+show an explicitly approximate boundary. See [playback handling](../docs/native-cascade.md#runtime-boundaries).

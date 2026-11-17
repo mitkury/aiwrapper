@@ -191,6 +191,31 @@ pub trait SpeechOutput: Send + Sync {
         text: &str,
         cancellation: CancellationToken,
     ) -> Result<BoxStream<'static, Result<PcmFrame>>>;
+
+    /// Optional original-text alignment. Times are relative to this synthesis
+    /// request, byte offsets are UTF-8 boundaries in the supplied text.
+    async fn synthesize_timed(
+        &self,
+        text: &str,
+        cancellation: CancellationToken,
+    ) -> Result<BoxStream<'static, Result<SpeechEvent>>> {
+        Ok(self
+            .synthesize(text, cancellation)
+            .await?
+            .map(|r| r.map(SpeechEvent::Audio))
+            .boxed())
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct SpeechTiming {
+    pub text_end: usize,
+    pub end_ms: u64,
+}
+#[derive(Clone, Debug)]
+pub enum SpeechEvent {
+    Audio(PcmFrame),
+    Timing(Vec<SpeechTiming>),
 }
 pub struct HttpSpeechOutput {
     pub speech: Speech,
@@ -200,6 +225,23 @@ pub struct HttpSpeechOutput {
 }
 #[async_trait]
 impl SpeechOutput for HttpSpeechOutput {
+    async fn synthesize_timed(
+        &self,
+        text: &str,
+        cancellation: CancellationToken,
+    ) -> Result<BoxStream<'static, Result<SpeechEvent>>> {
+        if self.elevenlabs {
+            self.speech
+                .speak_elevenlabs_timed(text, &self.model, &self.voice, 24000, cancellation)
+                .await
+        } else {
+            Ok(self
+                .synthesize(text, cancellation)
+                .await?
+                .map(|r| r.map(SpeechEvent::Audio))
+                .boxed())
+        }
+    }
     async fn synthesize(
         &self,
         text: &str,

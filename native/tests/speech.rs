@@ -141,3 +141,51 @@ async fn gemini_transcription_validates_input_before_sending_credentials() {
     ));
     assert!(fixture.requests.lock().unwrap().is_empty());
 }
+
+struct TimedFixture;
+#[async_trait]
+impl HttpTransport for TimedFixture {
+    async fn send(&self, request: HttpRequest) -> Result<HttpResponse> {
+        assert!(
+            request
+                .url
+                .ends_with("/stream/with-timestamps?output_format=pcm_24000")
+        );
+        let body = concat!(
+            "{\"audio_base64\":\"AQD//w==\",\"alignment\":{\"characters\":[\"H\",\"é\"],\"character_end_times_seconds\":[0.1,0.2]}}\n",
+            "{\"audio_base64\":\"AAA=\",\"alignment\":{\"characters\":[\"!\"],\"character_end_times_seconds\":[0.3]}}"
+        );
+        // Split every byte, including inside UTF-8 and JSON. No final newline.
+        Ok(HttpResponse {
+            status: 200,
+            headers: BTreeMap::new(),
+            body: futures_util::stream::iter(
+                body.as_bytes()
+                    .iter()
+                    .map(|b| Ok(vec![*b]))
+                    .collect::<Vec<_>>(),
+            )
+            .boxed(),
+        })
+    }
+}
+#[tokio::test]
+async fn elevenlabs_stream_preserves_original_utf8_offsets_and_audio_across_chunks() {
+    use aiwrapper::speech_stream::SpeechEvent;
+    let speech = Speech::with_transport("key", "https://test/v1", Arc::new(TimedFixture));
+    let mut stream = speech
+        .speak_elevenlabs_timed("Hé!", "model", "voice", 24000, CancellationToken::new())
+        .await
+        .unwrap();
+    let (mut points, mut samples) = (vec![], vec![]);
+    while let Some(event) = stream.next().await {
+        match event.unwrap() {
+            SpeechEvent::Timing(timing) => {
+                points.extend(timing.into_iter().map(|p| (p.text_end, p.end_ms)))
+            }
+            SpeechEvent::Audio(frame) => samples.extend(frame.samples),
+        }
+    }
+    assert_eq!(points, vec![(1, 100), (3, 200), (4, 300)]);
+    assert_eq!(samples, vec![1, -1, 0]);
+}

@@ -1,7 +1,9 @@
 //! A bounded STT → language provider → speech pipeline. LiveAgent executes tools.
 use super::camera::{CameraBuffer, prune};
 use super::*;
-use crate::speech_stream::{SpeechOutput, TranscriptionEvent, TranscriptionSession};
+use crate::speech_stream::{
+    SpeechEvent, SpeechOutput, SpeechTiming, TranscriptionEvent, TranscriptionSession,
+};
 use futures_util::StreamExt;
 use serde_json::json;
 use std::{
@@ -93,6 +95,7 @@ enum Command {
     Results(Vec<LiveToolResult>),
     Interrupt,
     Played(String, usize, u64),
+    PlaybackStopped(String),
 }
 impl CascadeSender {
     async fn request(&self, command: Command) -> Result<()> {
@@ -158,6 +161,9 @@ impl CascadeSender {
     pub async fn truncate_audio(&self, id: &str, index: usize, ms: u64) -> Result<()> {
         self.request(Command::Played(id.into(), index, ms)).await
     }
+    pub async fn playback_stopped(&self, id: &str) -> Result<()> {
+        self.request(Command::PlaybackStopped(id.into())).await
+    }
     pub async fn close(&self) -> Result<()> {
         self.cancellation.cancel();
         Ok(())
@@ -222,12 +228,15 @@ enum Work {
     Done(Result<Message>),
     Audio(usize, PcmFrame),
     SegmentDone(usize),
+    Timing(usize, Vec<SpeechTiming>),
     SynthesisText(usize, String),
     Synthesized,
     Failed(Error),
 }
 struct Segment {
+    start: usize,
     end: usize,
+    timing: Vec<SpeechTiming>,
     samples: u64,
     rate: u32,
     played_ms: u64,
@@ -243,6 +252,94 @@ struct Round {
     model_done: bool,
     synthesis_done: bool,
     cut: bool,
+}
+/// The same cutoff is used for conversation history and host transcript display.
+/// `provider-timed` refers to provider alignment, not proof of human perception.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaybackCut {
+    pub item_id: String,
+    pub played_ms: u64,
+    pub generated_ms: u64,
+    pub retained_text: String,
+    pub unplayed_text: String,
+    pub accuracy: String,
+    pub playback_confirmed: bool,
+}
+impl Segment {
+    fn duration_ms(&self) -> u64 {
+        self.samples * 1000 / u64::from(self.rate.max(1))
+    }
+}
+impl Round {
+    fn playback_cut(&self, confirmed: bool) -> PlaybackCut {
+        let mut end = 0;
+        let mut accuracy = "segment-boundary";
+        for segment in &self.segments {
+            if segment.done && segment.played_ms >= segment.duration_ms() && segment.samples > 0 {
+                end = segment.end;
+                continue;
+            }
+            if segment.played_ms == 0 {
+                break;
+            }
+            let text = &self.text[segment.start..segment.end];
+            let aligned_through = segment.timing.last().map_or(0, |p| p.end_ms);
+            if aligned_through >= segment.played_ms {
+                let at = segment
+                    .timing
+                    .iter()
+                    .take_while(|p| p.end_ms <= segment.played_ms)
+                    .last()
+                    .map_or(0, |p| p.text_end);
+                end = segment.start + word_boundary(text, at);
+                accuracy = "provider-timed";
+            } else if segment.done && segment.duration_ms() > 0 {
+                let count = text.chars().count() as u64 * segment.played_ms / segment.duration_ms();
+                let at = text
+                    .char_indices()
+                    .nth(count as usize)
+                    .map_or(text.len(), |(at, _)| at);
+                end = segment.start + word_boundary(text, at);
+                accuracy = "estimated";
+            } else {
+                // Incomplete synthesis has no known total duration. Do not
+                // extrapolate a word position from a growing audio denominator.
+                accuracy = "segment-boundary";
+            }
+            break;
+        }
+        PlaybackCut {
+            item_id: self.id.to_string(),
+            played_ms: self.segments.iter().map(|s| s.played_ms).sum(),
+            generated_ms: self.segments.iter().map(Segment::duration_ms).sum(),
+            retained_text: self.text[..end].to_owned(),
+            unplayed_text: self.text[end..].to_owned(),
+            accuracy: accuracy.into(),
+            playback_confirmed: confirmed,
+        }
+    }
+}
+// Back out of a partially spoken whitespace-delimited word. Scripts without
+// spaces use character boundaries; this is not a linguistic word tokenizer.
+fn word_boundary(text: &str, at: usize) -> usize {
+    if at == 0 || at == text.len() {
+        return at;
+    }
+    let left = &text[..at];
+    if left.chars().last().is_some_and(char::is_whitespace)
+        || text[at..]
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_whitespace() || c.is_ascii_punctuation())
+    {
+        return at;
+    }
+    left.char_indices()
+        .rev()
+        .find(|(_, c)| c.is_whitespace())
+        .map(|(i, c)| i + c.len_utf8())
+        .unwrap_or_else(|| if text.is_ascii() { 0 } else { at })
 }
 struct Actor {
     config: CascadeConfig,
@@ -261,6 +358,8 @@ struct Actor {
     last_turn: Option<u64>,
     rounds: usize,
     continuation: Option<tokio::time::Instant>,
+    cut_wait: Option<tokio::time::Instant>,
+    start_pending: bool,
 }
 impl Actor {
     fn new(
@@ -287,6 +386,8 @@ impl Actor {
             last_turn: None,
             rounds: 0,
             continuation: None,
+            cut_wait: None,
+            start_pending: false,
         }
     }
     fn emit(&self, generation: Option<u64>, events: Vec<LiveEvent>) -> Result<()> {
@@ -335,6 +436,7 @@ impl Actor {
                 }
                 _ = flush.tick() => {
                     if self.continuation.is_some_and(|t|t.elapsed()>Duration::from_secs(30)) { return Err(Error::Protocol("playback acknowledgement timed out before tool continuation".into())); }
+                    if self.cut_wait.is_some_and(|at| at.elapsed() >= Duration::from_millis(500)) { self.finish_cut(false)?; }
                     self.segment(SegmentTrigger::Timer)?;
                 },
             }
@@ -384,6 +486,14 @@ impl Actor {
                 self.diagnostic(event)
             }
             Command::Interrupt => self.interrupt(),
+            Command::PlaybackStopped(id) => {
+                if self.cut_wait.is_some()
+                    && self.round.as_ref().is_some_and(|r| r.id.to_string() == id)
+                {
+                    self.finish_cut(true)?;
+                }
+                Ok(())
+            }
             Command::Played(id, index, ms) => {
                 let Some(round) = self.round.as_mut().filter(|r| r.id.to_string() == id) else {
                     if id
@@ -394,6 +504,9 @@ impl Actor {
                     }
                     return Err(Error::Invalid("unknown playback item".into()));
                 };
+                if round.cut && self.cut_wait.is_none() {
+                    return Ok(());
+                }
                 let segment = round
                     .segments
                     .get_mut(index)
@@ -512,20 +625,41 @@ impl Actor {
         self.cancel_work();
         if let Some(round) = self.round.as_mut().filter(|r| !r.cut) {
             round.cut = true;
-            let end = round
-                .segments
-                .iter()
-                .take_while(|s| {
-                    s.done && s.played_ms >= s.samples * 1000 / u64::from(s.rate.max(1))
-                })
-                .last()
-                .map_or(0, |s| s.end);
-            let heard = &round.text[..end];
-            if let Some(message) = self.config.conversation.messages.get_mut(round.message) {
-                replace_visible_text(message, heard)?;
+            // A completed, acknowledged reply is not an interruption.
+            if round.model_done
+                && round.synthesis_done
+                && round
+                    .segments
+                    .iter()
+                    .all(|s| s.done && s.played_ms >= s.duration_ms())
+            {
+                return Ok(());
             }
+            self.cut_wait = Some(tokio::time::Instant::now());
+            let id = round.id.to_string();
             self.emit(None, vec![LiveEvent::Interrupted])?;
+            self.diagnostic(json!({"kind":"playback-stop-requested","itemId":id}))?;
+        }
+        Ok(())
+    }
+    fn finish_cut(&mut self, confirmed: bool) -> Result<()> {
+        self.cut_wait = None;
+        if let Some(round) = &self.round {
+            let cut = round.playback_cut(confirmed);
+            let message = &mut self.config.conversation.messages[round.message];
+            replace_visible_text(message, &cut.retained_text)?;
+            // Metadata is diagnostic, not provider replay content. The discarded
+            // tail is emitted to the host, never retained in model history.
+            if !cut.unplayed_text.is_empty() {
+                let meta = message.meta.get_or_insert_with(|| json!({}));
+                meta["cascadeInterruption"] =
+                    json!({"itemId":cut.item_id,"playedMs":cut.played_ms,"accuracy":cut.accuracy});
+                self.diagnostic(json!({"kind":"playback-cut","cut":cut}))?;
+            }
             self.diagnostic(json!({"kind":"history","conversation":self.config.conversation}))?;
+        }
+        if std::mem::take(&mut self.start_pending) {
+            self.start()?;
         }
         Ok(())
     }
@@ -544,6 +678,10 @@ impl Actor {
         Ok(())
     }
     fn start(&mut self) -> Result<()> {
+        if self.cut_wait.is_some() {
+            self.start_pending = true;
+            return Ok(());
+        }
         self.continuation = None;
         self.cancel_work();
         self.rounds += 1;
@@ -566,6 +704,22 @@ impl Actor {
             }
         }
         let mut conversation = self.config.conversation.clone();
+        if let Some(message) = conversation.messages.iter().rev().find(|m| {
+            m.meta
+                .as_ref()
+                .is_some_and(|v| v.get("cascadeInterruption").is_some())
+        }) {
+            let retained = message.answer();
+            let quote: String = retained
+                .chars()
+                .rev()
+                .take(160)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            conversation.instructions.push_str(&format!("\nPlayback context: an earlier assistant reply was interrupted. Its retained text ends with {}. Any generated continuation was not played and has been removed. The cutoff may be approximate; acknowledge interruptions without claiming the user heard the full reply.", serde_json::to_string(&quote)?));
+        }
         let camera = last_user
             .and_then(|i| conversation.messages.get(i))
             .and_then(|m| m.meta.as_ref())
@@ -620,7 +774,7 @@ impl Actor {
                         .map_err(|_| Error::Cancelled)?;
                     let mut stream = tokio::time::timeout(
                         Duration::from_secs(15),
-                        speech.synthesize(&text, cancel.clone()),
+                        speech.synthesize_timed(&text, cancel.clone()),
                     )
                     .await
                     .map_err(|_| Error::Protocol("speech setup timed out".into()))??;
@@ -629,7 +783,15 @@ impl Actor {
                             .await
                             .map_err(|_| Error::Protocol("speech stream timed out".into()))?
                     {
-                        let frame = frame?;
+                        let frame = match frame? {
+                            SpeechEvent::Audio(frame) => frame,
+                            SpeechEvent::Timing(points) => {
+                                tx.send((generation, Work::Timing(index, points)))
+                                    .await
+                                    .map_err(|_| Error::Cancelled)?;
+                                continue;
+                            }
+                        };
                         frame.validate()?;
                         // At most 100 ms per queued frame, independent of provider chunking.
                         for samples in frame.samples.chunks((frame.sample_rate / 10) as usize) {
@@ -770,6 +932,21 @@ impl Actor {
                 )
             }
             Work::SynthesisText(index, text) => self.diagnostic(json!({"kind":"tts-input","itemId":self.round.as_ref().unwrap().id.to_string(),"contentIndex":index,"text":text})),
+            Work::Timing(index, points) => {
+                let round = self.round.as_mut().unwrap();
+                let segment = &mut round.segments[index];
+                for point in points {
+                    let previous = segment.timing.last();
+                    if point.text_end > segment.end - segment.start
+                        || !round.text.is_char_boundary(segment.start + point.text_end)
+                        || previous.is_some_and(|p| point.text_end <= p.text_end || point.end_ms < p.end_ms)
+                        || segment.timing.len() >= 65536 {
+                        return Err(Error::Protocol("invalid speech alignment".into()));
+                    }
+                    segment.timing.push(point);
+                }
+                Ok(())
+            }
             Work::SegmentDone(index) => {
                 let round = self.round.as_mut().unwrap();
                 round.segments[index].done = true;
@@ -799,6 +976,7 @@ impl Actor {
                 break;
             }
             let text = remaining[..end].to_string();
+            let start = round.segmented;
             round.segmented += end;
             if text.trim().is_empty() {
                 continue;
@@ -811,6 +989,8 @@ impl Actor {
                 .try_send((index, text.clone()))
                 .map_err(|_| Error::Protocol("speech text queue overflow".into()))?;
             round.segments.push(Segment {
+                start,
+                timing: vec![],
                 end: round.segmented,
                 samples: 0,
                 rate: 0,

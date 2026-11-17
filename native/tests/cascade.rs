@@ -720,3 +720,189 @@ async fn camera_batch_is_frozen_through_tools_and_old_payloads_are_pruned() {
     }
     session.sender.close().await.unwrap();
 }
+
+struct TimedSpeech;
+#[async_trait]
+impl SpeechOutput for TimedSpeech {
+    async fn synthesize(
+        &self,
+        _: &str,
+        _: CancellationToken,
+    ) -> Result<BoxStream<'static, Result<PcmFrame>>> {
+        unreachable!("cascade should request aligned speech")
+    }
+    async fn synthesize_timed(
+        &self,
+        text: &str,
+        _: CancellationToken,
+    ) -> Result<BoxStream<'static, Result<SpeechEvent>>> {
+        // Deliberately uneven timing: duration ratios would put the cut elsewhere.
+        let points = text
+            .char_indices()
+            .map(|(i, ch)| SpeechTiming {
+                text_end: i + ch.len_utf8(),
+                end_ms: if i < 6 { 100 } else { 900 },
+            })
+            .collect();
+        Ok(futures_util::stream::iter(vec![
+            Ok(SpeechEvent::Timing(points)),
+            Ok(SpeechEvent::Audio(PcmFrame {
+                samples: vec![0; 24000],
+                sample_rate: 24000,
+            })),
+        ])
+        .boxed())
+    }
+}
+
+#[tokio::test]
+async fn final_playback_ack_updates_history_before_next_request_and_matches_cut_event() {
+    let requests = Arc::new(Mutex::new(vec![]));
+    let seen = requests.clone();
+    let language = MockLang::from_fn(move |c, _| {
+        seen.lock().unwrap().push(c.clone());
+        Ok(Message::assistant("Hello world."))
+    });
+    let mut session = CascadeConfig::new(Arc::new(language), Arc::new(TimedSpeech))
+        .connect()
+        .unwrap();
+    session.sender.send_realtime_text("hello").await.unwrap();
+    let mut id = String::new();
+    loop {
+        let events = next(&mut session).await;
+        for event in &events {
+            if let LiveEvent::Audio {
+                item_id: Some(item),
+                ..
+            } = event
+            {
+                id = item.clone();
+            }
+        }
+        if events.iter().any(|e| matches!(e, LiveEvent::ProviderState {state} if state["kind"] == "synthesis-complete")) { break; }
+    }
+    session.sender.interrupt().await.unwrap();
+    // This transcript can arrive before the browser's final playback report.
+    session
+        .sender
+        .send_realtime_text("why did you stop?")
+        .await
+        .unwrap();
+    assert_eq!(
+        requests.lock().unwrap().len(),
+        1,
+        "do not snapshot stale history"
+    );
+    session.sender.truncate_audio(&id, 0, 400).await.unwrap();
+    session.sender.playback_stopped(&id).await.unwrap();
+    let mut cut = None;
+    loop {
+        let events = next(&mut session).await;
+        for event in &events {
+            if let LiveEvent::ProviderState { state } = event
+                && state["kind"] == "playback-cut"
+            {
+                cut = Some(serde_json::from_value::<PlaybackCut>(state["cut"].clone()).unwrap());
+            }
+        }
+        if events.iter().any(|e| matches!(e, LiveEvent::ProviderState {state} if state["kind"] == "synthesis-complete")) { break; }
+    }
+    let cut = cut.unwrap();
+    assert_eq!(cut.retained_text, "Hello ");
+    assert_eq!(cut.unplayed_text, "world.");
+    assert_eq!(cut.played_ms, 400);
+    assert_eq!(cut.accuracy, "provider-timed");
+    assert!(cut.playback_confirmed);
+    {
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests[1].messages[1].answer(), cut.retained_text);
+        assert!(
+            !serde_json::to_string(&requests[1])
+                .unwrap()
+                .contains("world.")
+        );
+        assert!(requests[1].instructions.contains("interrupted"));
+    }
+    session.sender.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn partial_playback_without_alignment_is_estimated_and_timeout_is_visible() {
+    let language = MockLang::from_fn(|_, _| Ok(Message::assistant("one two three four")));
+    let mut session = CascadeConfig::new(Arc::new(language), Arc::new(MockSpeechOutput))
+        .connect()
+        .unwrap();
+    session.sender.send_realtime_text("hi").await.unwrap();
+    let mut id = String::new();
+    loop {
+        let events = next(&mut session).await;
+        for event in &events {
+            if let LiveEvent::Audio {
+                item_id: Some(item),
+                ..
+            } = event
+            {
+                id = item.clone();
+            }
+        }
+        if events.iter().any(|e| matches!(e, LiveEvent::ProviderState {state} if state["kind"] == "synthesis-complete")) { break; }
+    }
+    session.sender.truncate_audio(&id, 0, 100).await.unwrap();
+    session.sender.interrupt().await.unwrap();
+    loop {
+        let events = next(&mut session).await;
+        if let Some(state) = events.iter().find_map(|e| match e {
+            LiveEvent::ProviderState { state } if state["kind"] == "playback-cut" => Some(state),
+            _ => None,
+        }) {
+            assert_eq!(state["cut"]["retainedText"], "one two ");
+            assert_eq!(state["cut"]["accuracy"], "estimated");
+            assert_eq!(state["cut"]["playbackConfirmed"], false);
+            break;
+        }
+    }
+    session.sender.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn fully_played_reply_is_not_marked_interrupted_or_delayed() {
+    let mut session = CascadeConfig::new(
+        Arc::new(MockLang::from_fn(|_, _| Ok(Message::assistant("Hello.")))),
+        Arc::new(MockSpeechOutput),
+    )
+    .connect()
+    .unwrap();
+    session.sender.send_realtime_text("hi").await.unwrap();
+    let mut id = String::new();
+    loop {
+        let events = next(&mut session).await;
+        for event in &events {
+            if let LiveEvent::Audio {
+                item_id: Some(item),
+                ..
+            } = event
+            {
+                id = item.clone();
+            }
+        }
+        if events.iter().any(|e| matches!(e, LiveEvent::ProviderState {state} if state["kind"] == "synthesis-complete")) { break; }
+    }
+    session.sender.truncate_audio(&id, 0, 200).await.unwrap();
+    session.sender.send_realtime_text("next").await.unwrap();
+    loop {
+        let events = next(&mut session).await;
+        for e in &events {
+            assert!(!matches!(e, LiveEvent::Interrupted));
+            assert!(
+                !matches!(e, LiveEvent::ProviderState {state} if state["kind"] == "playback-cut" || state["kind"] == "playback-stop-requested")
+            );
+        }
+        if events
+            .iter()
+            .any(|e| matches!(e, LiveEvent::ResponseStarted))
+        {
+            break;
+        }
+    }
+    session.sender.close().await.unwrap();
+}

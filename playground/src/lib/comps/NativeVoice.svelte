@@ -75,7 +75,16 @@
 	let configured = $state<Record<string, { configured: boolean; model: string }>>({});
 	let keys = $state({ deepgram: false, elevenlabs: false, openai: false });
 	let entries = $state<{ time: string; label: string; detail: string }[]>([]);
-	let transcripts = $state<{ id: string; input: boolean; text: string }[]>([]);
+	type PlaybackCut = {
+		itemId: string;
+		playedMs: number;
+		generatedMs: number;
+		retainedText: string;
+		unplayedText: string;
+		accuracy: 'provider-timed' | 'estimated' | 'segment-boundary';
+		playbackConfirmed: boolean;
+	};
+	let transcripts = $state<{ id: string; input: boolean; text: string; cut?: PlaybackCut }[]>([]);
 	let selected = $state<number | null>(null);
 	let video = $state<HTMLVideoElement>();
 	let connection: AbortController | undefined,
@@ -191,6 +200,17 @@
 			if (!e.final_result) return;
 		}
 		if (e.type === 'provider-state') {
+			if (!live && e.state.kind === 'playback-stop-requested') {
+				// clear() queues final cursors before the acknowledgement. The
+				// Rust runtime waits for it before constructing the next request.
+				clearPlayback();
+				void command({ type: 'playback-stopped', item: e.state.itemId }).catch(fail);
+			}
+			if (!live && e.state.kind === 'playback-cut') {
+				const cut: PlaybackCut = e.state.cut;
+				const row = transcripts.find((t) => t.id === `out:${cut.itemId}`);
+				if (row) row.cut = cut;
+			}
 			if (
 				e.state.kind === 'request' &&
 				e.state.camera &&
@@ -625,11 +645,7 @@
 				>{/if}
 		</div>
 		<div class="session-status">
-			<span
-				class:active={connected}
-				class:attention={Boolean(error)}
-				class="status-dot"
-			></span>
+			<span class:active={connected} class:attention={Boolean(error)} class="status-dot"></span>
 			<span role="status"
 				>{phase === 'Disconnected'
 					? error
@@ -732,7 +748,28 @@
 				{#each transcripts as t}
 					<article class:user-message={t.input} class="message">
 						<p class="speaker">{t.input ? 'You' : 'Agent'}</p>
-						<p class="message-text">{t.text}</p>
+						{#if t.cut}
+							{#if t.cut.retainedText}<p class="message-text">{t.cut.retainedText}</p>{/if}
+							<p class="interruption-marker">
+								<Square size={11} fill="currentColor" />
+								Interrupted · {(t.cut.playedMs / 1000).toFixed(1)}s played
+							</p>
+							<p class="cut-accuracy">
+								{t.cut.accuracy === 'provider-timed'
+									? 'Cutoff from speech timing'
+									: t.cut.accuracy === 'estimated'
+										? 'Approximate word boundary'
+										: 'Last confirmed complete segment'}
+								{!t.cut.playbackConfirmed ? ' · final playback report unavailable' : ''}
+							</p>
+							{#if t.cut.unplayedText}<details class="unplayed-text">
+									<summary>Generated remainder · excluded from model history</summary>
+									<p class="message-text">{t.cut.unplayedText}</p>
+									{#if t.cut.accuracy !== 'provider-timed'}<p class="cut-accuracy">
+											Some words near this approximate cutoff may have played.
+										</p>{/if}
+								</details>{/if}
+						{:else}<p class="message-text">{t.text}</p>{/if}
 					</article>
 				{:else}
 					<div class="conversation-empty">
@@ -1213,6 +1250,40 @@
 		overflow-wrap: anywhere;
 		font-size: 14px;
 		line-height: 1.55;
+	}
+	.interruption-marker {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin-top: 10px;
+		font-size: 12px;
+		color: #94621d;
+		font-weight: 550;
+		border-top: 1px dashed #d8c5a5;
+		padding-top: 8px;
+	}
+	.cut-accuracy {
+		font-size: 11px;
+		color: #7c7467;
+		margin-top: 4px;
+	}
+	.unplayed-text {
+		margin-top: 10px;
+	}
+	.unplayed-text > summary {
+		display: list-item;
+		list-style: disclosure-closed;
+		padding: 0;
+		font-size: 11px;
+		color: #76838a;
+		border: 0;
+	}
+	.unplayed-text[open] > summary {
+		list-style: disclosure-open;
+	}
+	.unplayed-text > .message-text {
+		color: #78868c;
+		margin-top: 8px;
 	}
 	.message-form {
 		padding: 14px 16px 16px;

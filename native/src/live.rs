@@ -13,7 +13,7 @@ mod camera;
 mod cascade;
 pub use camera::{CameraContext, CameraFrame};
 mod socket;
-pub use cascade::CascadeConfig;
+pub use cascade::{CascadeConfig, PlaybackCut};
 use cascade::{CascadeReceiver, CascadeSender};
 pub use socket::{
     LiveConfig, LiveProvider, LiveResumption, LiveSocket, LiveTransport, WebSocketTransport,
@@ -137,6 +137,16 @@ impl LiveSender {
                     .truncate_audio(item_id, content_index, played_ms)
                     .await
             }
+        }
+    }
+    /// Cascade hosts call this after stopping playback and sending final
+    /// `truncate_audio` cursors, in that order. Other backends own their protocol.
+    pub async fn playback_stopped(&self, item_id: &str) -> Result<()> {
+        match &self.backend {
+            SenderBackend::Cascade(sender) => sender.playback_stopped(item_id).await,
+            SenderBackend::Socket(_) => Err(Error::Invalid(
+                "playback acknowledgement requires a cascade session".into(),
+            )),
         }
     }
     pub async fn close(&self) -> Result<()> {

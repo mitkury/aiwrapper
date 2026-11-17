@@ -136,9 +136,16 @@ export async function cascadeCommand(id: string, value: unknown): Promise<void> 
 	if (
 		!value ||
 		typeof value !== 'object' ||
-		!['text', 'audio', 'image', 'interrupt', 'played', 'end-audio', 'close'].includes(
-			String(Reflect.get(value, 'type'))
-		)
+		![
+			'text',
+			'audio',
+			'image',
+			'interrupt',
+			'played',
+			'playback-stopped',
+			'end-audio',
+			'close'
+		].includes(String(Reflect.get(value, 'type')))
 	)
 		throw new Error('Invalid session command');
 	const line = JSON.stringify(value) + '\n';

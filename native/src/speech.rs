@@ -303,6 +303,39 @@ impl Speech {
         sample_rate: u32,
         cancellation: CancellationToken,
     ) -> Result<BoxStream<'static, Result<PcmFrame>>> {
+        let response = self
+            .elevenlabs_response(text, model, voice, sample_rate, false, &cancellation)
+            .await?;
+        Ok(pcm_stream(response, sample_rate, cancellation))
+    }
+    /// Streaming PCM with original-text timing for playback reconciliation.
+    pub async fn speak_elevenlabs_timed(
+        &self,
+        text: &str,
+        model: &str,
+        voice: &str,
+        sample_rate: u32,
+        cancellation: CancellationToken,
+    ) -> Result<BoxStream<'static, Result<crate::speech_stream::SpeechEvent>>> {
+        let response = self
+            .elevenlabs_response(text, model, voice, sample_rate, true, &cancellation)
+            .await?;
+        Ok(timed_elevenlabs_stream(
+            response,
+            text.to_owned(),
+            sample_rate,
+            cancellation,
+        ))
+    }
+    async fn elevenlabs_response(
+        &self,
+        text: &str,
+        model: &str,
+        voice: &str,
+        sample_rate: u32,
+        timed: bool,
+        cancellation: &CancellationToken,
+    ) -> Result<HttpResponse> {
         if ![8000, 16000, 22050, 24000, 44100, 48000].contains(&sample_rate)
             || !voice
                 .bytes()
@@ -317,13 +350,15 @@ impl Speech {
             ("xi-api-key".into(), self.api_key.clone()),
             ("content-type".into(), "application/json".into()),
         ]);
-        let path = format!("/text-to-speech/{voice}/stream?output_format=pcm_{sample_rate}");
+        let suffix = if timed { "/with-timestamps" } else { "" };
+        let path =
+            format!("/text-to-speech/{voice}/stream{suffix}?output_format=pcm_{sample_rate}");
         let response = self
             .send(
                 &path,
                 serde_json::to_vec(&json!({"text":text,"model_id":model}))?,
                 headers,
-                &cancellation,
+                cancellation,
             )
             .await?;
         if let Some(cost) = response
@@ -341,7 +376,7 @@ impl Speech {
             event.request_id = response.headers.get("request-id").cloned();
             crate::usage::emit_usage(&self.on_usage, event);
         }
-        Ok(pcm_stream(response, sample_rate, cancellation))
+        Ok(response)
     }
 }
 /// Little-endian 16-bit samples; callers reject or retain an odd trailing byte.
@@ -379,6 +414,98 @@ fn pcm_stream(
                 None if !pending.is_empty() => return Some((Err(Error::Protocol("truncated PCM sample".into())),(body,pending,true,cancel))),
                 None => return None,
             }
+        }
+    }).boxed()
+}
+
+// Decode NDJSON without a background producer: dropping the stream drops the
+// HTTP body, and backpressure stays with the consumer.
+fn timed_elevenlabs_stream(
+    response: HttpResponse,
+    text: String,
+    rate: u32,
+    cancel: CancellationToken,
+) -> BoxStream<'static, Result<crate::speech_stream::SpeechEvent>> {
+    use crate::speech_stream::{SpeechEvent, SpeechTiming};
+    struct State {
+        body: BoxStream<'static, Result<Vec<u8>>>,
+        pending: Vec<u8>,
+        ready: std::collections::VecDeque<SpeechEvent>,
+        eof: bool,
+        failed: bool,
+        text: String,
+        offset: usize,
+        aligned: bool,
+        last_ms: u64,
+        cancel: CancellationToken,
+    }
+    let state = State {
+        body: response.body,
+        pending: vec![],
+        ready: Default::default(),
+        eof: false,
+        failed: false,
+        text,
+        offset: 0,
+        aligned: true,
+        last_ms: 0,
+        cancel,
+    };
+    futures_util::stream::unfold(state, move |mut s| async move {
+        if s.failed { return None; }
+        let result: Result<Option<SpeechEvent>> = async {
+            loop {
+                crate::error::check_cancel(&s.cancel)?;
+                if let Some(event) = s.ready.pop_front() { return Ok(Some(event)); }
+                let end = s.pending.iter().position(|b| *b == b'\n').map(|i| i + 1)
+                    .or_else(|| (s.eof && !s.pending.is_empty()).then_some(s.pending.len()));
+                if let Some(end) = end {
+                    let line: Vec<u8> = s.pending.drain(..end).collect();
+                    if line.iter().all(u8::is_ascii_whitespace) { continue; }
+                    let v: Value = serde_json::from_slice(&line)?;
+                    if v.get("error").is_some() { return Err(Error::Protocol(format!("ElevenLabs: {}", v["error"]))); }
+                    // Only original-text alignment can safely index the model's
+                    // text. Normalized text (numbers, abbreviations) may differ.
+                    if s.aligned && let Some(a) = v.get("alignment").filter(|a| !a.is_null()) {
+                        let chars = a["characters"].as_array().ok_or_else(|| Error::Protocol("ElevenLabs alignment characters missing".into()))?;
+                        let ends = a["character_end_times_seconds"].as_array().ok_or_else(|| Error::Protocol("ElevenLabs alignment times missing".into()))?;
+                        if chars.len() != ends.len() { return Err(Error::Protocol("ElevenLabs alignment lengths differ".into())); }
+                        let mut points = vec![];
+                        for (ch, end) in chars.iter().zip(ends) {
+                            let ch = ch.as_str().ok_or_else(|| Error::Protocol("invalid alignment character".into()))?;
+                            let seconds = end.as_f64().filter(|n| n.is_finite() && *n >= 0.0 && *n <= 3600.0)
+                                .ok_or_else(|| Error::Protocol("invalid alignment time".into()))?;
+                            let ms = (seconds * 1000.0).ceil() as u64;
+                            if ch.is_empty() || !s.text[s.offset..].starts_with(ch) || ms < s.last_ms {
+                                // Do not invent an exact mapping when the provider
+                                // transforms text or returns an inconsistent timeline.
+                                s.aligned = false;
+                                break;
+                            }
+                            s.offset += ch.len();
+                            s.last_ms = ms;
+                            points.push(SpeechTiming { text_end: s.offset, end_ms: ms });
+                        }
+                        if !points.is_empty() { s.ready.push_back(SpeechEvent::Timing(points)); }
+                    }
+                    let audio = v["audio_base64"].as_str().ok_or_else(|| Error::Protocol("ElevenLabs audio missing".into()))?;
+                    let bytes = STANDARD.decode(audio).map_err(|_| Error::Protocol("invalid ElevenLabs audio base64".into()))?;
+                    if bytes.len() % 2 != 0 { return Err(Error::Protocol("truncated PCM sample".into())); }
+                    if !bytes.is_empty() { s.ready.push_back(SpeechEvent::Audio(PcmFrame { samples: pcm_samples(&bytes), sample_rate: rate })); }
+                    continue;
+                }
+                if s.eof { return Ok(None); }
+                let chunk = tokio::select! { biased; _ = s.cancel.cancelled() => return Err(Error::Cancelled), chunk = s.body.next() => chunk };
+                match chunk {
+                    Some(bytes) => { s.pending.extend(bytes?); if s.pending.len() > 8 * 1024 * 1024 { return Err(Error::Protocol("speech event exceeds 8 MiB".into())); } }
+                    None => s.eof = true,
+                }
+            }
+        }.await;
+        match result {
+            Ok(Some(event)) => Some((Ok(event), s)),
+            Ok(None) => None,
+            Err(e) => { s.failed = true; Some((Err(e), s)) }
         }
     }).boxed()
 }

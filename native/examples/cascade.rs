@@ -45,6 +45,9 @@ enum Command {
         index: usize,
         ms: u64,
     },
+    PlaybackStopped {
+        item: String,
+    },
     EndAudio,
     Close,
 }
@@ -177,6 +180,7 @@ async fn run() -> Result<()> {
                 Command::Played { item, index, ms } => {
                     sender.truncate_audio(&item, index, ms).await
                 }
+                Command::PlaybackStopped { item } => sender.playback_stopped(&item).await,
                 Command::EndAudio => sender.end_audio().await,
                 Command::Close => break,
             };

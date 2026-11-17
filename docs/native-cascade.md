@@ -67,7 +67,7 @@ microphone ends the session with an explicit error.
 
 The event list retains up to 300 events / 8 MiB after disconnect. Select `request`
 to inspect the neutral conversation and tools passed to the language provider,
-`history` to see a playback correction, `tts-input` for each exact text segment
+`playback-cut` to inspect an interruption, `history` to see the corrected context, `tts-input` for each exact text segment
 submitted to synthesis, or tool events to inspect results. `microphone-settings`
 shows browser-reported echo cancellation and noise suppression settings. The
 browser is asked to enable both at capture; effectiveness against speaker
@@ -100,13 +100,43 @@ all calls in that round are silent. A spoken tool preamble must finish playback
 before the follow-up model round; missing acknowledgement fails after 30 seconds.
 Call IDs must be unique within the session.
 
-Audio events identify a response and segment. The browser reports cumulative
-played milliseconds for each segment through `truncate_audio`. On interruption,
-only fully played segments survive in the next request; partial words are not
-estimated. An acknowledgement received after a cut never grows the message.
-The receiver discards queued audio from retired response generations. Playback
-is conservative if acknowledgements arrive late. Hosts must supply cursors to
-retain heard text; absence of acknowledgement means the segment is unconfirmed.
+Audio events identify a response and segment. Hosts report cumulative **played**
+milliseconds for each segment through `truncate_audio`; queued audio does not
+count. On interruption, stop playback immediately. Rust emits `Interrupted`
+followed by a `ProviderState` with `kind: "playback-stop-requested"` and `itemId`.
+Send the final cursors, then `LiveSender::playback_stopped(item_id)`, in order.
+The next model request waits for that acknowledgement, or up to 500 ms (checked
+on the 200 ms runtime tick). Hosts without this acknowledgement still work, but
+use the last known cursor; the event reports `playbackConfirmed: false`.
+Late acknowledgements after finalization cannot change a request already sent.
+
+A `ProviderState` with `kind: "playback-cut"` contains a public `live::PlaybackCut`
+under `cut`: response ID, played/generated milliseconds, retained text, generated
+remainder, boundary accuracy and acknowledgement status. It is emitted only
+when generated text was removed. Fully played replies are not marked interrupted.
+The same retained text is used in model history and the playground transcript.
+A short playback-context note tells the model an earlier reply was interrupted;
+the discarded continuation is not sent back to the model.
+
+`SpeechOutput::synthesize_timed` optionally supplies `SpeechEvent::Timing` points
+alongside audio. Points use UTF-8 byte offsets in the original segment text and
+end times relative to that synthesis request. Existing implementations need no
+changes: the default wraps their PCM stream. `HttpSpeechOutput` uses ElevenLabs'
+[stream-with-timestamps endpoint](https://elevenlabs.io/docs/api-reference/text-to-speech/stream-with-timestamps)
+for original-text character alignment. Normalized-text offsets are not treated
+as original-text offsets. The cutoff backs out of a partial word where possible.
+
+Accuracy is `provider-timed` when alignment covers the cutoff, `estimated` when
+a completed segment's text is apportioned by audio duration, or `segment-boundary`
+when incomplete synthesis has no reliable finer boundary. Estimates are labelled;
+they are not word-level measurements. Playback tracks browser scheduling, not
+proof that sound reached the listener's ears.
+
+In Cascade and Simulator, interrupted replies show a marker with played time,
+timing accuracy and an expandable **Generated remainder · excluded from model
+history**. This stays available after End session. Native OpenAI/Gemini Live
+voice retains its provider-specific interruption behavior; this cutoff viewer
+currently covers the Rust cascade.
 
 Playback edits update visible provider replay text while retaining opaque
 reasoning and tool fields. Editing signed Gemini text fails explicitly. General
