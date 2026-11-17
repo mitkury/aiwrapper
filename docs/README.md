@@ -26,6 +26,8 @@
 
 ## Proposals and remaining work
 
+- [Bounded visual context and room simulator](dev/proposals/visual-context.md)
+
 - [Rust cascade voice sessions](dev/proposals/rust-cascade-agent.md): Rust STT → LLM → TTS with browser playground validation
 - [Complete the native Rust runtime](dev/proposals/native-rust.md)
 - [Pluggable interruption detection](dev/proposals/interruption-detection.md)
