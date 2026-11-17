@@ -32,10 +32,10 @@ image tool results, provider-owned tools or live interruption semantics.
    official Rust AWS SDK for credential chains, SigV4, retries and event streams;
    do not reproduce AWS signing. Keep this dependency out of builds that do not
    use AWS. Translate to the same messages and live events.
-2. Port realtime STT for OpenAI, Deepgram Flux and ElevenLabs, followed by
+2. Port realtime STT for OpenAI and ElevenLabs (Deepgram Flux is implemented), followed by
    incremental ElevenLabs TTS. Retain explicit sample rates, bounded buffers,
    utterance commit rules and observable transport errors.
-3. Add continuous STT → LLM → TTS orchestration following the
+3. Extend the initial continuous STT → LLM → TTS implementation following the
    [Rust cascade proposal](rust-cascade-agent.md). Reuse `LiveSession` and
    `LiveAgent` for session handling and tool execution; call the language provider
    directly without nesting a second agent loop. Handle barge-in without replaying

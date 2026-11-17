@@ -1,0 +1,895 @@
+//! A bounded STT → language provider → speech pipeline. LiveAgent executes tools.
+use super::*;
+use crate::speech_stream::{SpeechOutput, TranscriptionEvent, TranscriptionSession};
+use futures_util::StreamExt;
+use serde_json::json;
+use std::{
+    collections::{BTreeMap, HashSet, VecDeque},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
+use tokio::sync::{mpsc, oneshot};
+
+pub struct CascadeConfig {
+    pub language: Arc<dyn LanguageProvider>,
+    pub speech: Arc<dyn SpeechOutput>,
+    pub transcription: Option<TranscriptionSession>,
+    pub conversation: Conversation,
+    pub tools: Vec<ToolDefinition>,
+    pub cancellation: CancellationToken,
+}
+impl CascadeConfig {
+    pub fn new(language: Arc<dyn LanguageProvider>, speech: Arc<dyn SpeechOutput>) -> Self {
+        Self {
+            language,
+            speech,
+            transcription: None,
+            conversation: Conversation::default(),
+            tools: vec![],
+            cancellation: CancellationToken::new(),
+        }
+    }
+    pub fn connect(self) -> Result<LiveSession> {
+        self.conversation.validate()?;
+        let cancellation = self.cancellation.child_token();
+        let (commands, rx) = mpsc::channel(32);
+        let (events, output) = mpsc::channel(128);
+        let generation = Arc::new(AtomicU64::new(0));
+        let failure = Arc::new(std::sync::Mutex::new(None));
+        let input = self.transcription.as_ref().map(|s| s.input.clone());
+        let sender = CascadeSender {
+            commands,
+            cancellation: cancellation.clone(),
+            input,
+        };
+        let receiver = CascadeReceiver {
+            events: output,
+            failure: failure.clone(),
+            queued: VecDeque::new(),
+            cancellation: cancellation.clone(),
+            generation: generation.clone(),
+        };
+        let tools = self.tools.clone();
+        let speech_input = self.transcription.as_ref().map(|s| s.input.clone());
+        tokio::spawn(async move {
+            let mut actor = Actor::new(self, events.clone(), cancellation.clone(), generation);
+            let result = actor.run(rx).await;
+            actor.cancel_work();
+            if let Err(error) = result {
+                *failure.lock().unwrap() = Some(error);
+            }
+            cancellation.cancel();
+            if let Some(input) = speech_input {
+                let _ = tokio::time::timeout(Duration::from_secs(1), input.close()).await;
+            }
+        });
+        Ok(LiveSession {
+            sender: LiveSender {
+                backend: SenderBackend::Cascade(sender),
+            },
+            receiver: LiveReceiver {
+                backend: ReceiverBackend::Cascade(receiver),
+            },
+            tools,
+        })
+    }
+}
+#[derive(Clone)]
+pub(super) struct CascadeSender {
+    commands: mpsc::Sender<(Command, oneshot::Sender<Result<()>>)>,
+    cancellation: CancellationToken,
+    input: Option<Arc<dyn crate::speech_stream::SpeechInput>>,
+}
+enum Command {
+    Text(String, Role, bool),
+    Image(LiveImage),
+    Results(Vec<LiveToolResult>),
+    Interrupt,
+    Played(String, usize, u64),
+}
+impl CascadeSender {
+    async fn request(&self, command: Command) -> Result<()> {
+        crate::error::check_cancel(&self.cancellation)?;
+        let (tx, rx) = oneshot::channel();
+        self.commands
+            .try_send((command, tx))
+            .map_err(|_| Error::Protocol("cascade command queue full or closed".into()))?;
+        tokio::select! {
+            biased;
+            result = rx => result.map_err(|_| Error::Cancelled)?,
+            _ = self.cancellation.cancelled() => Err(Error::Cancelled),
+        }
+    }
+
+    pub fn input_sample_rate(&self) -> u32 {
+        self.input.as_ref().map_or(24000, |i| i.sample_rate())
+    }
+    pub async fn append_audio(&self, frame: &PcmFrame) -> Result<()> {
+        let input = self
+            .input
+            .as_ref()
+            .ok_or_else(|| Error::Invalid("this session has no transcription provider".into()))?;
+        tokio::select! { biased; _ = self.cancellation.cancelled() => Err(Error::Cancelled), result = input.append(frame) => result }
+    }
+    pub async fn end_audio(&self) -> Result<()> {
+        let input = self
+            .input
+            .as_ref()
+            .ok_or_else(|| Error::Invalid("this session has no transcription provider".into()))?;
+        tokio::select! { biased; _ = self.cancellation.cancelled() => Err(Error::Cancelled), result = input.end_turn() => result }
+    }
+    pub async fn send_text(&self, text: &str, role: Role, complete: bool) -> Result<()> {
+        if text.trim().is_empty() || text.len() > 32768 || role == Role::ToolResults {
+            return Err(Error::Invalid(
+                "text requires 1–32768 bytes and a user/assistant role".into(),
+            ));
+        }
+        self.request(Command::Text(text.into(), role, complete))
+            .await
+    }
+    pub async fn append_image(&self, data: &str, mime: &str) -> Result<()> {
+        let image = LiveImage {
+            data: data.into(),
+            mime_type: mime.into(),
+        };
+        image.validate()?;
+        if data.len() > 2 * 1024 * 1024 {
+            return Err(Error::Invalid("camera image exceeds 2 MiB".into()));
+        }
+        self.request(Command::Image(image)).await
+    }
+    pub async fn send_tool_results(&self, results: &[LiveToolResult]) -> Result<()> {
+        self.request(Command::Results(results.to_vec())).await
+    }
+    pub async fn interrupt(&self) -> Result<()> {
+        self.request(Command::Interrupt).await
+    }
+    pub async fn truncate_audio(&self, id: &str, index: usize, ms: u64) -> Result<()> {
+        self.request(Command::Played(id.into(), index, ms)).await
+    }
+    pub async fn close(&self) -> Result<()> {
+        self.cancellation.cancel();
+        Ok(())
+    }
+}
+type Output = (Option<u64>, Result<Vec<LiveEvent>>);
+pub(super) struct CascadeReceiver {
+    events: mpsc::Receiver<Output>,
+    failure: Arc<std::sync::Mutex<Option<Error>>>,
+    queued: VecDeque<LiveEvent>,
+    cancellation: CancellationToken,
+    generation: Arc<AtomicU64>,
+}
+impl CascadeReceiver {
+    pub async fn next_events(&mut self) -> Result<Option<Vec<LiveEvent>>> {
+        if let Some(error) = self.failure.lock().unwrap().take() {
+            return Err(error);
+        }
+        if !self.queued.is_empty() {
+            return Ok(Some(self.queued.drain(..).collect()));
+        }
+        loop {
+            let output = tokio::select! { biased; value = self.events.recv() => value, _ = self.cancellation.cancelled() => self.events.try_recv().ok() };
+            let Some((generation, result)) = output else {
+                if let Some(error) = self.failure.lock().unwrap().take() {
+                    return Err(error);
+                }
+                return Ok(None);
+            };
+            if generation.is_none_or(|g| g == self.generation.load(Ordering::SeqCst)) {
+                return result.map(Some);
+            }
+        }
+    }
+    pub async fn next_event(&mut self) -> Result<Option<LiveEvent>> {
+        if let Some(event) = self.queued.pop_front() {
+            return Ok(Some(event));
+        }
+        if let Some(events) = self.next_events().await? {
+            self.queued.extend(events);
+        }
+        Ok(self.queued.pop_front())
+    }
+    pub async fn drain_received(&mut self) -> Result<Vec<LiveEvent>> {
+        let mut events: Vec<_> = self.queued.drain(..).collect();
+        while let Ok((generation, result)) = self.events.try_recv() {
+            if generation.is_none_or(|g| g == self.generation.load(Ordering::SeqCst)) {
+                events.extend(result?);
+            }
+        }
+        Ok(events)
+    }
+}
+impl Drop for CascadeReceiver {
+    fn drop(&mut self) {
+        self.cancellation.cancel();
+    }
+}
+
+enum Work {
+    Text(String),
+    Done(Result<Message>),
+    Audio(usize, PcmFrame),
+    SegmentDone(usize),
+    Synthesized,
+    Failed(Error),
+}
+struct Segment {
+    end: usize,
+    samples: u64,
+    rate: u32,
+    played_ms: u64,
+    done: bool,
+}
+struct Round {
+    id: u64,
+    message: usize,
+    text: String,
+    segmented: usize,
+    segments: Vec<Segment>,
+    synthesis: Option<mpsc::Sender<(usize, String)>>,
+    model_done: bool,
+    synthesis_done: bool,
+    cut: bool,
+}
+struct Actor {
+    config: CascadeConfig,
+    output: mpsc::Sender<Output>,
+    cancel: CancellationToken,
+    generation: Arc<AtomicU64>,
+    work_cancel: CancellationToken,
+    work_tx: mpsc::Sender<(u64, Work)>,
+    work_rx: mpsc::Receiver<(u64, Work)>,
+    round: Option<Round>,
+    pending: BTreeMap<String, String>,
+    seen_calls: HashSet<String>,
+    queued: VecDeque<Message>,
+    latest: Option<LiveImage>,
+    last_turn: Option<u64>,
+    rounds: usize,
+    continuation: Option<tokio::time::Instant>,
+}
+impl Actor {
+    fn new(
+        config: CascadeConfig,
+        output: mpsc::Sender<Output>,
+        cancel: CancellationToken,
+        generation: Arc<AtomicU64>,
+    ) -> Self {
+        let (work_tx, work_rx) = mpsc::channel(128);
+        Self {
+            config,
+            output,
+            cancel,
+            generation,
+            work_cancel: CancellationToken::new(),
+            work_tx,
+            work_rx,
+            round: None,
+            pending: BTreeMap::new(),
+            seen_calls: HashSet::new(),
+            queued: VecDeque::new(),
+            latest: None,
+            last_turn: None,
+            rounds: 0,
+            continuation: None,
+        }
+    }
+    fn emit(&self, generation: Option<u64>, events: Vec<LiveEvent>) -> Result<()> {
+        self.output.try_send((generation, Ok(events))).map_err(|_| {
+            Error::Protocol("cascade output overflow; consumer must keep polling".into())
+        })
+    }
+    fn diagnostic(&self, state: Value) -> Result<()> {
+        self.emit(None, vec![LiveEvent::ProviderState { state }])
+    }
+    fn cancel_work(&mut self) {
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        self.work_cancel.cancel();
+    }
+    async fn run(
+        &mut self,
+        mut commands: mpsc::Receiver<(Command, oneshot::Sender<Result<()>>)>,
+    ) -> Result<()> {
+        let mut transcription = self.config.transcription.take().map(|s| s.events);
+        let mut flush = tokio::time::interval(Duration::from_millis(200));
+        self.diagnostic(json!({"kind":"connected","runtime":"rust"}))?;
+        loop {
+            tokio::select! {
+                biased;
+                _ = self.cancel.cancelled() => return Ok(()),
+                command = commands.recv() => {
+                    let Some((command,reply)) = command else { return Ok(()) };
+                    let result = self.command(command);
+                    let _ = reply.send(result);
+                }
+                event = async { match &mut transcription { Some(stream)=>stream.next().await, None=>std::future::pending().await } } => {
+                    let event = event.ok_or_else(||Error::Protocol("transcription stream ended".into()))??;
+                    match event {
+                        TranscriptionEvent::Started { id } => { self.interrupt()?; self.emit(None,vec![LiveEvent::SpeechStarted {id:Some(id)}])?; }
+                        TranscriptionEvent::Transcript {id,text,committed} => {
+                            let turn = id.parse::<u64>().map_err(|_| Error::Protocol("transcription turn IDs must be increasing integers".into()))?;
+                            if committed && self.last_turn.is_some_and(|last|turn<=last) { continue; }
+                            self.emit(None,vec![LiveEvent::Transcript {input:true,text:text.clone(),final_result:committed,id:Some(id),text_output:false}])?;
+                            if committed { self.last_turn=Some(turn); if !text.trim().is_empty() {self.commit(Message::user(text))?;} }
+                        }
+                        TranscriptionEvent::Observation {event} => self.diagnostic(json!({"kind":"stt","event":event}))?,
+                    }
+                }
+                Some((generation,work)) = self.work_rx.recv() => {
+                    if generation == self.generation.load(Ordering::SeqCst) { self.work(work)?; }
+                }
+                _ = flush.tick() => {
+                    if self.continuation.is_some_and(|t|t.elapsed()>Duration::from_secs(30)) { return Err(Error::Protocol("playback acknowledgement timed out before tool continuation".into())); }
+                    self.segment(true)?;
+                },
+            }
+        }
+    }
+    fn command(&mut self, command: Command) -> Result<()> {
+        match command {
+            Command::Text(text, role, true) => {
+                self.emit(
+                    None,
+                    vec![LiveEvent::Transcript {
+                        input: true,
+                        text: text.clone(),
+                        final_result: true,
+                        id: None,
+                        text_output: true,
+                    }],
+                )?;
+                self.commit(Message::text(role, text))
+            }
+            Command::Text(text, role, false) => {
+                if self.round.as_ref().is_some_and(|r| !r.model_done) || !self.pending.is_empty() {
+                    return Err(Error::Invalid(
+                        "silent context requires an idle model".into(),
+                    ));
+                }
+                self.config
+                    .conversation
+                    .messages
+                    .push(Message::text(role, text));
+                Ok(())
+            }
+            Command::Image(image) => {
+                self.latest = Some(image);
+                self.diagnostic(json!({"kind":"image-received"}))
+            }
+            Command::Interrupt => self.interrupt(),
+            Command::Played(id, index, ms) => {
+                let Some(round) = self.round.as_mut().filter(|r| r.id.to_string() == id) else {
+                    if id
+                        .parse::<u64>()
+                        .is_ok_and(|n| n < self.generation.load(Ordering::SeqCst))
+                    {
+                        return Ok(());
+                    }
+                    return Err(Error::Invalid("unknown playback item".into()));
+                };
+                let segment = round
+                    .segments
+                    .get_mut(index)
+                    .ok_or_else(|| Error::Invalid("unknown audio segment".into()))?;
+                let duration = segment.samples * 1000 / u64::from(segment.rate.max(1));
+                if ms > duration {
+                    return Err(Error::Invalid(
+                        "playback cursor exceeds generated audio".into(),
+                    ));
+                }
+                segment.played_ms = segment.played_ms.max(ms);
+                self.advance()
+            }
+            Command::Results(results) => {
+                let mut ids = HashSet::new();
+                for result in &results {
+                    if self.pending.get(&result.call_id) != Some(&result.name)
+                        || !ids.insert(&result.call_id)
+                    {
+                        return Err(Error::Invalid(
+                            "unknown, duplicate or mismatched cascade tool result".into(),
+                        ));
+                    }
+                    for image in &result.images {
+                        image.validate()?;
+                    }
+                }
+                if results.is_empty() {
+                    return Ok(());
+                }
+                let mut items = vec![];
+                for result in results {
+                    self.pending.remove(&result.call_id);
+                    let result_value = if result.images.is_empty() {
+                        result.result
+                    } else {
+                        let mut content =
+                            vec![json!({"type":"text","text":result.result.to_string()})];
+                        content.extend(result.images.iter().map(
+                            |i| json!({"type":"image","base64":i.data,"mimeType":i.mime_type}),
+                        ));
+                        json!({"type":"tool-content","content":content})
+                    };
+                    items.push(Item::ToolResult {
+                        call_id: result.call_id,
+                        name: result.name,
+                        result: result_value,
+                    });
+                }
+                self.config
+                    .conversation
+                    .messages
+                    .push(Message::new(Role::ToolResults, items));
+                if self.pending.is_empty() {
+                    let silent = self
+                        .config
+                        .conversation
+                        .messages
+                        .iter()
+                        .rev()
+                        .find(|m| m.role == Role::Assistant)
+                        .is_some_and(|m| {
+                            m.items
+                                .iter()
+                                .filter_map(|i| {
+                                    if let Item::Tool { name, .. } = i {
+                                        Some(name)
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .all(|name| {
+                                    self.config
+                                        .tools
+                                        .iter()
+                                        .any(|t| &t.name == name && t.silent)
+                                })
+                        });
+                    if !self.queued.is_empty() {
+                        self.config
+                            .conversation
+                            .messages
+                            .extend(self.queued.drain(..));
+                        self.start()?;
+                    } else if !silent && !self.round.as_ref().is_some_and(|r| r.cut) {
+                        self.continuation = Some(tokio::time::Instant::now());
+                        self.advance()?;
+                    }
+                    self.diagnostic(
+                        json!({"kind":"history","conversation":self.config.conversation}),
+                    )?;
+                }
+                Ok(())
+            }
+        }
+    }
+    fn commit(&mut self, mut message: Message) -> Result<()> {
+        if self.queued.len() >= 8 {
+            return Err(Error::Invalid(
+                "too many turns waiting for tool results".into(),
+            ));
+        }
+        self.interrupt()?;
+        if let Some(image) = &self.latest {
+            message.items.push(Item::Image {
+                url: None,
+                base64: Some(image.data.clone()),
+                mime_type: Some(image.mime_type.clone()),
+            });
+        }
+        if !self.pending.is_empty() {
+            self.queued.push_back(message);
+            return self.diagnostic(json!({"kind":"waiting-for-tools"}));
+        }
+        self.config.conversation.messages.push(message);
+        self.rounds = 0;
+        self.start()
+    }
+    fn interrupt(&mut self) -> Result<()> {
+        self.continuation = None;
+        self.cancel_work();
+        if let Some(round) = self.round.as_mut().filter(|r| !r.cut) {
+            round.cut = true;
+            let end = round
+                .segments
+                .iter()
+                .take_while(|s| {
+                    s.done && s.played_ms >= s.samples * 1000 / u64::from(s.rate.max(1))
+                })
+                .last()
+                .map_or(0, |s| s.end);
+            let heard = &round.text[..end];
+            if let Some(message) = self.config.conversation.messages.get_mut(round.message) {
+                replace_visible_text(message, heard)?;
+            }
+            self.emit(None, vec![LiveEvent::Interrupted])?;
+            self.diagnostic(json!({"kind":"history","conversation":self.config.conversation}))?;
+        }
+        Ok(())
+    }
+    fn advance(&mut self) -> Result<()> {
+        if self.continuation.is_some()
+            && self.round.as_ref().is_some_and(|r| {
+                r.synthesis_done
+                    && r.segments.iter().all(|s| {
+                        s.done && s.played_ms >= s.samples * 1000 / u64::from(s.rate.max(1))
+                    })
+            })
+        {
+            self.continuation = None;
+            self.start()?;
+        }
+        Ok(())
+    }
+    fn start(&mut self) -> Result<()> {
+        self.continuation = None;
+        self.cancel_work();
+        self.rounds += 1;
+        if self.rounds > 12 || self.config.conversation.messages.len() > 256 {
+            return Err(Error::Invalid(
+                "cascade conversation/round limit reached; start a new session".into(),
+            ));
+        }
+        // Camera frames are transient context. Strip old camera images only from the request.
+        let mut conversation = self.config.conversation.clone();
+        let last = conversation.messages.len().saturating_sub(1);
+        for (index, message) in conversation.messages.iter_mut().enumerate() {
+            if index < last && message.role == Role::User {
+                message.items.retain(|i| !matches!(i, Item::Image { .. }));
+            }
+        }
+        conversation.messages.retain(|m| !m.items.is_empty());
+        conversation.validate()?;
+        if serde_json::to_vec(&self.config.conversation)?.len() > 8 * 1024 * 1024 {
+            return Err(Error::Invalid(
+                "conversation exceeds 8 MiB; start a new session".into(),
+            ));
+        }
+        self.diagnostic(json!({"kind":"request","conversation":conversation,"tools":self.config.tools,"maxTokens":1024}))?;
+        let generation = self.generation.load(Ordering::SeqCst);
+        self.work_cancel = self.cancel.child_token();
+        let cancel = self.work_cancel.clone();
+        let language = self.config.language.clone();
+        let tx = self.work_tx.clone();
+        let options = ChatOptions {
+            cancellation: cancel.clone(),
+            tools: Some(self.config.tools.clone()),
+            max_tokens: Some(1024),
+            max_retries: 0,
+            ..Default::default()
+        };
+        tokio::spawn(async move {
+            let mut overflow = false;
+            let mut update = |m: &Message| {
+                if tx.try_send((generation, Work::Text(m.answer()))).is_err() {
+                    overflow = true;
+                    cancel.cancel();
+                }
+            };
+            let result = tokio::select! { biased; _=cancel.cancelled()=>Err(Error::Cancelled), _=tokio::time::sleep(Duration::from_secs(60))=>Err(Error::Protocol("language response timed out".into())), result=language.complete(&conversation,&options,&mut update)=>result };
+            let result = if overflow {
+                Err(Error::Protocol("language update queue overflow".into()))
+            } else {
+                result
+            };
+            let _ = tx.send((generation, Work::Done(result))).await;
+        });
+        let (synthesis, mut segments) = mpsc::channel::<(usize, String)>(32);
+        let speech = self.config.speech.clone();
+        let tx = self.work_tx.clone();
+        let cancel = self.work_cancel.clone();
+        let task_cancel = cancel.clone();
+        let synthesis_work = async move {
+            let result: Result<()> = async {
+                while let Some((index, text)) = segments.recv().await {
+                    let mut stream = tokio::time::timeout(
+                        Duration::from_secs(15),
+                        speech.synthesize(&text, cancel.clone()),
+                    )
+                    .await
+                    .map_err(|_| Error::Protocol("speech setup timed out".into()))??;
+                    while let Some(frame) =
+                        tokio::time::timeout(Duration::from_secs(15), stream.next())
+                            .await
+                            .map_err(|_| Error::Protocol("speech stream timed out".into()))?
+                    {
+                        let frame = frame?;
+                        frame.validate()?;
+                        // At most 100 ms per queued frame, independent of provider chunking.
+                        for samples in frame.samples.chunks((frame.sample_rate / 10) as usize) {
+                            tx.send((
+                                generation,
+                                Work::Audio(
+                                    index,
+                                    PcmFrame {
+                                        samples: samples.to_vec(),
+                                        sample_rate: frame.sample_rate,
+                                    },
+                                ),
+                            ))
+                            .await
+                            .map_err(|_| Error::Cancelled)?;
+                        }
+                    }
+                    tx.send((generation, Work::SegmentDone(index)))
+                        .await
+                        .map_err(|_| Error::Cancelled)?;
+                }
+                tx.send((generation, Work::Synthesized))
+                    .await
+                    .map_err(|_| Error::Cancelled)?;
+                Ok(())
+            }
+            .await;
+            if let Err(error) = result {
+                let _ = tx.send((generation, Work::Failed(error))).await;
+            }
+        };
+        tokio::spawn(async move {
+            tokio::select! { biased; _=task_cancel.cancelled()=>{}, _=synthesis_work=>{} }
+        });
+        let message = self.config.conversation.messages.len();
+        self.config
+            .conversation
+            .messages
+            .push(Message::assistant(""));
+        self.round = Some(Round {
+            id: generation,
+            message,
+            text: String::new(),
+            segmented: 0,
+            segments: vec![],
+            synthesis: Some(synthesis),
+            model_done: false,
+            synthesis_done: false,
+            cut: false,
+        });
+        self.emit(Some(generation), vec![LiveEvent::ResponseStarted])
+    }
+    fn work(&mut self, work: Work) -> Result<()> {
+        match work {
+            Work::Text(text) => {
+                let round = self.round.as_mut().unwrap();
+                if text == round.text {
+                    return Ok(());
+                }
+                if !text.starts_with(&round.text) || text.len() > 65536 {
+                    return Err(Error::Protocol(
+                        "language text revised or exceeded 64 KiB".into(),
+                    ));
+                }
+                round.text = text.clone();
+                self.config.conversation.messages[round.message] = Message::assistant(&text);
+                let id = round.id;
+                self.emit(
+                    Some(id),
+                    vec![LiveEvent::Transcript {
+                        input: false,
+                        text,
+                        final_result: false,
+                        id: Some(id.to_string()),
+                        text_output: true,
+                    }],
+                )?;
+                self.segment(false)
+            }
+            Work::Done(result) => {
+                let message = result?;
+                self.work(Work::Text(message.answer()))?;
+                self.segment(true)?;
+                let round = self.round.as_mut().unwrap();
+                round.model_done = true;
+                // Closing this sender lets synthesis drain its queued segments.
+                round.synthesis.take();
+                let id = round.id;
+                let mut events = vec![LiveEvent::Transcript {
+                    input: false,
+                    text: round.text.clone(),
+                    final_result: true,
+                    id: Some(id.to_string()),
+                    text_output: true,
+                }];
+                for item in &message.items {
+                    if let Item::Tool {
+                        call_id,
+                        name,
+                        arguments,
+                        ..
+                    } = item
+                    {
+                        if !self.seen_calls.insert(call_id.clone()) {
+                            return Err(Error::Protocol("model reused a tool call ID".into()));
+                        }
+                        self.pending.insert(call_id.clone(), name.clone());
+                        events.push(LiveEvent::ToolCall {
+                            call_id: call_id.clone(),
+                            name: name.clone(),
+                            arguments: arguments.clone(),
+                        });
+                    }
+                }
+                self.config.conversation.messages[round.message] = message;
+                events.push(LiveEvent::ResponseEnded);
+                self.emit(None, events)?;
+                self.diagnostic(json!({"kind":"history","conversation":self.config.conversation}))
+            }
+            Work::Audio(index, frame) => {
+                let round = self.round.as_mut().unwrap();
+                let segment = &mut round.segments[index];
+                if segment.rate != 0 && segment.rate != frame.sample_rate {
+                    return Err(Error::Protocol(
+                        "speech sample rate changed within a segment".into(),
+                    ));
+                }
+                segment.rate = frame.sample_rate;
+                segment.samples += frame.samples.len() as u64;
+                let id = round.id;
+                self.emit(
+                    Some(id),
+                    vec![LiveEvent::Audio {
+                        frame,
+                        item_id: Some(id.to_string()),
+                        content_index: Some(index),
+                    }],
+                )
+            }
+            Work::SegmentDone(index) => {
+                let round = self.round.as_mut().unwrap();
+                round.segments[index].done = true;
+                let segment = &round.segments[index];
+                if segment.samples == 0 {
+                    return Err(Error::Protocol("speech provider returned no audio".into()));
+                }
+                let state = json!({"kind":"segment-done","itemId":round.id.to_string(),"contentIndex":index,"durationMs":segment.samples*1000/u64::from(segment.rate.max(1))});
+                self.diagnostic(state)
+            }
+            Work::Synthesized => {
+                self.round.as_mut().unwrap().synthesis_done = true;
+                self.diagnostic(json!({"kind":"synthesis-complete"}))?;
+                self.advance()
+            }
+            Work::Failed(error) => Err(error),
+        }
+    }
+    fn segment(&mut self, flush: bool) -> Result<()> {
+        let Some(round) = self.round.as_mut().filter(|r| !r.cut && !r.model_done) else {
+            return Ok(());
+        };
+        loop {
+            let remaining = &round.text[round.segmented..];
+            let end = segment_end(remaining, flush);
+            if end == 0 {
+                break;
+            }
+            let text = remaining[..end].to_string();
+            round.segmented += end;
+            if text.trim().is_empty() {
+                continue;
+            }
+            let index = round.segments.len();
+            round
+                .synthesis
+                .as_ref()
+                .unwrap()
+                .try_send((index, text.clone()))
+                .map_err(|_| Error::Protocol("speech text queue overflow".into()))?;
+            round.segments.push(Segment {
+                end: round.segmented,
+                samples: 0,
+                rate: 0,
+                played_ms: 0,
+                done: false,
+            });
+        }
+        Ok(())
+    }
+}
+
+fn segment_end(text: &str, flush: bool) -> usize {
+    for (n, (index, c)) in text.char_indices().enumerate() {
+        if ".!?。！？\n".contains(c) || n >= 159 {
+            return index + c.len_utf8();
+        }
+    }
+    if flush { text.len() } else { 0 }
+}
+
+/// Edit only visible text, retaining opaque reasoning and tool replay fields.
+fn replace_visible_text(message: &mut Message, text: &str) -> Result<()> {
+    if message.answer() == text {
+        return Ok(());
+    }
+    let mut meta = message.meta.clone();
+    if let Some(meta) = meta.as_mut() {
+        for key in ["anthropicContent", "googleParts", "openaiOutput"] {
+            if let Some(blocks) = meta.get_mut(key).and_then(Value::as_array_mut) {
+                if key == "googleParts"
+                    && blocks
+                        .iter()
+                        .any(|b| b.get("text").is_some() && b.get("thoughtSignature").is_some())
+                {
+                    return Err(Error::Invalid(
+                        "cannot truncate signed Gemini text; reconnect the session".into(),
+                    ));
+                }
+                match key {
+                    "anthropicContent" => {
+                        blocks.retain(|b| b["type"] != "text");
+                        if !text.is_empty() {
+                            blocks.push(json!({"type":"text","text":text}));
+                        }
+                    }
+                    "googleParts" => {
+                        blocks.retain(|b| b.get("text").is_none() || b["thought"] == true);
+                        if !text.is_empty() {
+                            blocks.push(json!({"text":text}));
+                        }
+                    }
+                    _ => {
+                        blocks.retain(|b| b["type"] != "message");
+                        if !text.is_empty() {
+                            blocks.push(json!({"type":"message","role":"assistant","content":[{"type":"output_text","text":text}]}));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    message.items.retain(|i| !matches!(i, Item::Text { .. }));
+    if !text.is_empty() {
+        message.items.push(Item::Text { text: text.into() });
+    }
+    message.meta = meta;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn playback_edit_preserves_opaque_reasoning_and_tool_replay() {
+        for (key, raw) in [
+            (
+                "openaiOutput",
+                json!([{"type":"reasoning","encrypted_content":"opaque"},{"type":"function_call","call_id":"a","name":"f","arguments":"{}"},{"type":"message","content":[{"type":"output_text","text":"unplayed"}]}]),
+            ),
+            (
+                "anthropicContent",
+                json!([{"type":"thinking","thinking":"private","signature":"opaque"},{"type":"tool_use","id":"a","name":"f","input":{}},{"type":"text","text":"unplayed"}]),
+            ),
+            (
+                "googleParts",
+                json!([{"thought":true,"text":"private"},{"functionCall":{"id":"a","name":"f","args":{}},"thoughtSignature":"opaque"},{"text":"unplayed"}]),
+            ),
+        ] {
+            let mut message = Message::assistant("unplayed");
+            message.meta = Some(json!({key:raw}));
+            replace_visible_text(&mut message, "heard").unwrap();
+            let serialized = message.meta.unwrap().to_string();
+            assert!(serialized.contains("opaque"));
+            assert!(serialized.contains("heard"));
+            assert!(!serialized.contains("unplayed"));
+        }
+    }
+    #[test]
+    fn signed_text_is_rejected_without_mutating_history() {
+        let mut message = Message::assistant("signed");
+        message.meta = Some(json!({"googleParts":[{"text":"signed","thoughtSignature":"opaque"}]}));
+        let original = message.clone();
+        assert!(replace_visible_text(&mut message, "").is_err());
+        assert_eq!(message, original);
+    }
+    #[test]
+    fn segmentation_caps_unpunctuated_text_and_keeps_unicode_boundaries() {
+        assert_eq!(segment_end("你好。再见", false), "你好。".len());
+        let long = "界".repeat(300);
+        let end = segment_end(&long, false);
+        assert_eq!(long[..end].chars().count(), 160);
+        assert_eq!(segment_end("unfinished", false), 0);
+        assert_eq!(segment_end("unfinished", true), 10);
+    }
+}

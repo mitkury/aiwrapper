@@ -9,6 +9,8 @@ mod messages;
 mod mock;
 mod provider;
 pub mod speech;
+#[path = "speech-stream.rs"]
+pub mod speech_stream;
 mod stream;
 mod tools;
 mod transport;

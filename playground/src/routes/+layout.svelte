@@ -9,6 +9,7 @@
 		{ href: '/', label: 'Playground' },
 		{ href: '/speech', label: 'Voice' },
 		{ href: '/realtime', label: 'Realtime' },
+		{ href: '/cascade', label: 'Rust cascade' },
 		{ href: '/speech-to-speech', label: 'Live voice' }
 	];
 </script>

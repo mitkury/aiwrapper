@@ -1,317 +1,83 @@
-# Rust cascade voice sessions
+# Rust cascade voice sessions: remaining work
 
-Status: in progress. Live socket internals are isolated; the cascade pipeline and
-browser test path remain to be implemented.
-
+Status: the first testable Rust pipeline and browser host are implemented.
 Last updated: November 17, 2026.
 
-The [framework source review](rust-cascade-source-review.md) records the inspected
-LiveKit Agents, Pipecat, and Gradbot revisions and the findings behind this design.
+Current APIs, launch instructions, tested providers and limitations are in the
+[Rust cascade guide](../../native-cascade.md). This proposal contains follow-up
+work; it is not a claim that every design below is implemented. The
+[framework source review](rust-cascade-source-review.md) records the inspected
+LiveKit Agents, Pipecat, and Gradbot revisions and the reasoning behind the design.
 
-## Goal
+## Direction
 
-Build a reusable Rust voice pipeline and make it testable in AIWrapper's browser
-playground before integrating it into other applications:
+Keep Rust as the sole inference and agent runtime. TypeScript can supply browser
+interfaces and thin clients. Reuse `LiveSession`, its handles, and `LiveAgent` as
+the only automatic tool executor. Call `LanguageProvider` directly from the
+cascade. Avoid a second nested agent loop, plugin registry, or workflow engine.
 
-```text
-microphone PCM → streaming STT + turn detection → text/image LLM → streaming TTS → speaker
-```
+Hosts own devices, resampling, echo cancellation, playback, credentials,
+permissions, persistence and client transports. The example process bridge is a
+local test adapter. Optional hosting and WebRTC remain later work over the same
+embeddable Rust core. No audio-device or WebRTC dependency enters the library.
 
-The speech-to-text, language, and text-to-speech providers must be independently
-replaceable. The pipeline should support tools, transcripts, text input, camera
-context, interruption, and history corrected to the audio actually played.
-Compare its latency with native live models in the same test harness. Comparable
-latency is a target to measure, not a prerequisite we can promise in advance.
+## Remaining speech and lifecycle work
 
-Implementation is Rust-only. Existing TypeScript code can inform protocol tests,
-but extending it or maintaining a second cascade implementation is not part of
-this proposal. Browser media and interface code remain host adapters, not an
-implementation of the agent pipeline.
+The first version keeps Flux open across turns and streams bounded HTTP synthesis
+segments. Extend it only where the browser tests show a need:
 
-## Starting point
+- Add ElevenLabs streaming text input with flush/end, cancellation and normalized
+  alignment. Preserve submitted-to-spoken text mappings and audio sample offsets.
+  Provider alignment is evidence about synthesis, not proof of playback.
+- Add an injected binary/text speech socket boundary and deterministic transport
+  fixtures for handshake failure, failed/abandoned writes, remote close, and
+  finalization races. The existing JSON-only `LiveTransport` is insufficient for
+  raw STT PCM. Keep networking dependencies shared.
+- Refine segmentation with measured first/later segment sizes and maximum wait.
+  Preserve Unicode and non-prefix revision errors. Measure request count and
+  speech quality before replacing the working HTTP fallback.
+- Expose richer transcript revisions and acoustic sample offsets. Keep final
+  transcript segments distinct from confirmed turns. Add an explicit bounded
+  wait for forced finalization, handling the provider's no-active-turn warning.
+  Do not promote an interim transcript to final on timeout.
+- Prove a second STT provider without native turn events before advertising that
+  path. Mocks cannot establish end-of-turn quality.
 
-The initial design inspected `feat/native` at
-`ce2e80d59ce53df6f47c25ddc449920afcce6125`. The native runtime has since merged;
-implementation starts from `main` at
-`aa72b6c` (native crate 0.2.1), which also provides usage callbacks and silent tools.
+Immediate speech interruption is the initial policy. Later, distinguish a
+candidate from a confirmed interruption. Candidate observations must not emit
+`SpeechStarted` or `Interrupted`, which hosts already use to clear playback.
+Prototype sustained-speech or semantic decisions in the playground before
+extracting another detector API. Short affirmations are not automatically noise.
 
-The [native guide at that revision](https://github.com/mitkury/aiwrapper/blob/ce2e80d59ce53df6f47c25ddc449920afcce6125/docs/native.md)
-describes the existing foundations:
+Expose host pause/resume capabilities only when needed. A committed turn or
+teardown cancels every pending resume. Bound retained audio and pause time; on
+expiry, stop and reconcile playback. Add race fixtures for an interruption during
+synthesis, a full audio queue, late provider callbacks, and a failed consumer.
 
-- `native/src/live.rs`: `LiveSession`, cloneable `LiveSender`, `LiveReceiver`, and
-  normalized `LiveEvent`s for Gemini and OpenAI.
-- `native/src/live-agent.rs`: `LiveAgent`, an ordered tool worker with bounded
-  queues, cancellation, persistence callbacks, and connection replacement.
-- `LanguageProvider::complete`: one model round with streamed message snapshots;
-  it returns tool requests without executing handlers.
-- `Conversation`, `Compression`, and `MockLang`: neutral history, optional request
-  compression, and deterministic language-model fixtures.
-- `native/src/speech.rs`: batch transcription and HTTP PCM synthesis, but no
-  continuous transcription or streaming text-input synthesis.
-- `native/examples/sandbox.rs`: a Rust chat example used by the browser
-  playground. Its current per-request process cannot own a continuous voice
-  session; the speech and live pages currently use TypeScript providers.
+## Playback, history and vision follow-up
 
-The shared live handles now delegate to an internal socket backend, including
-replacement and cancellation operations; see the [native guide](../../native.md#live-voice-and-speech).
-`ResponseEnded` means one model response ended, not that all tools, synthesis,
-or device playback have completed. Preserve that distinction.
+The first version conservatively keeps fully acknowledged segments after a cut.
+Add a distinct normal-playback finalization hook and an explicit acknowledgement
+handshake before a replacement model request. Bound the wait; missing acknowledgements
+must remain unresolved, not be treated as heard. Do not allow a prior audio part's
+completion to finalize a new response. Test delayed cursors and repeated reports,
+including Stop after synthesis has finished but playback is still queued.
 
-## Decision and scope
+Playback edits currently synchronize known provider text replay fields and reject
+signed Gemini text edits. General message editing still needs stale-`meta`
+detection, serialization fixtures and an explicit supported-edit policy. Preserve
+opaque reasoning/signatures when valid; reject unsupported edits rather than
+replaying deleted text or discarding required signatures.
 
-Add a cascade backend returning the same `LiveSession` used by native live
-models. Keep `LiveAgent` as the sole automatic tool executor. The cascade calls
-`LanguageProvider::complete` directly rather than nesting a `ChatAgent` with a
-second tool loop.
+Add optional `Compression` only on complete history groups. Playback edits must
+invalidate affected checkpoints. Keep full durable history apart from compressed
+request projections. Preserve actual tool outcomes through interruption; unresolved
+tool groups must never be repaired with invented results.
 
-Use a separate `CascadeConfig` containing injected providers, initial history,
-instructions, tool declarations, limits, cancellation, and optional compression.
-Do not squeeze three providers and credentials into `LiveConfig`'s single model,
-key, and socket settings. Factory and trait names below are proposed, not shipped
-APIs.
-
-Add the cascade variant to the internal sender and receiver dispatch. Preserve
-the shared operations for pending calls, retirement, and resumption, keeping
-provider protocol state inside its backend. Do not add a general plugin registry
-or workflow framework.
-
-The first useful release includes a continuous Rust pipeline, real speech
-providers, tools, explicit Stop, conservative speech interruption, playback
-accounting, latest-frame vision, and the browser test path. Speculation, semantic
-backchannel classification, local turn models, automatic recovery, and additional
-providers come after that path is reliable.
-
-AIWrapper owns inference orchestration. Hosts own devices, resampling, playback,
-echo cancellation, network transport to clients, credentials, permissions,
-persistence, and recording. No WebRTC or audio-device dependency enters the
-crate. A cascade does not hear tone or non-speech sounds, or understand continuous
-video; use a native live model when those inputs matter.
-
-## Streaming speech contracts
-
-Reuse `PcmFrame`: mono signed 16-bit PCM with an explicit sample rate. Each adapter
-declares accepted input or produced output formats and rejects incompatible
-frames. The host resamples. Do not assume every TTS provider produces 24 kHz.
-
-Streaming STT needs a session that accepts PCM while the caller polls events,
-supports explicit end-of-input and cancellation, and reports failures even when
-no input operation is pending. Events carry stable utterance IDs and transcript
-revisions, with distinct speech-start, interim transcript, final transcript,
-and committed-turn meanings. A final transcription segment is not necessarily
-the end of a conversational turn. Duplicate finals must not start duplicate
-responses.
-
-Configure one authority for committed turns: provider events initially, manual
-commit for deterministic tests, and a local detector later. Do not combine a
-provider endpoint with a second silence timeout that independently starts
-responses. Speech observations and interruption policy remain separate. Retain
-audio sample offsets when available so acoustic speech end is distinguishable
-from the later turn decision. A missing final transcript must produce a bounded,
-observable timeout, not an indefinite wait or an invented user message.
-
-Start with Deepgram Flux provider turn events. Preserve eager-end and resumed
-events in the adapter, but leave speculative generation disabled initially.
-The [Flux documentation](https://developers.deepgram.com/docs/flux/voice-agent-eager-eot)
-describes eager-end, resumed, and confirmed-end events; eager events require an
-explicit threshold. Verify supported models and languages in integration tests.
-An explicit commit must have a bounded completion rule. If a provider cannot
-force finalization, expose that limitation instead of waiting forever or treating
-an interim transcript as final.
-
-Streaming TTS accepts text, flushes a segment, ends one synthesis input, and can
-be cancelled independently of the conversation. It emits PCM and optional
-alignment metadata. Start with ElevenLabs streaming input and a fallback that
-wraps existing HTTP synthesis, one bounded text segment at a time. Preserve
-output order and limit concurrent requests and queued PCM.
-
-ElevenLabs documents character alignment and connection inactivity limits in
-its [streaming-input protocol](https://elevenlabs.io/docs/api-reference/text-to-speech/v-1-text-to-speech-voice-id-stream-input).
-Normalize alignment against a response's cumulative sample timeline and retain
-the mapping between submitted text and provider-normalized spoken text. Treat
-alignment as provider evidence, not proof of playback or perfect word accuracy.
-Do not promise one TTS socket for the entire conversation: ending input can end
-the stream. Initially open synthesis per response; add prewarming or reusable
-contexts only where the provider supports them and measurements justify them.
-
-Keep STT open across turns. Provide an injected speech transport supporting
-binary PCM and text/control messages. The existing JSON-only `LiveTransport`
-cannot directly represent raw STT frames. Reuse networking dependencies, while
-keeping the speech protocol boundary explicit and testable.
-
-Use a small text segmenter with sentence punctuation, CJK punctuation, clause
-boundaries, a length cap, and a maximum wait before flushing buffered text.
-Tune a shorter first segment and larger later segments using measured latency
-and speech quality. Speak only assistant-visible text, never reasoning or tool
-arguments. Adapt cumulative LLM snapshots into deltas without replaying already
-spoken text; a non-prefix revision requires explicit handling, not appending the
-whole replacement as another delta.
-
-## Session behavior
-
-| Existing surface | Cascade behavior |
-| --- | --- |
-| `append_audio` | Feed the persistent STT session; enforce format and queue limits. |
-| `end_audio` | Finish pending microphone input with bounded finalization; later input may resume. |
-| `append_image` | Replace the latest camera frame without making a model request. |
-| `send_text(..., false)` | Add context without generating a reply. |
-| `send_text(..., true)` | Commit input and request a response, retiring current response work first. |
-| `send_realtime_text` | Commit typed user activity and interrupt current output. |
-| `send_tool_results` | Validate call IDs/names, append accepted results and images, then continue once the round's results are resolved. |
-| `interrupt` | Invalidate active response work before cancellation; harmless when idle. |
-| `truncate_audio` | Apply the host's cumulative playback position to the identified audio part and conversation text. |
-| `input_sample_rate` | Report the configured STT input rate. |
-| `resumption` | Return no provider resumption handle. |
-| `close` | Cancel owned work and close speech sessions with bounded cleanup. |
-
-STT supplies input transcripts. Committed LLM rounds emit `ResponseStarted`,
-output text transcripts, tool calls, and `ResponseEnded`. TTS emits identified
-`Audio` parts. Output text events describe generated text; they must not imply
-that the text was spoken or heard. Preserve the existing response-end meaning
-and expose separate synthesis-complete and playback-complete observations in
-the cascade diagnostics. Tool results can start another model round in the
-same user turn.
-
-Use session-unique call IDs across rounds. Validate a result batch before
-accepting any of it; reject unknown, duplicate, or mismatched results and suppress
-cancelled deliveries. The cascade never runs handlers itself. `LiveAgent` keeps
-its existing execution and persistence guarantees, including outcomes arriving
-after cancellation. Do not invent a successful or cancelled tool outcome to
-repair history. Keep unresolved work explicit and reconcile it before a request
-that requires a complete tool group. STT can continue receiving input meanwhile.
-
-Preserve the current Rust `ToolDefinition::silent` behavior: record the result
-without prompting a follow-up response. Test mixed silent/non-silent calls
-against the existing live contract; do not couple silence to a tool's name.
-
-## Cancellation, interruption, and playback
-
-Each response has a monotonically increasing generation, separate from
-`LiveAgent`'s conversation generation. Every LLM update, TTS write/read, queued
-event, and history mutation checks it. Invalidate first, cancel second. Late
-callbacks must neither emit stale audio nor change current history. Use bounded
-channels and deadlines; cancellation must remain responsive when a consumer is
-slow. Synchronous model callbacks must not block on a full async queue: use a
-bounded handoff and fail/cancel the response on overflow.
-
-Cancellation, close, and turn decisions must remain deliverable when audio or
-speculative text fills a queue. Give control work a separate bounded path or
-equivalent priority, while preserving per-response ordering. Bound both queued
-items and queued audio duration; a frame count alone does not cap latency.
-
-Explicit Stop confirms an interruption immediately. For speech, distinguish a
-candidate from a confirmed interruption. Initially provide an immediate mode
-and an optional sustained-speech threshold, configured by the host. A first
-interim word or duration threshold alone does not reliably identify backchannels.
-Do not claim that short affirmations are understood or filtered semantically.
-
-Candidate observations use a separate diagnostic/policy hook; they must not
-emit the existing `SpeechStarted` or `Interrupted` signals that hosts already
-use to clear playback. On confirmation emit the interruption-facing events once,
-cancel the generation and pending tool delivery, and ask the host to clear its
-queue. The default policy can confirm immediately. A host may pause or defer a
-cut during a candidate, then resume on rejection; the library must not discard
-generation or audio merely because a candidate occurred. Prototype that policy
-in the playground before extracting a standalone detector API, consistent with
-the [interruption proposal](interruption-detection.md).
-
-Expose host playback capabilities explicitly, including whether pause/resume is
-supported. A pending turn decision must settle before a false-interruption timer
-can resume speech. A new committed turn or teardown always cancels that resume.
-Bound the pause and retained-audio budget; if either expires, stop the response
-and reconcile its playback instead of accumulating indefinitely. Pausing the
-speaker is not permission to leave LLM/TTS queues unbounded.
-
-Every audio part has a stable item ID and content index, including fallback
-segments. The browser reports cumulative played samples converted to
-milliseconds, excluding padding and queued audio. Stop must work even after
-generation and synthesis have finished but playback remains queued.
-
-Use `truncate_audio` for cuts and add a narrow playback-progress/finalization
-hook for normal playback. The session needs both to distinguish generated,
-delivered, and played text. Finalize the old playback position before starting
-a new model request; the playground should send the cut acknowledgement and
-new input in order. Hosts that provide no cursor get generated history only,
-with no claim that it represents what was heard.
-
-Bound the acknowledgement wait. If the player disconnects or misses its deadline,
-mark playback unresolved and stop the affected turn rather than silently treating
-all sent audio as heard. Test a response that never reached the player: a prior
-audio part's completion must not finalize the new response.
-
-With reliable alignment, retain only fully played text spans. Without it, retain
-the last fully played segment; for unaligned continuous output, conservatively
-treat that output as one segment. Preserve the generated tail only in optional
-diagnostics. Repeated cursor reports must be idempotent, scoped to their original
-session/item, and validated against emitted duration. Never grow a message after
-it has been cut.
-
-## History, vision, and failures
-
-The cascade owns a `Conversation`, can start from supplied history, and exposes
-snapshots and completed-message/playback-correction callbacks for host
-persistence. Credentials, handlers, and transports are not serialized. Keep
-generated text separate from the playback-confirmed projection used after an
-interruption. Preserve real tool outcomes independently of spoken prose.
-
-Before editing assistant text or pruning image items, address the existing
-native replay issue: provider `Message.meta` can preserve an older raw message.
-An edited neutral message must not replay the removed text or images through
-stale metadata. Preserve required opaque signatures where valid, and reject an
-unsupported edit explicitly. This is a prerequisite for correct truncation,
-not a later cleanup.
-
-At user-turn commit, snapshot the newest image. Keep idle camera frames out of
-requests. Remove older camera and tool images from the model request projection,
-not the host's durable history; retain their text and tool/result relationships.
-Validate image and tool-image support for the chosen LLM and reject unsupported
-combinations clearly. Do not advertise every text model as vision-capable.
-
-Use the existing optional `Compression` on complete, reconciled history groups.
-Playback edits invalidate checkpoints covering changed text; rebuild or reject
-those checkpoints using the existing digest validation. Never summarize an
-unresolved tool group or speculative turn.
-
-The initial release reports a failed turn or terminal speech-session failure
-explicitly, retains known history/outcomes, and lets the host reconnect. No
-silent audio replay, tool replay, or automatic retry after partial delivery.
-LLM/TTS failure must not mark unplayed output as heard. Later, bounded speech
-reconnection may preserve the conversation, but lost microphone audio and
-partially synthesized output need an explicit recovery policy. A cascade emits
-no model `Resumption` or `Expiring` event. Terminal closure is reported once;
-local close and receiver drop stop all owned tasks without cancelling the host's
-parent token.
-
-## Test it in the browser
-
-Browser testing is a required deliverable, not a downstream integration task.
-Extend AIWrapper's existing playground with a Rust-backed cascade mode. Reuse
-its microphone, PCM player, camera, and controls where practical. A persistent
-Rust example host owns the session across audio uploads, events, text, tool
-results, and playback acknowledgements. Keep that host outside the library and
-reuse one core for both the example and direct Rust embedding.
-
-The interface must visibly identify the Rust runtime and offer:
-
-- independent STT, LLM, TTS, model, voice, and language controls, locked while
-  connected; a deterministic mock option without keys;
-- Connect, Disconnect, microphone mute/end-input, typed input, and Stop;
-- microphone input and streamed speaker output, with actual playback tracking;
-- input/output transcripts, tool activity, errors, and response/playback status;
-- optional camera preview, disabled initially, and a latest-frame test;
-- side-by-side timing summaries for cascade and native Gemini/OpenAI runs;
-- explicit configuration errors, with no fallback to TypeScript inference.
-
-Credentials stay in the host environment. Browser capture, resampling, playback,
-and optional echo cancellation use the existing host boundary. Changing the
-runtime requires a persistent native voice bridge, not just adding a picker
-entry to the current TypeScript realtime route. Disconnect or page departure
-must close the native session; the example host must bound idle sessions.
-
-Document a single launch command and required environment variables once the
-host exists. Acceptance includes running that command from a clean checkout,
-speaking several turns, using a tool, interrupting during playback, resuming
-conversation with corrected history, and disconnecting without leaked tasks.
-Browser code may remain TypeScript; no TypeScript STT/LLM/TTS pipeline is required.
+Camera frames currently use latest-at-turn-commit semantics. Extend request
+projection to prune old tool-result images as well as old camera images. Retain
+text, tool/result pairing, image provenance and durable history. Test supported
+vision models and reject unsupported image combinations explicitly.
 
 ## Measurement and diagnostics
 
@@ -377,45 +143,20 @@ errors or missing trace data clearly. Test the same inspection flow with mocks.
 The first pipeline can ship before this viewer; the viewer precedes latency
 optimizations and is the main tool for subsequent manual testing.
 
-## Implementation order and acceptance
+## Next acceptance milestones
 
-1. Add Rust streaming speech contracts, scripted STT/TTS mocks, bounded
-   segmentation, and the cascade over `LanguageProvider`. Prove overlapping
-   LLM/TTS, tools through `LiveAgent`, cancellation fencing, and history behavior.
-   Resolve replay-metadata handling before claiming playback-correct history.
-2. Implement Deepgram Flux and ElevenLabs adapters plus the HTTP TTS fallback.
-   Test formats, transcript revisions, turn boundaries, alignment, flush/end,
-   asynchronous errors, and abort through injected transports.
-3. Add the persistent native example host and browser mode. Include playback
-   acknowledgements, Stop, basic interruption, tools, text, and camera testing.
-   Run credential-backed smoke checks and record a comparable live-model
-   baseline. This is the first release gate, not an optional demo.
-4. Add the session inspector above, with live events and stopped-session timeline
-   review, image sampling evidence, and exact request snapshots.
-5. Tune interruption policy and first-audio latency from recorded sessions.
-   Add speculation only after the baseline path passes and the benefit exceeds
-   its extra calls and cancellation cost.
+1. Use the first browser pipeline for multiple spoken turns, tool execution,
+   camera input, Stop during playback and reconnect. Record device/permission,
+   echo and provider failures; keep deterministic tests separate from live calls.
+2. Implement the session inspector below before latency optimization. Establish
+   trace IDs, opt-in payload capture, retention markers and request/image links.
+3. Measure native-live and cascade baselines in the same harness. Choose the next
+   speech or interruption change from those results.
 
-Offline tests must cover repeated transcript IDs; final segments versus turns;
-text arriving before an STT final; simultaneous input and tool completion;
-streaming before the LLM finishes; CJK and unpunctuated text; ordered fallback
-audio; cancellation before first audio and after synthesis but during playback;
-late callbacks; bounded-queue overflow; partial provider failure; completed tool
-side effects after cancellation; malformed/manual tool results; accurate and
-conservative truncation; stale replay metadata; image pruning; and repeated
-close/drop. Use a simulated clock and playback cursor, with no credentials or
-physical audio device.
-
-Also test a full audio queue during cancellation, missing final transcription,
-missing playback acknowledgement, a committed turn racing false-interruption
-resume, and teardown during a pause. When speculation is added, cover a verdict
-before the first model event, confirmation during tool argument streaming, a
-matching final after the speculative deadline, and changed tools or instructions.
-
-Real-provider tests remain opt-in. Browser checks additionally exercise device
-permission failures, echo-prone playback, false speech candidates, pause/resume
-if enabled, reconnect, and clean teardown. Existing Gemini/OpenAI tests must
-continue to pass. Cascade runtime and latency results remain to be established.
+Keep sender cloning, receiver cancellation, tool replacement and Gemini/OpenAI
+compatibility tests green. Offline cascade coverage should grow to include queue
+saturation, missing finalization, input/tool completion races, image pruning,
+checkpoint invalidation, slow playback, and full trace retention flows.
 
 ## Later work and alternatives
 
@@ -443,8 +184,8 @@ that capability is advertised; mocks alone cannot establish its quality.
 
 A standalone Rust realtime-agent API would avoid touching live internals, but
 would make hosts maintain two tool and session integrations. The shared
-`LiveSession` surface avoids a second public integration, though the internal
-refactor still needs compatibility tests.
+`LiveSession` surface avoids a second public integration, with compatibility tests covering the internal
+backend boundary.
 
 LiveKit supports custom audio I/O and Pipecat supports multiple transports; neither
 should be rejected as inherently tied to one hosted transport. Their inspected

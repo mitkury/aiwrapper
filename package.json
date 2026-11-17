@@ -73,9 +73,10 @@
     "aimodels:status": "git submodule status aimodels && git -C aimodels status --short",
     "aimodels:build": "node scripts/build-aimodels.mjs",
     "aimodels:update": "node scripts/update-aimodels.mjs",
-    "native:build": "cargo build --locked -p aiwrapper --example sandbox",
+    "native:build": "cargo build --locked -p aiwrapper --examples",
     "native:check": "cargo fmt --all -- --check && cargo clippy --locked --workspace --all-targets -- -D warnings && cargo test --locked --workspace",
     "sandbox:native": "node scripts/native-playground.mjs",
+    "native:test:cascade": "npm run native:build && node scripts/test-native-cascade.mjs",
     "native:test:sandbox": "npm run native:build && node scripts/test-native-sandbox.mjs"
   },
   "dependencies": {

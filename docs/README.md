@@ -12,6 +12,7 @@
 - [Speech](speech.md): PCM, transcription, synthesis
 - [Realtime agents](realtime-agent.md): STT → LLM → TTS orchestration
 - [Playground](../playground/README.md): run the browser app
+- [Rust cascade playground](native-cascade.md): native voice pipeline, setup and limits
 
 ## Development
 

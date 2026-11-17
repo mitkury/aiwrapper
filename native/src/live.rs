@@ -9,7 +9,10 @@ use serde_json::Value;
 #[path = "live-agent.rs"]
 mod agent;
 pub use agent::*;
+mod cascade;
 mod socket;
+pub use cascade::CascadeConfig;
+use cascade::{CascadeReceiver, CascadeSender};
 pub use socket::{
     LiveConfig, LiveProvider, LiveResumption, LiveSocket, LiveTransport, WebSocketTransport,
 };
@@ -41,6 +44,7 @@ impl LiveSession {
 #[derive(Clone)]
 enum SenderBackend {
     Socket(SocketSender),
+    Cascade(CascadeSender),
 }
 
 /// Cloneable input handle. Clones remain attached to their original session.
@@ -52,47 +56,56 @@ impl LiveSender {
     pub fn input_sample_rate(&self) -> u32 {
         match &self.backend {
             SenderBackend::Socket(sender) => sender.input_sample_rate(),
+            SenderBackend::Cascade(sender) => sender.input_sample_rate(),
         }
     }
     pub async fn append_audio(&self, frame: &PcmFrame) -> Result<()> {
         match &self.backend {
             SenderBackend::Socket(sender) => sender.append_audio(frame).await,
+            SenderBackend::Cascade(sender) => sender.append_audio(frame).await,
         }
     }
     pub async fn end_audio(&self) -> Result<()> {
         match &self.backend {
             SenderBackend::Socket(sender) => sender.end_audio().await,
+            SenderBackend::Cascade(sender) => sender.end_audio().await,
         }
     }
     pub async fn send_text(&self, text: &str, role: Role, turn_complete: bool) -> Result<()> {
         match &self.backend {
             SenderBackend::Socket(sender) => sender.send_text(text, role, turn_complete).await,
+            SenderBackend::Cascade(sender) => sender.send_text(text, role, turn_complete).await,
         }
     }
     /// User activity input; silent context uses send_text(..., false) instead.
     pub async fn send_realtime_text(&self, text: &str) -> Result<()> {
         match &self.backend {
             SenderBackend::Socket(sender) => sender.send_realtime_text(text).await,
+            SenderBackend::Cascade(sender) => sender.send_text(text, Role::User, true).await,
         }
     }
     pub async fn resumption(&self) -> Option<LiveResumption> {
         match &self.backend {
             SenderBackend::Socket(sender) => sender.resumption().await,
+            SenderBackend::Cascade(_) => None,
         }
     }
     pub async fn append_image(&self, data: &str, mime: &str) -> Result<()> {
         match &self.backend {
             SenderBackend::Socket(sender) => sender.append_image(data, mime).await,
+            SenderBackend::Cascade(sender) => sender.append_image(data, mime).await,
         }
     }
     pub async fn send_tool_results(&self, results: &[LiveToolResult]) -> Result<()> {
         match &self.backend {
             SenderBackend::Socket(sender) => sender.send_tool_results(results).await,
+            SenderBackend::Cascade(sender) => sender.send_tool_results(results).await,
         }
     }
     pub async fn interrupt(&self) -> Result<()> {
         match &self.backend {
             SenderBackend::Socket(sender) => sender.interrupt().await,
+            SenderBackend::Cascade(sender) => sender.interrupt().await,
         }
     }
     pub async fn truncate_audio(
@@ -107,11 +120,17 @@ impl LiveSender {
                     .truncate_audio(item_id, content_index, played_ms)
                     .await
             }
+            SenderBackend::Cascade(sender) => {
+                sender
+                    .truncate_audio(item_id, content_index, played_ms)
+                    .await
+            }
         }
     }
     pub async fn close(&self) -> Result<()> {
         match &self.backend {
             SenderBackend::Socket(sender) => sender.close().await,
+            SenderBackend::Cascade(sender) => sender.close().await,
         }
     }
     // Called with the tool delivery route locked, before installing the new session.
@@ -120,12 +139,14 @@ impl LiveSender {
             (SenderBackend::Socket(next), SenderBackend::Socket(previous)) => {
                 next.inherit_pending_calls(previous).await
             }
+            _ => Ok(false),
         }
     }
 }
 
 enum ReceiverBackend {
     Socket(SocketReceiver),
+    Cascade(CascadeReceiver),
 }
 
 /// Ordered output handle. Dropping it cancels its session, including sender clones.
@@ -138,21 +159,25 @@ impl LiveReceiver {
     pub async fn next_events(&mut self) -> Result<Option<Vec<LiveEvent>>> {
         match &mut self.backend {
             ReceiverBackend::Socket(receiver) => receiver.next_events().await,
+            ReceiverBackend::Cascade(receiver) => receiver.next_events().await,
         }
     }
     pub async fn next_event(&mut self) -> Result<Option<LiveEvent>> {
         match &mut self.backend {
             ReceiverBackend::Socket(receiver) => receiver.next_event().await,
+            ReceiverBackend::Cascade(receiver) => receiver.next_event().await,
         }
     }
     async fn drain_received(&mut self) -> Result<Vec<LiveEvent>> {
         match &mut self.backend {
             ReceiverBackend::Socket(receiver) => receiver.drain_received().await,
+            ReceiverBackend::Cascade(receiver) => receiver.drain_received().await,
         }
     }
     fn cancel_pending_receive(&mut self) {
         match &mut self.backend {
             ReceiverBackend::Socket(receiver) => receiver.cancel_pending_receive(),
+            ReceiverBackend::Cascade(_) => {}
         }
     }
 }

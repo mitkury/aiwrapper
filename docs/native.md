@@ -1,7 +1,7 @@
 # Native Rust runtime
 
 AIWrapper's `native/` crate embeds directly in a Rust application. It provides
-async model calls, tool loops, optional history compression, HTTP speech and
+async model calls, tool loops, optional history compression, cascade voice, HTTP speech and
 Gemini/OpenAI live voice. It owns no HTTP listener, database, credentials store,
 WebRTC peer connection or application session registry.
 
@@ -291,8 +291,9 @@ are mono signed 16-bit little-endian PCM: Gemini input is 16 kHz, OpenAI input
 The public session handles delegate to a private socket backend. Gemini/OpenAI
 protocol state, pending-call transfer during resumption, and receive-task
 cancellation stay inside that backend; `LiveAgent` uses the shared handles.
-Only native live models are available through this API today. The proposed Rust
-cascade will use the same session and tool interfaces.
+`CascadeConfig` also returns these handles for streaming STT → LLM → TTS.
+See the [Rust cascade guide](native-cascade.md) for the browser test path,
+provider setup, playback semantics, and current limits.
 
 Live tool results contain JSON plus an optional `images: Vec<LiveImage>`.
 Use base64 JPEG/PNG bytes. Gemini keeps images inside their function response;
@@ -425,7 +426,8 @@ voice and language selections. The library does not include media-device access.
 | Cohere | Native v2 SSE, text and tool calls |
 | Agent loop | Events, bounded iterations, handler validation, cancellation, preserved partial history |
 | Text compression | Opt-in model-input projection and persistable checkpoints |
-| Speech | Batch OpenAI/Google STT; OpenAI/ElevenLabs HTTP PCM TTS |
+| Speech | Batch OpenAI/Google STT; streaming Deepgram Flux; OpenAI/ElevenLabs HTTP PCM TTS |
+| Cascade | Rust STT → LLM → TTS through LiveSession/LiveAgent; browser at `/cascade` |
 | Native live models | Gemini and OpenAI: PCM, text, images, manual tools, transcripts, interruption events and lifecycle controls |
 | AWS Bedrock / Nova Sonic | Still TypeScript; native AWS adapters proposed |
 | Other realtime STT/live providers and incremental TTS | Still TypeScript; proposed native ports |

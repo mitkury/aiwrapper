@@ -20,6 +20,7 @@ Open the URL printed by Vite. After editing catalog data, run
 | --- | --- | --- |
 | Playground | `/` | ChatAgent, providers, tools, message inspection |
 | Voice | `/speech` | Recorded transcription and text-to-speech |
+| Rust cascade | `/cascade` | Rust voice pipeline, independent providers, tools, playback cursors, offline mode |
 | Realtime | `/realtime` | Streaming STT → selected LLM → TTS, interruptions, optional camera |
 | Live voice | `/speech-to-speech` | OpenAI Realtime, Gemini Live, xAI Voice, Azure Voice Live, Nova Sonic |
 
@@ -96,3 +97,5 @@ streamed echoes. Send `tool: add {"a":2,"b":3}` or `tool: get_time {}` to
 exercise the agent loop. Keep `AIWRAPPER_COMPRESSION_TOKENS` unset here; the
 [programmable mock tests](../native/tests/mock_compression.rs) exercise compression
 with explicit summary fixtures.
+
+For the new Rust voice pipeline, use `/cascade`; see the [cascade guide](../docs/native-cascade.md).
