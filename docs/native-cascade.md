@@ -40,7 +40,11 @@ and synthesis providers; no transcription connection is opened. Keys stay in the
 
 “Configured” means a value is present, not that the provider has validated it.
 Provider authentication/model errors appear in the page. There is no automatic
-provider fallback. Edit model IDs to test models available to your account.
+provider fallback. Errors are also retained in the session event list after
+disconnect; select `error` to inspect the message alongside preceding events.
+HTTP failures can include provider status and response text; some connection
+failures use summarized diagnostics.
+Edit model IDs to test models available to your account.
 Changing `.env` restarts the development server; reconnect afterward.
 
 **Stop reply** clears local playback and cancels current inference/synthesis.

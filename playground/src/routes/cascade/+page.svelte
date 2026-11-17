@@ -55,6 +55,7 @@
 	}
 	function fail(e: unknown) {
 		error = e instanceof Error ? e.message : String(e);
+		log('error', { message: error });
 		void disconnect();
 	}
 	async function command(value: unknown) {
