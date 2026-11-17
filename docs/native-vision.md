@@ -9,20 +9,23 @@ frame-selection backend.
 
 Run `npm run sandbox:native` and open `/simulator` in the playground.
 
-1. Open **Providers and input** to choose a vision-capable model and speech
+1. Open **Session settings** to choose a vision-capable model and speech
    output. **Recent history** is selected by default; choose **Latest frame
    only** for comparison. Keys stay in the server's `.env`.
-2. Press **Connect**. The simulator sends the rendered view once per second.
+2. Press **Start session**. The simulator sends the rendered view once per second.
    Capture continues during assistant speech. Nothing is sent before connecting.
 3. Click the room. Use W/A/S/D to move, drag to look, or left/right arrows to turn.
    Visible buttons provide the same controls. **Reset view** restores the starting
    camera; it does not erase the current session's captured history.
-4. Type a question, or enable **Microphone** before connecting. The simulator
-   defaults to typed input and needs no webcam permission. Speech input uses
+4. Speak naturally, or type in the conversation panel. The microphone is on by
+   default; the browser requests access only after **Start session**. Toggle
+   **Mic on** off before starting if you want typed input only. The simulated
+   camera needs no webcam permission. Speech input uses
    Deepgram; typed input does not need a transcription key.
-5. Inspect **Frames sent to the model**. It displays the exact images attached
+5. Expand **Frames sent to the model** under **Configure & inspect**. It displays the exact images attached
    to each Rust request, with IDs, capture times, selection counts and evictions.
-   **Disconnect** stops capture but retains the review. Reconnect clears it.
+   **End session** stops capture but retains the review. Starting again clears it.
+   Click a frame thumbnail to inspect it at full size; Escape closes the preview.
 
 The room contains colored exhibits, readable labels and a partition that hides
 one view from another. Only pixels and your input reach the model: object lists,

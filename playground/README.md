@@ -35,8 +35,11 @@ The Voice page accepts a voice ID; the old account voice-list endpoint is remove
 
 The [visual simulator guide](../docs/native-vision.md) covers room controls,
 latest-only versus recent frame history, exact request-frame previews, and limits.
-The simulator starts with the microphone off and provider settings collapsed.
-Connect to begin sampling; offline mode tests plumbing without recognizing objects.
+The simulator starts with the microphone on and session settings collapsed.
+**Start session** requests microphone access and begins sampling. The top bar
+shows microphone state, input level and playback status. Conversation stays beside
+the room on desktop; settings, frame inspection and events expand below. Offline
+mode visibly disables the microphone and tests plumbing without recognizing objects.
 
 ## Configuration
 

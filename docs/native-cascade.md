@@ -22,8 +22,8 @@ to this page; the duplicate TypeScript pipeline has been removed. Native
 OpenAI/Gemini audio models are available at `/speech-to-speech`.
 
 When the default language, Deepgram, and ElevenLabs keys are configured, the page
-starts with real speech and Microphone selected. Capture begins only on Connect.
-Otherwise it starts in **Offline test** mode. Connect and send
+starts with real speech and Microphone selected. Capture begins only on **Start session**.
+Otherwise it starts in **Offline test** mode. Start a session and send
 `tool: add {"a":2,"b":3}` to exercise real local tool execution and PCM playback.
 Offline output is a tone, not synthesized speech. No microphone transcription or
 provider requests occur in offline mode.
@@ -49,8 +49,8 @@ Edit model IDs to test models available to your account.
 Changing `.env` restarts the development server; reconnect afterward.
 
 **Stop reply** clears local playback and cancels current inference/synthesis.
-**Mute mic** disables the capture track and asks Flux to finish the active turn.
-**Finish speaking** requests a provider turn boundary. **Disconnect** stops
+The microphone button mutes or unmutes capture. Muting also asks Flux to finish the active turn.
+**Finish speaking manually** in Session events requests a provider turn boundary. **End session** stops
 capture, playback, and the native process. Camera input is opt-in: a JPEG up to
 640 pixels wide is sampled once per second. Choose latest-frame-only or bounded
 recent history (up to 12 frames per turn). The library defaults to latest-only;

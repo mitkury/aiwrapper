@@ -23,6 +23,9 @@ export class CascadePlayer {
 	private totals = new Map<string, number>();
 	private bufferedBytes = 0;
 	constructor(private report: (cursor: Cursor) => void) {}
+	get bufferedSeconds() {
+		return Math.max(0, this.next - this.context.currentTime);
+	}
 	async resume() {
 		await this.context.resume();
 	}

@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { RotateCcw } from 'lucide-svelte';
 	import * as THREE from 'three';
 
-	let { canvas = $bindable<HTMLCanvasElement>() } = $props();
+	let { canvas = $bindable<HTMLCanvasElement>(), active = false } = $props();
 	let failure = $state('');
 	let reset = () => {};
 	let step = (_forward: number, _side: number, _turn: number) => {};
@@ -180,67 +181,223 @@
 	});
 </script>
 
-<section class="space-y-3 rounded-xl border border-neutral-200 p-4" aria-label="Room simulator">
-	<div class="flex items-center justify-between gap-3">
-		<h2 class="font-medium">Room simulator</h2>
-		<button type="button" onclick={() => reset()}>Reset view</button>
+<svelte:window onblur={() => keys.clear()} />
+<section class="room-card" aria-label="Room simulator">
+	<div class="room-heading">
+		<div><h2>Agent view <span>3D room</span></h2></div>
+		<div class="view-status">
+			<span class:active class="capture-dot"></span>{active
+				? 'Sending · 1 frame / s'
+				: 'Preview only'}
+		</div>
 	</div>
-	<p class="text-sm text-neutral-600">
-		Click the room, then use W A S D to walk. Drag to look, or use ← → to turn. The AI sees only the
-		rendered view.
-	</p>
 	{#if failure}<p role="alert">{failure}</p>{/if}
-	<canvas
-		bind:this={canvas}
-		class="aspect-video max-h-[420px] w-full rounded-lg bg-neutral-100 object-contain outline-offset-2"
-		aria-label="Walkable gallery"
-		tabindex="0"
-		onkeydown={(e) => {
-			const key = e.key.toLowerCase();
-			if (['w', 'a', 's', 'd', 'arrowleft', 'arrowright'].includes(key)) {
-				e.preventDefault();
-				keys.add(key);
-			}
-		}}
-		onkeyup={(e) => keys.delete(e.key.toLowerCase())}
-		onblur={() => {
-			keys.clear();
-			dragging = false;
-		}}
-		onpointerdown={(e) => {
-			canvas?.focus();
-			dragging = true;
-			canvas?.setPointerCapture(e.pointerId);
-		}}
-		onpointerup={() => (dragging = false)}
-		onpointercancel={() => (dragging = false)}
-		onpointermove={(e) => {
-			if (dragging) look(e.movementX, e.movementY);
-		}}
-	></canvas>
-	<div class="flex flex-wrap gap-2">
-		<button type="button" onclick={() => step(0, 0, 0.3)}>Turn left</button>
-		<button type="button" onclick={() => step(0.6, 0, 0)}>Forward</button>
-		<button type="button" onclick={() => step(-0.6, 0, 0)}>Back</button>
-		<button type="button" onclick={() => step(0, 0, -0.3)}>Turn right</button>
-		<button type="button" onclick={() => step(0, -0.6, 0)}>Step left</button>
-		<button type="button" onclick={() => step(0, 0.6, 0)}>Step right</button>
+	<div class="viewport">
+		<canvas
+			bind:this={canvas}
+			class="room-canvas"
+			aria-label="Walkable gallery"
+			tabindex="0"
+			onkeydown={(e) => {
+				const key = e.key.toLowerCase();
+				if (['w', 'a', 's', 'd', 'arrowleft', 'arrowright'].includes(key)) {
+					e.preventDefault();
+					keys.add(key);
+				}
+			}}
+			onkeyup={(e) => keys.delete(e.key.toLowerCase())}
+			onblur={() => {
+				keys.clear();
+				dragging = false;
+			}}
+			onpointerdown={(e) => {
+				canvas?.focus();
+				dragging = true;
+				canvas?.setPointerCapture(e.pointerId);
+			}}
+			onpointerup={() => (dragging = false)}
+			onpointercancel={() => (dragging = false)}
+			onpointermove={(e) => {
+				if (dragging) look(e.movementX, e.movementY);
+			}}
+		></canvas>
 	</div>
-	<p class="text-xs text-neutral-500">
-		Try: “What can you see?” Walk around the partition, inspect an exhibit, then turn away and ask
-		what you passed.
-	</p>
+	<div class="room-footer">
+		<div class="control-hint">
+			<span
+				><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to walk
+				<span class="hint-separator">·</span> Drag to look</span
+			><button class="reset" type="button" onclick={() => reset()}
+				><RotateCcw size={13} /> Reset view</button
+			>
+		</div>
+		<div class="move-controls" aria-label="Room movement">
+			<button type="button" onclick={() => step(0, 0, 0.3)}>↶ Turn left</button>
+			<button type="button" onclick={() => step(0.6, 0, 0)}>↑ Forward</button>
+			<button type="button" onclick={() => step(-0.6, 0, 0)}>↓ Back</button>
+			<button type="button" onclick={() => step(0, 0, -0.3)}>↷ Turn right</button>
+			<button type="button" onclick={() => step(0, -0.6, 0)}>← Step left</button>
+			<button type="button" onclick={() => step(0, 0.6, 0)}>→ Step right</button>
+		</div>
+	</div>
 </section>
 
 <style>
-	button {
-		border: 1px solid #d4d4d4;
-		border-radius: 6px;
-		padding: 6px 10px;
-		font-size: 14px;
+	.room-card {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		height: 540px;
+		border: 1px solid #dfe5e7;
+		border-radius: 12px;
+		overflow: hidden;
 		background: white;
 	}
-	canvas {
+	.room-heading {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		padding: 17px 20px;
+		border-bottom: 1px solid #edf0f1;
+	}
+	h2 {
+		font-size: 14px;
+		font-weight: 600;
+		color: #202a30;
+	}
+	h2 span {
+		font-size: 11px;
+		font-weight: 400;
+		color: #819097;
+		margin-left: 9px;
+	}
+	.view-status {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		color: #79878c;
+		font-size: 11px;
+	}
+	.capture-dot {
+		width: 5px;
+		height: 5px;
+		border-radius: 50%;
+		background: #adb7bb;
+	}
+	.capture-dot.active {
+		background: #27816a;
+	}
+	.viewport {
+		flex: 1;
+		min-height: 0;
+		background: #e9edeb;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.room-canvas {
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
 		touch-action: none;
+		outline-offset: -3px;
+	}
+	.room-canvas:focus-visible {
+		outline: 2px solid #24866c;
+	}
+	.room-footer {
+		padding: 13px 16px 14px;
+		border-top: 1px solid #e6ebea;
+	}
+	.control-hint {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 8px;
+		color: #73828a;
+		font-size: 11px;
+		margin-bottom: 10px;
+	}
+	kbd {
+		display: inline-block;
+		border: 1px solid #dbe2e4;
+		border-bottom-width: 2px;
+		border-radius: 3px;
+		font-size: 10px;
+		padding: 0 4px;
+		line-height: 17px;
+		margin-right: 3px;
+		color: #5b6c74;
+	}
+	.hint-separator {
+		margin: 0 5px;
+		color: #b0babd;
+	}
+	.move-controls {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+	}
+	button {
+		border: 1px solid #dce3e5;
+		border-radius: 6px;
+		padding: 5px 9px;
+		font-size: 11px;
+		background: white;
+		color: #53656d;
+		cursor: pointer;
+	}
+	button:hover {
+		background: #f1f5f3;
+	}
+	button:focus-visible {
+		outline: 2px solid #24866c;
+		outline-offset: 2px;
+	}
+	button.reset {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		padding: 0;
+		border: 0;
+	}
+	@media (min-width: 1600px) {
+		.room-card {
+			height: 600px;
+		}
+	}
+	@media (max-width: 900px) {
+		.room-card {
+			height: auto;
+		}
+		.viewport {
+			flex: auto;
+			aspect-ratio: 16/9;
+		}
+		.room-heading {
+			padding: 14px 16px;
+		}
+	}
+	@media (max-width: 520px) {
+		.room-heading {
+			padding: 12px;
+		}
+		h2 span {
+			display: none;
+		}
+		.room-footer {
+			padding: 10px;
+		}
+		.control-hint {
+			font-size: 10px;
+		}
+		.hint-separator {
+			margin: 0 2px;
+		}
+		button {
+			padding: 5px 7px;
+			font-size: 10px;
+		}
 	}
 </style>
