@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { ChartNoAxesGantt, ChevronDown } from 'lucide-svelte';
 	import FrameReview from './FrameReview.svelte';
+	import ActivityTimeline from './ActivityTimeline.svelte';
 	import { duration, finished, type TurnTiming } from '$lib/realtime/turn-timeline';
 	import { tick } from 'svelte';
 	import RequestInspector from './RequestInspector.svelte';
@@ -8,10 +9,12 @@
 	import { cameraRequest, type RequestSnapshot } from '$lib/realtime/request-snapshot';
 	let {
 		turns,
-		requests
+		requests,
+		elapsed
 	}: {
 		turns: TurnTiming[];
 		requests: RequestSnapshot[];
+		elapsed: () => number;
 	} = $props();
 	let open = $state(false);
 	let view = $state<'timing' | 'request' | 'provider'>('timing');
@@ -39,36 +42,48 @@
 	);
 	const request = $derived(requests.find((r) => r.itemId === round?.id));
 	const frameRequest = $derived(request ? cameraRequest(request) : undefined);
-	const origin = $derived(turn?.start ?? 0);
+	let now = $state(0);
+	$effect(() => {
+		if (
+			!open ||
+			view !== 'timing' ||
+			!turn ||
+			(round ? finished(round) : turn.stopped !== undefined || turn.ready !== undefined)
+		)
+			return;
+		now = elapsed();
+		const timer = setInterval(() => (now = elapsed()), 100);
+		return () => clearInterval(timer);
+	});
 	const stages = $derived(
 		turn
 			? [
 					{
 						label: turn.kind === 'speech' ? 'Input & transcription' : 'Send input',
 						from: turn.start,
-						to: turn.ready,
-						color: '#718a9a'
+						to: turn.ready
 					},
 					{
 						label: previousRound ? 'Tool / continuation wait' : 'Prepare request',
 						from: previousRound ? previousRound.modelEnd : turn.ready,
-						to: round?.request,
-						color: '#9aabc1'
+						to: round?.request
 					},
-					{ label: 'Model → first text', from: round?.request, to: round?.text, color: '#427b91' },
-					{ label: 'Buffer speech text', from: round?.text, to: round?.tts, color: '#a38754' },
-					{ label: 'Speech → first audio', from: round?.tts, to: round?.audio, color: '#6e7dae' },
-					{ label: 'Playback queue', from: round?.audio, to: round?.play, color: '#68a18e' }
+					{ label: 'Model → first text', from: round?.request, to: round?.text },
+					{ label: 'Buffer speech text', from: round?.text, to: round?.tts },
+					{ label: 'Speech → first audio', from: round?.tts, to: round?.audio },
+					{ label: 'Playback queue', from: round?.audio, to: round?.play }
 				]
 			: []
 	);
-	const range = $derived(
-		Math.max(1, ...stages.flatMap((s) => [s.from ?? origin, s.to ?? origin])) - origin || 1
-	);
-	const playbackEnd = $derived(round?.stopped ?? round?.end);
+	const playbackEnd = $derived(round?.end ?? round?.stopped ?? now);
+	const modelEnd = $derived(round?.modelEnd ?? round?.stopped ?? now);
 	const status = $derived(
-		turn?.stopped !== undefined || round?.stopped !== undefined
-			? 'Stopped / interrupted'
+		(round ? round.stopped !== undefined : turn?.stopped !== undefined)
+			? (round?.stopReason ?? turn?.stopReason) === 'session-ended'
+				? 'Session ended'
+				: (round?.stopReason ?? turn?.stopReason) === 'error'
+					? 'Session error'
+					: 'Stopped / interrupted'
 			: round && finished(round)
 				? 'Complete'
 				: round?.play !== undefined
@@ -160,38 +175,33 @@
 							>
 						</div>
 						<div>
-							<small>Playback span{round?.stopped !== undefined ? ' · interrupted' : ''}</small
+							<small
+								>Voice reply{round?.stopped !== undefined && round.end === undefined
+									? ' · stopped'
+									: ''}</small
 							><strong
-								>{round?.play !== undefined && playbackEnd !== undefined
+								>{round?.play !== undefined
 									? duration(Math.max(0, playbackEnd - round.play))
 									: '—'}</strong
 							>
 						</div>
-						<div><small>Selected frames</small><strong>{round?.frames ?? '—'}</strong></div>
-					</div>
-					<div class="chart" aria-label="Response latency stages">
-						<div class="chart-heading">
-							<span>Until first playback</span><span>From turn start</span>
+						<div>
+							<small>AI response · wait + generation</small><strong
+								>{round ? duration(Math.max(0, modelEnd - round.request)) : '—'}</strong
+							>
 						</div>
-						{#each stages as stage}
-							<div class="stage">
-								<span>{stage.label}</span>
-								<div class="track">
-									{#if stage.from !== undefined && stage.to !== undefined}<i
-											style:left={`${Math.max(0, ((stage.from - origin) / range) * 100)}%`}
-											style:width={`${Math.max(0, ((stage.to - stage.from) / range) * 100)}%`}
-											style:background={stage.color}
-										></i>{/if}
-								</div>
-								<span class="duration"
+					</div>
+					<ActivityTimeline {turn} {round} {now} />
+					<details class="latency-breakdown">
+						<summary>First-audio latency breakdown</summary>
+						{#each stages as stage}<div class="latency-row">
+								<span>{stage.label}</span><span
 									>{stage.from !== undefined && stage.to !== undefined
 										? duration(Math.max(0, stage.to - stage.from))
 										: '—'}</span
 								>
-							</div>
-						{/each}
-						<div class="axis"><span>0</span><span>{duration(range)}</span></div>
-					</div>
+							</div>{/each}
+					</details>
 					<p class="note">Observed in the browser · input includes speech and turn detection.</p>
 					{#if round}
 						<details class="milestones">
@@ -357,46 +367,21 @@
 		color: #24363e;
 		margin-top: 7px;
 	}
-	.chart-heading {
+	.latency-breakdown {
+		margin: 16px 0;
+		border-bottom: 1px solid #edf0f1;
+	}
+	.latency-breakdown summary {
+		padding: 10px 0;
+		font-size: 12px;
+	}
+	.latency-row {
 		display: flex;
 		justify-content: space-between;
-		font-size: 11px;
-		color: #78858c;
-		margin-bottom: 14px;
-	}
-	.stage {
-		display: grid;
-		grid-template-columns: 165px minmax(0, 1fr) 75px;
-		align-items: center;
-		gap: 14px;
+		gap: 16px;
 		padding: 7px 0;
 		font-size: 12px;
-		color: #35474e;
-	}
-	.track {
-		height: 16px;
-		background: #f3f5f6;
-		position: relative;
-		border-radius: 3px;
-		overflow: hidden;
-	}
-	.track i {
-		display: block;
-		position: absolute;
-		height: 100%;
-		min-width: 2px;
-		border-radius: 3px;
-	}
-	.duration {
-		text-align: right;
-		font-variant-numeric: tabular-nums;
-	}
-	.axis {
-		display: flex;
-		justify-content: space-between;
-		margin: 4px 89px 16px 179px;
-		font-size: 10px;
-		color: #78858c;
+		color: #5e7078;
 	}
 	.note,
 	.retention,
@@ -470,15 +455,6 @@
 		}
 		.metrics > div:first-child {
 			grid-column: 1 / -1;
-		}
-		.stage {
-			grid-template-columns: 122px minmax(0, 1fr) 56px;
-			gap: 6px;
-			font-size: 10px;
-		}
-		.axis {
-			margin-left: 128px;
-			margin-right: 62px;
 		}
 		dl {
 			grid-template-columns: 1fr;

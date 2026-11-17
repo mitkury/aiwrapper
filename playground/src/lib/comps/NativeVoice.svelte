@@ -507,6 +507,7 @@
 	async function stopReply() {
 		acceptAudio = false;
 		clearPlayback();
+		if (!live) timeline.stop(elapsed(), false);
 		if (!live || provider === 'openai') await command({ type: 'interrupt' });
 		phase = 'Listening';
 	}
@@ -553,7 +554,7 @@
 		await capture?.close();
 		capture = undefined;
 		await player?.close();
-		if (!live) timeline.stop(elapsed());
+		if (!live) timeline.stop(elapsed(), true, error ? 'error' : 'session-ended');
 		player = undefined;
 		if (old)
 			await fetch(`/api/cascade/${old}`, { method: 'DELETE', keepalive: true }).catch(() => {});
@@ -871,7 +872,7 @@
 	</div>
 	<div class="secondary-panels">
 		{#if !live}
-			<TurnTimelineView bind:this={timelineView} {turns} requests={requestSnapshots} />
+			<TurnTimelineView bind:this={timelineView} {turns} {elapsed} requests={requestSnapshots} />
 		{/if}
 		<details bind:open={settingsOpen} bind:this={settingsPanel} class="panel">
 			<summary

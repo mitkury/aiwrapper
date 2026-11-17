@@ -1,4 +1,5 @@
 /** Small timing records only. Image payloads remain in the separately bounded frame store. */
+export type StopReason = 'interrupted' | 'session-ended' | 'error';
 export type RoundTiming = {
 	id: string;
 	request: number;
@@ -10,6 +11,7 @@ export type RoundTiming = {
 	modelEnd?: number;
 	synthesisEnd?: number;
 	stopped?: number;
+	stopReason?: StopReason;
 	frames: number;
 };
 export type TurnTiming = {
@@ -20,6 +22,7 @@ export type TurnTiming = {
 	start: number;
 	ready?: number;
 	stopped?: number;
+	stopReason?: StopReason;
 	rounds: RoundTiming[];
 };
 export const finished = (r: RoundTiming) =>
@@ -97,13 +100,27 @@ export class TurnTimeline {
 			return true;
 		});
 	}
-	stop(at: number, includePending = true) {
+	stop(at: number, includePending = true, reason: StopReason = 'interrupted') {
 		for (const turn of this.turns) {
 			if (!includePending && !turn.rounds.length) continue;
-			if (turn.stopped !== undefined || (turn.rounds.length && turn.rounds.every(finished)))
+			let classified = false;
+			for (const round of turn.rounds) {
+				if (round.stopped !== undefined && round.stopReason === undefined) {
+					round.stopReason = reason;
+					classified = true;
+				}
+			}
+			if (turn.stopped !== undefined || (turn.rounds.length && turn.rounds.every(finished))) {
+				if (classified) this.publish(turn);
 				continue;
+			}
 			turn.stopped = at;
-			for (const round of turn.rounds) if (!finished(round)) round.stopped = at;
+			turn.stopReason = reason;
+			for (const round of turn.rounds)
+				if (!finished(round)) {
+					round.stopped = at;
+					round.stopReason = reason;
+				}
 			this.publish(turn);
 		}
 	}

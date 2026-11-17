@@ -86,9 +86,21 @@ The event list does not show the provider's final wire payload or record microph
 ### Turn timeline
 
 On Cascade and Simulator, expand **Turn timeline** under **Configure & inspect**.
-Select a turn (or follow the latest) to see input/transcription, request preparation,
-first model text, speech-text buffering, first synthesized audio, and playback queue
-latency. The main wait metric runs from the final transcript to first playback, or
+Select a turn (or follow the latest) to see activities on one shared time axis:
+user input, waiting for the first AI text, AI text generation, voice generation,
+and the entire voice playback span. Vertically aligned bars happened concurrently.
+For example, a one-second AI response can overlap with a five-second spoken reply.
+Bars grow while active, then freeze at completion or interruption. A dashed marker
+shows interruption, session end, or error; already completed activities keep their
+original end times. Select a lane for its start/end times and explanation.
+
+Voice generation spans the first speech request through completion of all phrases,
+including waits between phrases. Voice playback runs from first playback through
+the last played audio, including streaming gaps. No playback bar is shown if no
+audio started. These are activity spans, not measurements of provider CPU time.
+The chart updates only while its Timing view is open and the selected activity is
+unfinished. **First-audio latency breakdown** retains the detailed stage waits.
+The main wait metric runs from the final transcript to first playback, or
 from Send to first playback for typed input. Input duration includes the user's
 speech and provider turn detection; it is not an isolated transcription benchmark.
 Tool continuations appear as additional model requests within the same turn.
