@@ -108,6 +108,9 @@ opt-in diagnostics; metadata is enough for the default timing trace.
 
 ## Session inspector after the first working pipeline
 
+The [session-debugging research](session-debugging-research.md) compares LiveKit,
+Pipecat Whisker, Langfuse, and Retell and records the patterns worth reusing.
+
 The next browser milestone is a simple inspector for understanding a real
 session. While connected, show incoming and outgoing events as they happen.
 Stop ends the live connection but preserves its trace for review. Use a timeline,
