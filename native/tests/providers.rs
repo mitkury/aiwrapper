@@ -452,3 +452,84 @@ async fn anthropic_uses_native_structured_output_instead_of_prompt_repair() {
         schema
     );
 }
+
+#[tokio::test]
+async fn request_observer_matches_transport_json_including_frame_labels_and_overrides() {
+    use std::sync::{Arc, Mutex};
+    for provider in [Provider::Anthropic, Provider::Google, Provider::Openai] {
+        // Rejection still captures the body that was actually handed to the transport.
+        let transport = Fixture::new(vec![(400, "fixture rejection".into())]);
+        let lang = transport.lang(provider);
+        let observed = Arc::new(Mutex::new(vec![]));
+        let capture = observed.clone();
+        let options = ChatOptions {
+            on_request: Some(Arc::new(move |event| capture.lock().unwrap().push(event))),
+            max_retries: 0,
+            body: [("temperature".into(), json!(0.25))].into(),
+            ..Default::default()
+        };
+        let mut conversation = Conversation::new("What changed?");
+        conversation.instructions = "Speak plainly".into();
+        conversation.messages[0].items.extend([
+            Item::Text {
+                text: "Camera frame 7 at 12.345s (capture clock, session-relative).".into(),
+            },
+            Item::Image {
+                url: None,
+                base64: Some("aW1hZ2U=".into()),
+                mime_type: Some("image/jpeg".into()),
+            },
+        ]);
+        assert!(
+            lang.chat(&mut conversation, &options, &mut |_| {})
+                .await
+                .is_err()
+        );
+        let requests = transport.requests.lock().unwrap();
+        let observed = observed.lock().unwrap();
+        assert_eq!(observed.len(), 1);
+        assert_eq!(observed[0].body, requests[0].1);
+        assert!(requests[0].0.ends_with(&observed[0].path));
+        assert_eq!(observed[0].body["temperature"], json!(0.25));
+        let diagnostic = serde_json::to_string(&observed[0]).unwrap();
+        assert!(diagnostic.contains("12.345s"));
+        assert!(diagnostic.contains("aW1hZ2U="));
+        assert!(!diagnostic.contains("test-key"));
+        assert!(!diagnostic.contains("headers"));
+    }
+}
+
+#[tokio::test]
+async fn request_observer_reports_retries_and_cannot_break_transport_with_a_panic() {
+    use std::sync::{Arc, Mutex};
+    let transport = Fixture::new(vec![(503, "retry".into()), (200, chat("ok"))]);
+    let attempts = Arc::new(Mutex::new(vec![]));
+    let captured = attempts.clone();
+    let options = ChatOptions {
+        on_request: Some(Arc::new(move |request| {
+            captured.lock().unwrap().push(request.attempt)
+        })),
+        max_retries: 1,
+        ..Default::default()
+    };
+    transport
+        .lang(Provider::OpenaiCompatible)
+        .ask("hi", &options)
+        .await
+        .unwrap();
+    assert_eq!(*attempts.lock().unwrap(), vec![0, 1]);
+    let transport = Fixture::new(vec![(200, chat("ok"))]);
+    let options = ChatOptions {
+        on_request: Some(Arc::new(|_| panic!("diagnostic observer failed"))),
+        ..Default::default()
+    };
+    assert_eq!(
+        transport
+            .lang(Provider::OpenaiCompatible)
+            .ask("hi", &options)
+            .await
+            .unwrap()
+            .answer(),
+        "ok"
+    );
+}

@@ -99,8 +99,23 @@ impl ProviderConfig {
     }
 }
 
+/// JSON passed to the HTTP transport, after provider adaptation and body overrides.
+/// Headers are deliberately excluded: credentials are not diagnostic content.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderRequest {
+    pub provider: String,
+    pub model: String,
+    pub path: String,
+    pub attempt: u8,
+    pub body: Value,
+}
+pub type RequestHandler = Arc<dyn Fn(ProviderRequest) + Send + Sync>;
+
 #[derive(Clone)]
 pub struct ChatOptions {
+    /// Optional observer called before each transport attempt. Observer panics are isolated.
+    pub on_request: Option<RequestHandler>,
     pub cancellation: CancellationToken,
     /// None uses agent tools; Some(vec![]) explicitly disables them.
     pub tools: Option<Vec<ToolDefinition>>,
@@ -123,6 +138,7 @@ impl ChatOptions {
 impl Default for ChatOptions {
     fn default() -> Self {
         Self {
+            on_request: None,
             cancellation: CancellationToken::new(),
             tools: None,
             built_in_tools: vec![],
@@ -260,9 +276,21 @@ impl LanguageProvider for Lang {
             .as_str()
             .unwrap_or(&self.config.model)
             .to_owned();
-        let body = serde_json::to_vec(&body)?;
+        let request_body = body;
+        let body = serde_json::to_vec(&request_body)?;
         let url = format!("{}{path}", self.config.base_url.trim_end_matches('/'));
         for attempt in 0..=options.max_retries {
+            crate::error::check_cancel(&options.cancellation)?;
+            if let Some(handler) = &options.on_request {
+                let event = ProviderRequest {
+                    provider: self.config.provider.as_str().into(),
+                    model: model.clone(),
+                    path: path.clone(),
+                    attempt,
+                    body: request_body.clone(),
+                };
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handler(event)));
+            }
             let response = tokio::select! {
                 biased;
                 _ = options.cancellation.cancelled() => return Err(Error::Cancelled),

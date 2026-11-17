@@ -224,6 +224,7 @@ impl Drop for CascadeReceiver {
 }
 
 enum Work {
+    ProviderRequest(crate::ProviderRequest),
     Text(String),
     Done(Result<Message>),
     Audio(usize, PcmFrame),
@@ -738,7 +739,12 @@ impl Actor {
         let cancel = self.work_cancel.clone();
         let language = self.config.language.clone();
         let tx = self.work_tx.clone();
+        let request_tx = tx.clone();
         let options = ChatOptions {
+            on_request: Some(Arc::new(move |request| {
+                // Diagnostics use the same bounded, generation-checked queue as model updates.
+                let _ = request_tx.try_send((generation, Work::ProviderRequest(request)));
+            })),
             cancellation: cancel.clone(),
             tools: Some(self.config.tools.clone()),
             max_tokens: Some(1024),
@@ -846,6 +852,7 @@ impl Actor {
     }
     fn work(&mut self, work: Work) -> Result<()> {
         match work {
+            Work::ProviderRequest(request) => self.diagnostic(json!({"kind":"provider-request","itemId":self.round.as_ref().unwrap().id.to_string(),"request":request})),
             Work::Text(text) => {
                 let round = self.round.as_mut().unwrap();
                 if text == round.text {

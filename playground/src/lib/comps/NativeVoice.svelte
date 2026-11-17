@@ -18,10 +18,18 @@
 	import RoomSimulator from './RoomSimulator.svelte';
 	import FrameReview from './FrameReview.svelte';
 	import TurnTimelineView from './TurnTimeline.svelte';
+	import {
+		retainRequest,
+		attachProviderRequest,
+		cameraRequest,
+		readableRequest,
+		type RequestSnapshot
+	} from '$lib/realtime/request-snapshot';
 	import { TurnTimeline, type TurnTiming } from '$lib/realtime/turn-timeline';
 	import { providerConfigs, type ProviderId } from '$lib/provider-config';
 	import { resampleToPcm } from '$lib/realtime/pcm';
 	import { CascadePlayer, PlaybackQueueFull, type Cursor } from '$lib/realtime/cascade-player';
+	let timelineView = $state<{ inspect: (turnId: number) => void }>();
 	let { live = false, simulator = false }: { live?: boolean; simulator?: boolean } = $props();
 	let liveDefaults: Record<string, { model: string; voice: string }> = {};
 	let inputRate = 24000,
@@ -61,21 +69,15 @@
 	let roomCanvas = $state<HTMLCanvasElement>();
 	let frameId = $state(0),
 		capturing = false;
-	type FrameRequest = {
-		itemId: string;
-		time: string;
-		camera: {
-			candidateCount: number;
-			omittedCount: number;
-			evictedSincePreviousTurn: number;
-			reusedLatest: boolean;
-			policy: string;
-		};
-		frames: { id: number; capturedAtMs: number; clock: string; data: string; mime: string }[];
-	};
-	let frameRequests = $state<FrameRequest[]>([]),
-		frameRequestIndex = $state(0),
-		droppedFrameRequests = $state(0);
+	let requestSnapshots = $state.raw<RequestSnapshot[]>([]);
+	let frameRequestIndex = $state(0),
+		droppedRequests = $state(0);
+	const frameRequests = $derived(
+		requestSnapshots.flatMap((r) => {
+			const frames = cameraRequest(r);
+			return frames ? [frames] : [];
+		})
+	);
 	let configured = $state<Record<string, { configured: boolean; model: string }>>({});
 	let keys = $state({ deepgram: false, elevenlabs: false, openai: false });
 	let entries = $state<{ time: string; label: string; detail: string }[]>([]);
@@ -88,7 +90,9 @@
 		accuracy: 'provider-timed' | 'estimated' | 'segment-boundary';
 		playbackConfirmed: boolean;
 	};
-	let transcripts = $state<{ id: string; input: boolean; text: string; cut?: PlaybackCut }[]>([]);
+	let transcripts = $state<
+		{ id: string; input: boolean; text: string; turnId?: number; cut?: PlaybackCut }[]
+	>([]);
 	let selected = $state<number | null>(null);
 	let video = $state<HTMLVideoElement>();
 	let connection: AbortController | undefined,
@@ -112,7 +116,10 @@
 			{
 				time: ((performance.now() - started) / 1000).toFixed(2),
 				label,
-				detail: JSON.stringify(detail, null, 2)
+				detail:
+					label === 'request' || label === 'provider-request'
+						? readableRequest(detail)
+						: JSON.stringify(detail, null, 2)
 			}
 		];
 		while (
@@ -212,7 +219,14 @@
 			if (!e.text) return;
 			const key = `${e.input ? 'in' : 'out'}:${e.id ?? entries.length}`;
 			const previous = transcripts.findIndex((t) => t.id === key);
-			const value = { id: key, input: e.input, text: e.text };
+			const value = {
+				id: key,
+				input: e.input,
+				text: e.text,
+				turnId: e.input
+					? (turns.find((t) => e.id && t.inputId === e.id) ?? turns.at(-1))?.id
+					: undefined
+			};
 			if (previous < 0) transcripts = [...transcripts.slice(-99), value];
 			else transcripts[previous] = value;
 			if (!e.final_result) return;
@@ -236,38 +250,17 @@
 				const row = transcripts.find((t) => t.id === `out:${cut.itemId}`);
 				if (row) row.cut = cut;
 			}
-			if (
-				e.state.kind === 'request' &&
-				e.state.camera &&
-				(camera || e.state.camera.frames.length)
-			) {
-				const message = e.state.conversation.messages.findLast((m: any) => m.role === 'user');
-				const images =
-					message?.items.slice(e.state.camera.itemStart).filter((i: any) => i.type === 'image') ||
-					[];
-				const frames = e.state.camera.frames.map((f: any, index: number) => ({
-					...f,
-					data: images[index]?.base64 || '',
-					mime: images[index]?.mimeType || 'image/jpeg'
-				}));
-				frameRequests = [
-					...frameRequests,
-					{
-						itemId: e.state.itemId,
-						time: (at / 1000).toFixed(2),
-						camera: e.state.camera,
-						frames
-					}
-				];
-				while (
-					frameRequests.length > 8 ||
-					frameRequests.reduce((n, r) => n + r.frames.reduce((s, f) => s + f.data.length, 0), 0) >
-						16 * 1024 * 1024
-				) {
-					frameRequests = frameRequests.slice(1);
-					droppedFrameRequests++;
-				}
+			if (!live && e.state.kind === 'request') {
+				const retained = retainRequest(requestSnapshots, e.state, at);
+				requestSnapshots = retained.requests;
+				droppedRequests += retained.dropped;
 				frameRequestIndex = Math.max(0, frameRequests.length - 1);
+			}
+			if (!live && e.state.kind === 'provider-request') {
+				const retained = attachProviderRequest(requestSnapshots, e.state.itemId, e.state.request);
+				requestSnapshots = retained.requests;
+				droppedRequests += retained.dropped;
+				frameRequestIndex = Math.min(frameRequestIndex, Math.max(0, frameRequests.length - 1));
 			}
 			if (e.state.kind === 'connected') {
 				phase = 'Listening';
@@ -292,9 +285,9 @@
 		entries = [];
 		turns = [];
 		timeline = new TurnTimeline((value) => (turns = value));
-		frameRequests = [];
+		requestSnapshots = [];
 		frameRequestIndex = 0;
-		droppedFrameRequests = 0;
+		droppedRequests = 0;
 		frameId = 0;
 		transcripts = [];
 		followConversation = true;
@@ -812,6 +805,10 @@
 										</p>{/if}
 								</details>{/if}
 						{:else}<p class="message-text">{t.text}</p>{/if}
+						{#if !live && t.input && t.turnId && turns.some((turn) => turn.id === t.turnId)}<button
+								class="inspect-request"
+								onclick={() => timelineView?.inspect(t.turnId!)}>Inspect request</button
+							>{/if}
 					</article>
 				{:else}
 					<div class="conversation-empty">
@@ -874,7 +871,7 @@
 	</div>
 	<div class="secondary-panels">
 		{#if !live}
-			<TurnTimelineView {turns} requests={frameRequests} />
+			<TurnTimelineView bind:this={timelineView} {turns} requests={requestSnapshots} />
 		{/if}
 		<details bind:open={settingsOpen} bind:this={settingsPanel} class="panel">
 			<summary
@@ -1016,7 +1013,7 @@
 				<FrameReview
 					requests={frameRequests}
 					bind:selected={frameRequestIndex}
-					dropped={droppedFrameRequests}
+					dropped={droppedRequests}
 				/>
 			</details>
 		{/if}
@@ -1057,6 +1054,14 @@
 </main>
 
 <style>
+	.inspect-request {
+		margin-top: 10px;
+		font-size: 12px;
+		color: #176957;
+		text-decoration: underline;
+		text-underline-offset: 3px;
+		cursor: pointer;
+	}
 	.agent-lab {
 		max-width: 1440px;
 		margin: 0 auto;

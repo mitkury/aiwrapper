@@ -93,6 +93,31 @@ from Send to first playback for typed input. Input duration includes the user's
 speech and provider turn detection; it is not an isolated transcription benchmark.
 Tool continuations appear as additional model requests within the same turn.
 
+Switch to **Sent to model** to inspect the selected request's system instructions,
+full conversation in message order, exact image attachments, tool calls/results,
+available tool definitions, and output token limit. **Inspect request** beneath a
+user message opens this view directly. Images appear in their original message,
+with capture times for selected camera frames; click to enlarge. Snapshots preserve
+the input at request time, including interruption-adjusted history. Later edits to
+the prompt or conversation do not rewrite earlier requests. This is the neutral
+input passed to the Rust language provider, not the provider-specific HTTP body.
+The expandable request structure omits image bytes to keep JSON readable; image
+previews use those exact retained bytes.
+
+**Provider JSON** shows the body captured by `ChatOptions.on_request` immediately
+before each HTTP transport attempt, after provider mapping and body overrides.
+The capture excludes headers and credentials. A captured attempt does not prove
+provider acceptance. Offline mocks have no provider HTTP body. The UI shows the
+latest attempt for a request; Cascade currently disables retries.
+
+Image byte strings are shortened by default, preserving the JSON keys and all
+text. Enable **Include image bytes in preview** or **Download full JSON** for the
+complete body. This is also where to inspect timestamp placement: the runtime
+inserts a text item such as `Camera frame 7 at 12.345s (capture clock,
+session-relative).` immediately before each image. Adapters map these ordered
+text/image items to the provider's content format. Camera selection metadata stays
+in the neutral diagnostic payload, not the model's image caption.
+
 **Event times** includes model/synthesis completion, playback drain and interruption
 on the session clock. Provider milestones are measured when the browser receives
 them, so they include transport. Playback start uses the browser audio render clock,
@@ -105,9 +130,11 @@ visual history do not flatten response latency. Strip spacing is not a time scal
 Click to enlarge a frame. Evicted image previews are identified explicitly.
 
 The viewer retains at most 80 turns with 12 model requests each, holds only timing
-metadata and short transcript excerpts, and shares the existing 8-request / 16 MiB
-image store. Only the selected request's thumbnails render while the timeline is
-open, with lazy image decoding. It keeps no PCM or additional image history. Ending
+metadata and short transcript excerpts. Request snapshots share one 8-request /
+16 MiB store for conversation text, tools, images, and provider bodies, counted
+using a conservative serialized UTF-16 size. Eviction of a snapshot also evicts
+its frame previews. Only the selected request's thumbnails render while the
+timeline is open, with lazy image decoding. It keeps no PCM or separate image history. Ending
 a session retains the timeline; starting another clears it. Native Live voice uses
 a different provider protocol and does not expose this Cascade stage breakdown.
 

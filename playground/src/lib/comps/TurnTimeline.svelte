@@ -2,15 +2,27 @@
 	import { ChartNoAxesGantt, ChevronDown } from 'lucide-svelte';
 	import FrameReview from './FrameReview.svelte';
 	import { duration, finished, type TurnTiming } from '$lib/realtime/turn-timeline';
-	import type { ComponentProps } from 'svelte';
+	import { tick } from 'svelte';
+	import RequestInspector from './RequestInspector.svelte';
+	import ProviderRequestView from './ProviderRequestView.svelte';
+	import { cameraRequest, type RequestSnapshot } from '$lib/realtime/request-snapshot';
 	let {
 		turns,
 		requests
 	}: {
 		turns: TurnTiming[];
-		requests: (ComponentProps<typeof FrameReview>['requests'][number] & { itemId: string })[];
+		requests: RequestSnapshot[];
 	} = $props();
 	let open = $state(false);
+	let view = $state<'timing' | 'request' | 'provider'>('timing');
+	let panel: HTMLDetailsElement;
+	export function inspect(turnId: number) {
+		chosen = turnId;
+		roundIndex = -1;
+		view = 'request';
+		open = true;
+		void tick().then(() => panel.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+	}
 	let chosen = $state(0);
 	let roundIndex = $state(-1);
 	$effect(() => {
@@ -25,7 +37,8 @@
 	const previousRound = $derived(
 		turn && round ? turn.rounds[turn.rounds.indexOf(round) - 1] : undefined
 	);
-	const frameRequest = $derived(requests.find((r) => r.itemId === round?.id));
+	const request = $derived(requests.find((r) => r.itemId === round?.id));
+	const frameRequest = $derived(request ? cameraRequest(request) : undefined);
 	const origin = $derived(turn?.start ?? 0);
 	const stages = $derived(
 		turn
@@ -66,7 +79,7 @@
 	);
 </script>
 
-<details class="timeline" bind:open>
+<details class="timeline" bind:open bind:this={panel}>
 	<summary
 		><ChartNoAxesGantt size={19} /><span
 			><strong>Turn timeline</strong><small>Speech, response timing, and selected frames</small
@@ -104,103 +117,146 @@
 						>{/if}
 					<span class="status">{status}</span>
 				</div>
-				<p class="utterance">“{turn.label || 'Waiting for a transcript…'}”</p>
-				<div class="metrics">
-					<div>
-						<small
-							>{turn.kind === 'speech'
-								? 'Transcript ready → first playback'
-								: 'Send → first playback'}</small
-						><strong
-							>{firstPlayback !== undefined
-								? duration(
-										Math.max(
-											0,
-											firstPlayback -
-												(turn.kind === 'typed' ? turn.start : (turn.ready ?? turn.start))
+				<nav aria-label="Request view" class="views">
+					<button aria-pressed={view === 'timing'} onclick={() => (view = 'timing')}>Timing</button
+					><button aria-pressed={view === 'request'} onclick={() => (view = 'request')}
+						>Sent to model</button
+					>
+					<button aria-pressed={view === 'provider'} onclick={() => (view = 'provider')}
+						>Provider JSON</button
+					>
+				</nav>
+				{#if view === 'provider'}
+					{#key round?.id}<ProviderRequestView
+							wire={request?.wire}
+							retained={Boolean(request)}
+							requested={Boolean(round)}
+						/>{/key}
+				{:else if view === 'request'}
+					{#if request}{#key request.itemId}<RequestInspector {request} />{/key}
+					{:else}<p class="empty">
+							{round
+								? 'This request snapshot was evicted from the bounded store. Its timing is still available.'
+								: 'Waiting for the model request. The input is still being processed.'}
+						</p>{/if}
+				{:else}
+					<p class="utterance">“{turn.label || 'Waiting for a transcript…'}”</p>
+					<div class="metrics">
+						<div>
+							<small
+								>{turn.kind === 'speech'
+									? 'Transcript ready → first playback'
+									: 'Send → first playback'}</small
+							><strong
+								>{firstPlayback !== undefined
+									? duration(
+											Math.max(
+												0,
+												firstPlayback -
+													(turn.kind === 'typed' ? turn.start : (turn.ready ?? turn.start))
+											)
 										)
-									)
-								: '—'}</strong
-						>
-					</div>
-					<div>
-						<small>Playback span{round?.stopped !== undefined ? ' · interrupted' : ''}</small
-						><strong
-							>{round?.play !== undefined && playbackEnd !== undefined
-								? duration(Math.max(0, playbackEnd - round.play))
-								: '—'}</strong
-						>
-					</div>
-					<div><small>Selected frames</small><strong>{round?.frames ?? '—'}</strong></div>
-				</div>
-				<div class="chart" aria-label="Response latency stages">
-					<div class="chart-heading">
-						<span>Until first playback</span><span>From turn start</span>
-					</div>
-					{#each stages as stage}
-						<div class="stage">
-							<span>{stage.label}</span>
-							<div class="track">
-								{#if stage.from !== undefined && stage.to !== undefined}<i
-										style:left={`${Math.max(0, ((stage.from - origin) / range) * 100)}%`}
-										style:width={`${Math.max(0, ((stage.to - stage.from) / range) * 100)}%`}
-										style:background={stage.color}
-									></i>{/if}
-							</div>
-							<span class="duration"
-								>{stage.from !== undefined && stage.to !== undefined
-									? duration(Math.max(0, stage.to - stage.from))
-									: '—'}</span
+									: '—'}</strong
 							>
 						</div>
-					{/each}
-					<div class="axis"><span>0</span><span>{duration(range)}</span></div>
-				</div>
-				<p class="note">Observed in the browser · input includes speech and turn detection.</p>
-				{#if round}
-					<details class="milestones">
-						<summary>Event times <small>· session clock</small></summary>
-						<p class="note">
-							Timings include transport, not isolated provider processing. Playback uses the audio
-							render clock; device output latency is not measured. Streaming stages can overlap.
-						</p>
-						<dl>
-							{#each [['Input started', turn.start], ['Transcript ready', turn.ready], ['Model request observed', round.request], ['First model text', round.text], ['First speech request', round.tts], ['First audio received', round.audio], ['First playback', round.play], ['Model finished', round.modelEnd], ['Speech generation finished', round.synthesisEnd], ['Playback drained', round.end], ['Stopped / interrupted', round.stopped]] as [label, time]}
-								{#if typeof time === 'number'}<div>
-										<dt>{label}</dt>
-										<dd>{(time / 1000).toFixed(3)}s</dd>
-									</div>{/if}
-							{/each}
-						</dl>
-					</details>
-					<div class="frames-heading">
-						<strong>Visual context</strong><span
-							>Request observed at {(round.request / 1000).toFixed(2)}s</span
-						>
+						<div>
+							<small>Playback span{round?.stopped !== undefined ? ' · interrupted' : ''}</small
+							><strong
+								>{round?.play !== undefined && playbackEnd !== undefined
+									? duration(Math.max(0, playbackEnd - round.play))
+									: '—'}</strong
+							>
+						</div>
+						<div><small>Selected frames</small><strong>{round?.frames ?? '—'}</strong></div>
 					</div>
-					<p class="note">
-						Capture order · session timestamps. Frames may predate this turn; strip spacing is not
-						to scale.
-					</p>
-					{#if frameRequest}<FrameReview requests={[frameRequest]} compact />
-					{:else}<p class="empty">
-							{round.frames
-								? 'Frame previews were evicted from the bounded image store. Timing and frame counts are retained.'
-								: 'No camera frames attached to this request.'}
-						</p>{/if}
+					<div class="chart" aria-label="Response latency stages">
+						<div class="chart-heading">
+							<span>Until first playback</span><span>From turn start</span>
+						</div>
+						{#each stages as stage}
+							<div class="stage">
+								<span>{stage.label}</span>
+								<div class="track">
+									{#if stage.from !== undefined && stage.to !== undefined}<i
+											style:left={`${Math.max(0, ((stage.from - origin) / range) * 100)}%`}
+											style:width={`${Math.max(0, ((stage.to - stage.from) / range) * 100)}%`}
+											style:background={stage.color}
+										></i>{/if}
+								</div>
+								<span class="duration"
+									>{stage.from !== undefined && stage.to !== undefined
+										? duration(Math.max(0, stage.to - stage.from))
+										: '—'}</span
+								>
+							</div>
+						{/each}
+						<div class="axis"><span>0</span><span>{duration(range)}</span></div>
+					</div>
+					<p class="note">Observed in the browser · input includes speech and turn detection.</p>
+					{#if round}
+						<details class="milestones">
+							<summary>Event times <small>· session clock</small></summary>
+							<p class="note">
+								Timings include transport, not isolated provider processing. Playback uses the audio
+								render clock; device output latency is not measured. Streaming stages can overlap.
+							</p>
+							<dl>
+								{#each [['Input started', turn.start], ['Transcript ready', turn.ready], ['Model request observed', round.request], ['First model text', round.text], ['First speech request', round.tts], ['First audio received', round.audio], ['First playback', round.play], ['Model finished', round.modelEnd], ['Speech generation finished', round.synthesisEnd], ['Playback drained', round.end], ['Stopped / interrupted', round.stopped]] as [label, time]}
+									{#if typeof time === 'number'}<div>
+											<dt>{label}</dt>
+											<dd>{(time / 1000).toFixed(3)}s</dd>
+										</div>{/if}
+								{/each}
+							</dl>
+						</details>
+						<div class="frames-heading">
+							<strong>Visual context</strong><span
+								>Request observed at {(round.request / 1000).toFixed(2)}s</span
+							>
+						</div>
+						<p class="note">
+							Capture order · session timestamps. Frames may predate this turn; strip spacing is not
+							to scale.
+						</p>
+						{#if frameRequest}<FrameReview requests={[frameRequest]} compact />
+						{:else}<p class="empty">
+								{round.frames
+									? 'Frame previews were evicted from the bounded image store. Timing and frame counts are retained.'
+									: 'No camera frames attached to this request.'}
+							</p>{/if}
+					{/if}
 				{/if}
 			{:else}<p class="empty">
 					Start a session and speak or send a message. Each turn’s timing and selected frames appear
 					here.
 				</p>{/if}
 			<p class="retention">
-				Last 80 turns · previews: 8 requests / 16 MiB. Cleared when starting a new session.
+				Last 80 turns · request snapshots: 8 requests / 16 MiB including text and images. Cleared
+				when starting a new session.
 			</p>
 		</div>
 	{/if}
 </details>
 
 <style>
+	.views {
+		display: flex;
+		gap: 6px;
+		border-bottom: 1px solid #e1e7e8;
+		padding: 16px 0 8px;
+	}
+	.views button {
+		padding: 7px 12px;
+		border-radius: 6px;
+		font-size: 12px;
+		cursor: pointer;
+		color: #5e7078;
+	}
+	.views button[aria-pressed='true'] {
+		background: #eaf3f0;
+		color: #176957;
+		font-weight: 600;
+	}
 	.timeline {
 		scroll-margin-top: 170px;
 		border: 1px solid #dce3e5;
