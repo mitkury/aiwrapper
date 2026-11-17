@@ -3,12 +3,14 @@ import { resolve } from 'node:path';
 import { env } from '$env/dynamic/private';
 import { isProviderId } from '$lib/provider-config';
 import { languageConfig } from './language';
+import defaultInstructions from '../../../../native/examples/voice-instructions.json';
 
 type Session = { child: ChildProcessWithoutNullStreams; stop: () => void };
 const sessions = new Map<string, Session>();
 export function cascadeConfig() {
 	return {
 		language: languageConfig(),
+		instructions: defaultInstructions,
 		deepgram: Boolean(env.DEEPGRAM_API_KEY),
 		openai: Boolean(env.OPENAI_API_KEY),
 		elevenlabs: Boolean(env.ELEVENLABS_API_KEY),
@@ -38,6 +40,11 @@ export function startCascade(value: unknown, signal: AbortSignal): Response {
 		if (typeof v[key] !== 'string' || (v[key] as string).length > 200)
 			throw new Error(`Invalid ${key}`);
 	}
+	if (
+		v.instructions !== undefined &&
+		(typeof v.instructions !== 'string' || v.instructions.length > 16000)
+	)
+		throw new Error('System instructions must be text, up to 16000 characters');
 	if (v.tts !== 'openai' && v.tts !== 'elevenlabs') throw new Error('Invalid speech provider');
 	if (v.live !== undefined && typeof v.live !== 'boolean') throw new Error('Invalid live mode');
 	if (v.live && (v.offline || !['openai', 'google'].includes(v.provider)))

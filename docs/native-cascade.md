@@ -50,7 +50,12 @@ Changing `.env` restarts the development server; reconnect afterward.
 
 The playground's Cascade, Simulator and Live voice instructions request plain
 text meant to be spoken aloud: natural sentences without Markdown, headings,
-lists, tables, code blocks or emphasis markers.
+lists, tables, code blocks or emphasis markers. Edit **System instructions** in
+**Session settings** to replace those instructions. Edits update page state
+immediately, with no Save button, cookies or browser storage. They are used by
+the next session; an active session keeps the instructions it started with.
+Reloading the page restores defaults. An empty field sends empty instructions.
+The Rust host and editor share defaults from `native/examples/voice-instructions.json`.
 
 **Stop reply** clears local playback and cancels current inference/synthesis.
 The microphone button mutes or unmutes capture. Muting also asks Flux to finish the active turn.

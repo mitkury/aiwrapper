@@ -26,6 +26,7 @@
 		responseIndex = 0;
 	let liveCursor: Cursor | undefined;
 	let ready = $state(false);
+	let instructions = $state('');
 	let offline = $state(true),
 		provider = $state<ProviderId>('anthropic'),
 		model = $state(''),
@@ -259,6 +260,7 @@
 	}
 	async function connect() {
 		if (!ready || phase !== 'Disconnected') return;
+		const sessionInstructions = instructions;
 		error = '';
 		micStatus = 'Waiting for microphone';
 		micLevel = 0;
@@ -293,6 +295,7 @@
 					offline,
 					live,
 					microphone: mic,
+					instructions: sessionInstructions,
 					cameraContext,
 					provider,
 					model,
@@ -545,6 +548,7 @@
 		fetch('/api/cascade')
 			.then((r) => r.json())
 			.then((v) => {
+				instructions = live ? v.instructions.live : v.instructions.cascade;
 				configured = v.language;
 				ready = true;
 				keys = v;
@@ -834,11 +838,26 @@
 		<details bind:open={settingsOpen} bind:this={settingsPanel} class="panel">
 			<summary
 				><Settings2 size={19} /><span
-					><strong>Session settings</strong><small
-						>Providers, visual input, and frame selection</small
+					><strong>Session settings</strong><small>Instructions, providers, and visual input</small
 					></span
 				><ChevronDown size={17} class="chevron" /></summary
 			>
+			<div class="instruction-editor">
+				<label for="system-instructions">System instructions</label>
+				<textarea
+					id="system-instructions"
+					bind:value={instructions}
+					disabled={!ready}
+					rows="7"
+					maxlength="16000"
+					spellcheck="false"
+					aria-describedby="instructions-help"
+				></textarea>
+				<p id="instructions-help">
+					Edits stay on this page and apply to the next session. Reloading resets them to the
+					defaults.
+				</p>
+			</div>
 			<fieldset disabled={!ready || phase !== 'Disconnected'} class="settings-fields space-y-5">
 				{#if live}
 					<div class="grid gap-4 md:grid-cols-3">
@@ -1409,6 +1428,38 @@
 		font-weight: 450;
 		color: #7b8a91;
 		margin-left: 5px;
+	}
+	.instruction-editor {
+		padding: 20px 20px 0;
+	}
+	.instruction-editor label {
+		display: block;
+		font-size: 13px;
+		font-weight: 550;
+		margin-bottom: 8px;
+	}
+	.instruction-editor textarea {
+		display: block;
+		width: 100%;
+		min-height: 140px;
+		resize: vertical;
+		border: 1px solid #d7dfe2;
+		border-radius: 7px;
+		padding: 10px 12px;
+		font: inherit;
+		font-size: 13px;
+		line-height: 1.6;
+		color: #34454d;
+		background: white;
+	}
+	.instruction-editor textarea:focus-visible {
+		outline: 2px solid #12816c;
+		outline-offset: 3px;
+	}
+	.instruction-editor p {
+		color: #75838b;
+		font-size: 12px;
+		margin-top: 7px;
 	}
 	.settings-fields {
 		padding: 20px;
