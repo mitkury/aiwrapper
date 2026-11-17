@@ -8,7 +8,9 @@ type Chunk = {
 	offset: number;
 	item: string;
 	index: number;
+	observed: boolean;
 };
+export type PlaybackMoment = { item: string; kind: 'start' | 'end' | 'stop'; at: number };
 export class PlaybackQueueFull extends Error {
 	constructor() {
 		super(
@@ -22,7 +24,23 @@ export class CascadePlayer {
 	private chunks = new Set<Chunk>();
 	private totals = new Map<string, number>();
 	private bufferedBytes = 0;
-	constructor(private report: (cursor: Cursor) => void) {}
+	constructor(
+		private report: (cursor: Cursor) => void,
+		private moment: (event: PlaybackMoment) => void = () => {}
+	) {}
+	/** Observe the render clock, not the time an audio packet was received. */
+	poll() {
+		if (this.context.state !== 'running') return;
+		for (const chunk of this.chunks) {
+			if (!chunk.observed && this.context.currentTime >= chunk.start) {
+				chunk.observed = true;
+				this.moment({ item: chunk.item, kind: 'start', at: this.wallTime(chunk.start) });
+			}
+		}
+	}
+	private wallTime(audioTime: number) {
+		return performance.now() - Math.max(0, this.context.currentTime - audioTime) * 1000;
+	}
 	get bufferedSeconds() {
 		return Math.max(0, this.next - this.context.currentTime);
 	}
@@ -52,13 +70,25 @@ export class CascadePlayer {
 		const source = this.context.createBufferSource();
 		source.buffer = buffer;
 		source.connect(this.context.destination);
-		const chunk = { source, start, samples: samples.length, rate, offset, item, index };
+		const chunk = {
+			source,
+			start,
+			samples: samples.length,
+			rate,
+			offset,
+			item,
+			index,
+			observed: false
+		};
 		this.chunks.add(chunk);
 		this.bufferedBytes += bytes;
 		source.onended = () => {
+			this.poll();
 			if (!this.chunks.delete(chunk)) return;
 			this.bufferedBytes -= bytes;
 			source.disconnect();
+			if (![...this.chunks].some((c) => c.item === item))
+				this.moment({ item, kind: 'end', at: this.wallTime(start + buffer.duration) });
 			this.report({
 				type: 'played',
 				item,
@@ -70,6 +100,8 @@ export class CascadePlayer {
 		this.next = start + buffer.duration;
 	}
 	clear() {
+		this.poll();
+		const items = new Set([...this.chunks].map((c) => c.item));
 		const cursors = new Map<string, Cursor>();
 		for (const c of this.chunks) {
 			const played = Math.min(
@@ -93,6 +125,7 @@ export class CascadePlayer {
 		this.bufferedBytes = 0;
 		this.next = this.context.currentTime;
 		for (const cursor of cursors.values()) this.report(cursor);
+		for (const item of items) this.moment({ item, kind: 'stop', at: performance.now() });
 	}
 	async close() {
 		this.clear();

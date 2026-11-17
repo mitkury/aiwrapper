@@ -732,8 +732,8 @@ impl Actor {
                 "conversation exceeds 8 MiB; start a new session".into(),
             ));
         }
-        self.diagnostic(json!({"kind":"request","camera":camera,"conversation":conversation,"tools":self.config.tools,"maxTokens":1024}))?;
         let generation = self.generation.load(Ordering::SeqCst);
+        self.diagnostic(json!({"kind":"request","itemId":generation.to_string(),"camera":camera,"conversation":conversation,"tools":self.config.tools,"maxTokens":1024}))?;
         self.work_cancel = self.cancel.child_token();
         let cancel = self.work_cancel.clone();
         let language = self.config.language.clone();
@@ -959,7 +959,7 @@ impl Actor {
             }
             Work::Synthesized => {
                 self.round.as_mut().unwrap().synthesis_done = true;
-                self.diagnostic(json!({"kind":"synthesis-complete"}))?;
+                self.diagnostic(json!({"kind":"synthesis-complete","itemId":self.round.as_ref().unwrap().id.to_string()}))?;
                 self.advance()
             }
             Work::Failed(error) => Err(error),

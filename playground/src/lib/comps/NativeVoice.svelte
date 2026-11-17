@@ -17,6 +17,8 @@
 	} from 'lucide-svelte';
 	import RoomSimulator from './RoomSimulator.svelte';
 	import FrameReview from './FrameReview.svelte';
+	import TurnTimelineView from './TurnTimeline.svelte';
+	import { TurnTimeline, type TurnTiming } from '$lib/realtime/turn-timeline';
 	import { providerConfigs, type ProviderId } from '$lib/provider-config';
 	import { resampleToPcm } from '$lib/realtime/pcm';
 	import { CascadePlayer, PlaybackQueueFull, type Cursor } from '$lib/realtime/cascade-player';
@@ -60,6 +62,7 @@
 	let frameId = $state(0),
 		capturing = false;
 	type FrameRequest = {
+		itemId: string;
 		time: string;
 		camera: {
 			candidateCount: number;
@@ -100,6 +103,9 @@
 		acceptAudio = false,
 		started = 0;
 	const connected = $derived(Boolean(id));
+	let turns = $state.raw<TurnTiming[]>([]);
+	let timeline = new TurnTimeline((value) => (turns = value));
+	const elapsed = () => performance.now() - started;
 	function log(label: string, detail: unknown) {
 		entries = [
 			...entries.slice(-299),
@@ -158,9 +164,19 @@
 			return;
 		}
 		const e = packet.event;
+		const at = elapsed();
+		if (!live) {
+			if (e.type === 'speech-started') timeline.begin('speech', at, e.id);
+			if (e.type === 'transcript' && e.text) {
+				if (e.input) timeline.input(e.id, e.text, e.final_result, at);
+				else timeline.mark(e.id, 'text', at);
+			}
+			if (e.type === 'response-ended') timeline.mark(undefined, 'modelEnd', at);
+		}
 		if (e.type === 'audio') {
 			if (acceptAudio) {
 				const item = e.item_id || `live-${responseIndex}`;
+				if (!live && e.frame.samples.length) timeline.mark(item, 'audio', at);
 				const index = e.content_index ?? 0;
 				if (live && e.item_id && (liveCursor?.item !== item || liveCursor?.index !== index))
 					liveCursor = { type: 'played', item, index, ms: 0 };
@@ -183,6 +199,7 @@
 		if (e.type === 'interrupted') {
 			acceptAudio = false;
 			clearPlayback();
+			if (!live) timeline.stop(at, false);
 			phase = 'Listening';
 		}
 		if (live && e.type === 'response-ended') phase = 'Listening';
@@ -201,6 +218,13 @@
 			if (!e.final_result) return;
 		}
 		if (e.type === 'provider-state') {
+			if (!live) {
+				const state = e.state;
+				if (state.kind === 'request')
+					timeline.request(state.itemId, at, state.camera?.frames.length ?? 0);
+				if (state.kind === 'tts-input') timeline.mark(state.itemId, 'tts', at);
+				if (state.kind === 'synthesis-complete') timeline.mark(state.itemId, 'synthesisEnd', at);
+			}
 			if (!live && e.state.kind === 'playback-stop-requested') {
 				// clear() queues final cursors before the acknowledgement. The
 				// Rust runtime waits for it before constructing the next request.
@@ -229,7 +253,8 @@
 				frameRequests = [
 					...frameRequests,
 					{
-						time: ((performance.now() - started) / 1000).toFixed(2),
+						itemId: e.state.itemId,
+						time: (at / 1000).toFixed(2),
 						camera: e.state.camera,
 						frames
 					}
@@ -265,6 +290,8 @@
 		micStatus = 'Waiting for microphone';
 		micLevel = 0;
 		entries = [];
+		turns = [];
+		timeline = new TurnTimeline((value) => (turns = value));
 		frameRequests = [];
 		frameRequestIndex = 0;
 		droppedFrameRequests = 0;
@@ -278,14 +305,20 @@
 		connection = new AbortController();
 		const current = connection;
 		try {
-			player = new CascadePlayer((cursor) => {
-				if (!live) command(cursor).catch(fail);
-				else if (liveCursor?.item === cursor.item && liveCursor.index === cursor.index)
-					liveCursor = cursor;
-			});
+			player = new CascadePlayer(
+				(cursor) => {
+					if (!live) command(cursor).catch(fail);
+					else if (liveCursor?.item === cursor.item && liveCursor.index === cursor.index)
+						liveCursor = cursor;
+				},
+				(moment) => {
+					if (!live) timeline.playback(moment.item, moment.kind, moment.at - started);
+				}
+			);
 			await player.resume();
 			if (current.signal.aborted || connection !== current) return;
 			playbackTimer = setInterval(() => {
+				player?.poll();
 				playing = Boolean(player && player.bufferedSeconds > 0);
 			}, 100);
 			const response = await fetch('/api/cascade', {
@@ -490,6 +523,10 @@
 		text = '';
 		clearPlayback();
 		acceptAudio = false;
+		if (!live) {
+			timeline.stop(elapsed());
+			timeline.begin('typed', elapsed(), undefined, value);
+		}
 		await command({ type: 'text', text: value }).catch(fail);
 	}
 	async function disconnect() {
@@ -523,6 +560,7 @@
 		await capture?.close();
 		capture = undefined;
 		await player?.close();
+		if (!live) timeline.stop(elapsed());
 		player = undefined;
 		if (old)
 			await fetch(`/api/cascade/${old}`, { method: 'DELETE', keepalive: true }).catch(() => {});
@@ -835,6 +873,9 @@
 		<p>Fine-tune the session or review what happened.</p>
 	</div>
 	<div class="secondary-panels">
+		{#if !live}
+			<TurnTimelineView {turns} requests={frameRequests} />
+		{/if}
 		<details bind:open={settingsOpen} bind:this={settingsPanel} class="panel">
 			<summary
 				><Settings2 size={19} /><span

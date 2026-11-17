@@ -2,7 +2,8 @@
 	let {
 		requests,
 		selected = $bindable(0),
-		dropped = 0
+		dropped = 0,
+		compact = false
 	}: {
 		requests: {
 			time: string;
@@ -17,6 +18,7 @@
 		}[];
 		selected?: number;
 		dropped?: number;
+		compact?: boolean;
 	} = $props();
 	const request = $derived(requests[selected]);
 	let preview = $state<(typeof requests)[number]['frames'][number] | null>(null);
@@ -24,28 +26,39 @@
 </script>
 
 <section class="space-y-4 p-5" aria-label="Frames sent to the model">
-	<p class="text-xs text-neutral-500">
-		Exact camera images in the Rust request. Retained after disconnect: last 8 requests, up to 16
-		MiB. {dropped ? `${dropped} older requests removed.` : ''}
-	</p>
+	{#if !compact}<p class="text-xs text-neutral-500">
+			Exact camera images in the Rust request. Retained after disconnect: last 8 requests, up to 16
+			MiB. {dropped ? `${dropped} older requests removed.` : ''}
+		</p>
+	{/if}
 	{#if requests.length}
-		<label class="flex items-center gap-3 text-sm"
-			>Request<select aria-label="Frame request" bind:value={selected} class="rounded border p-2">
-				{#each requests as request, i}<option value={i}
-						>{request.time}s · {request.frames.length} frames · {request.camera.policy}</option
-					>{/each}
-			</select></label
-		>
+		{#if !compact}<label class="flex items-center gap-3 text-sm"
+				>Request<select aria-label="Frame request" bind:value={selected} class="rounded border p-2">
+					{#each requests as request, i}<option value={i}
+							>{request.time}s · {request.frames.length} frames · {request.camera.policy}</option
+						>{/each}
+				</select></label
+			>
+		{/if}
 		{#if request}
-			<p class="text-sm text-neutral-600">
-				{request.frames.length} selected from {request.camera.candidateCount} candidates. {request
-					.camera.omittedCount} omitted by selection or size limits. {request.camera
-					.evictedSincePreviousTurn} frames evicted from the input buffer since the previous turn.{request
-					.camera.reusedLatest
-					? ' Reused the latest frame because no new frames arrived.'
-					: ''}
-			</p>
-			<div class="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
+			{#if compact}<p class="text-xs text-neutral-500">
+					{request.frames.length} of {request.camera.candidateCount} frames selected{request.camera
+						.omittedCount
+						? ` · ${request.camera.omittedCount} omitted`
+						: ''}{request.camera.evictedSincePreviousTurn
+						? ` · ${request.camera.evictedSincePreviousTurn} evicted from input buffer`
+						: ''}{request.camera.reusedLatest ? ' · latest frame reused' : ''}.
+				</p>
+			{:else}<p class="text-sm text-neutral-600">
+					{request.frames.length} selected from {request.camera.candidateCount} candidates. {request
+						.camera.omittedCount} omitted by selection or size limits. {request.camera
+						.evictedSincePreviousTurn} frames evicted from the input buffer since the previous turn.{request
+						.camera.reusedLatest
+						? ' Reused the latest frame because no new frames arrived.'
+						: ''}
+				</p>
+			{/if}
+			<div class:filmstrip={compact} class="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
 				{#each request.frames as frame}<figure>
 						<button
 							class="frame-thumbnail"
@@ -56,6 +69,8 @@
 							}}
 						>
 							<img
+								loading="lazy"
+								decoding="async"
 								src={`data:${frame.mime};base64,${frame.data}`}
 								alt={`Frame ${frame.id} at ${(frame.capturedAtMs / 1000).toFixed(2)} seconds`}
 								class="aspect-video w-full rounded border bg-neutral-100 object-contain"
@@ -96,6 +111,14 @@
 </dialog>
 
 <style>
+	.filmstrip {
+		display: flex;
+		overflow-x: auto;
+		padding: 3px 2px 10px;
+	}
+	.filmstrip figure {
+		flex: 0 0 150px;
+	}
 	.frame-thumbnail {
 		display: block;
 		width: 100%;

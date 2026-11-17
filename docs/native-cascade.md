@@ -80,9 +80,36 @@ to inspect the neutral conversation and tools passed to the language provider,
 submitted to synthesis, or tool events to inspect results. `microphone-settings`
 shows browser-reported echo cancellation and noise suppression settings. The
 browser is asked to enable both at capture; effectiveness against speaker
-playback still depends on the browser/device and is not measured by this event. This
-is an initial diagnostic list, not the planned recording/timeline inspector.
-It does not show the provider's final wire payload or record microphone audio.
+playback still depends on the browser/device and is not measured by this event.
+The event list does not show the provider's final wire payload or record microphone audio.
+
+### Turn timeline
+
+On Cascade and Simulator, expand **Turn timeline** under **Configure & inspect**.
+Select a turn (or follow the latest) to see input/transcription, request preparation,
+first model text, speech-text buffering, first synthesized audio, and playback queue
+latency. The main wait metric runs from the final transcript to first playback, or
+from Send to first playback for typed input. Input duration includes the user's
+speech and provider turn detection; it is not an isolated transcription benchmark.
+Tool continuations appear as additional model requests within the same turn.
+
+**Event times** includes model/synthesis completion, playback drain and interruption
+on the session clock. Provider milestones are measured when the browser receives
+them, so they include transport. Playback start uses the browser audio render clock,
+not PCM receipt; hardware output latency is not measured. Full streaming stages
+overlap, and playback span can include gaps between audio chunks.
+
+The embedded visual strip shows exact selected request images in capture order,
+with frame IDs and capture timestamps. It has its own time labels so minutes of
+visual history do not flatten response latency. Strip spacing is not a time scale.
+Click to enlarge a frame. Evicted image previews are identified explicitly.
+
+The viewer retains at most 80 turns with 12 model requests each, holds only timing
+metadata and short transcript excerpts, and shares the existing 8-request / 16 MiB
+image store. Only the selected request's thumbnails render while the timeline is
+open, with lazy image decoding. It keeps no PCM or additional image history. Ending
+a session retains the timeline; starting another clears it. Native Live voice uses
+a different provider protocol and does not expose this Cascade stage breakdown.
 
 ## Runtime boundaries
 

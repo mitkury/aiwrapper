@@ -22,8 +22,9 @@ Run `npm run sandbox:native` and open `/simulator` in the playground.
    **Mic on** off before starting if you want typed input only. The simulated
    camera needs no webcam permission. Speech input uses
    Deepgram; typed input does not need a transcription key.
-5. Expand **Frames sent to the model** under **Configure & inspect**. It displays the exact images attached
-   to each Rust request, with IDs, capture times, selection counts and evictions.
+5. Expand **Turn timeline** under **Configure & inspect** to review response timing
+   alongside the selected frames. **Frames sent to the model** provides the
+   dedicated image inspector. It displays the exact images attached to each Rust request, with IDs, capture times, selection counts and evictions.
    **End session** stops capture but retains the review. Starting again clears it.
    Click a frame thumbnail to inspect it at full size; Escape closes the preview.
 

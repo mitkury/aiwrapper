@@ -3,6 +3,7 @@ import { CascadePlayer, PlaybackQueueFull } from './cascade-player';
 
 class TestAudioContext {
 	currentTime = 0;
+	state = 'running';
 	destination = {};
 	sources: { onended: (() => void) | null; start: ReturnType<typeof vi.fn> }[] = [];
 	resume = vi.fn();
@@ -73,5 +74,42 @@ describe('cascade playback bursts', () => {
 			ms: 500
 		});
 		for (const source of context.sources) expect(source.onended).toBeNull();
+	});
+});
+
+describe('playback timeline', () => {
+	it('observes playback on the audio clock, excluding queued or cancelled audio', () => {
+		const context = new TestAudioContext();
+		vi.stubGlobal(
+			'AudioContext',
+			class {
+				constructor() {
+					return context;
+				}
+			}
+		);
+		const moments = vi.fn();
+		const player = new CascadePlayer(vi.fn(), moments);
+		player.enqueue('cancelled', 0, Array(24000).fill(0), 24000);
+		player.poll();
+		expect(moments).not.toHaveBeenCalled();
+		player.clear();
+		expect(moments.mock.calls.map(([m]) => m.kind)).toEqual(['stop']);
+		moments.mockClear();
+		player.enqueue('played', 0, Array(24000).fill(0), 24000);
+		context.state = 'suspended';
+		player.poll();
+		expect(moments).not.toHaveBeenCalled();
+		context.state = 'running';
+		context.currentTime = 0.515;
+		const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+		player.poll();
+		player.poll();
+		expect(moments).toHaveBeenCalledExactlyOnceWith({ item: 'played', kind: 'start', at: 500 });
+		context.currentTime = 1.015;
+		context.sources[1].onended?.();
+		expect(moments).toHaveBeenLastCalledWith({ item: 'played', kind: 'end', at: 1000 });
+		now.mockRestore();
+		vi.unstubAllGlobals();
 	});
 });
