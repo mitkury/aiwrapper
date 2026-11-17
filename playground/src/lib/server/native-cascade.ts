@@ -30,6 +30,8 @@ export function startCascade(value: unknown, signal: AbortSignal): Response {
 	const v = value as Record<string, unknown>;
 	if (typeof v.offline !== 'boolean' || typeof v.provider !== 'string' || !isProviderId(v.provider))
 		throw new Error('Invalid runtime or language provider');
+	if (v.cameraContext !== undefined && !['latest', 'recent'].includes(String(v.cameraContext)))
+		throw new Error('Invalid camera context policy');
 	if (v.microphone !== undefined && typeof v.microphone !== 'boolean')
 		throw new Error('Invalid microphone setting');
 	for (const key of ['model', 'sttModel', 'ttsModel', 'voice']) {

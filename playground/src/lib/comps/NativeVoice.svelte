@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import RoomSimulator from './RoomSimulator.svelte';
+	import FrameReview from './FrameReview.svelte';
 	import { providerConfigs, type ProviderId } from '$lib/provider-config';
 	import { resampleToPcm } from '$lib/realtime/pcm';
 	import { CascadePlayer, PlaybackQueueFull, type Cursor } from '$lib/realtime/cascade-player';
-	let { live = false }: { live?: boolean } = $props();
+	let { live = false, simulator = false }: { live?: boolean; simulator?: boolean } = $props();
 	let liveDefaults: Record<string, { model: string; voice: string }> = {};
 	let inputRate = 24000,
 		responseIndex = 0;
@@ -23,8 +25,28 @@
 		error = $state(''),
 		id = $state(''),
 		text = $state(''),
-		mic = $state(false),
-		camera = $state(false);
+		mic = $state(false);
+	let cameraSource = $state('off');
+	let settingsOpen = $state(true);
+	const camera = $derived(cameraSource !== 'off');
+	let cameraContext = $state('recent');
+	let roomCanvas = $state<HTMLCanvasElement>();
+	let frameId = 0,
+		capturing = false;
+	type FrameRequest = {
+		time: string;
+		camera: {
+			candidateCount: number;
+			omittedCount: number;
+			evictedSincePreviousTurn: number;
+			reusedLatest: boolean;
+			policy: string;
+		};
+		frames: { id: number; capturedAtMs: number; clock: string; data: string; mime: string }[];
+	};
+	let frameRequests = $state<FrameRequest[]>([]),
+		frameRequestIndex = $state(0),
+		droppedFrameRequests = $state(0);
 	let configured = $state<Record<string, { configured: boolean; model: string }>>({});
 	let keys = $state({ deepgram: false, elevenlabs: false, openai: false });
 	let entries = $state<{ time: string; label: string; detail: string }[]>([]);
@@ -138,6 +160,38 @@
 			if (!e.final_result) return;
 		}
 		if (e.type === 'provider-state') {
+			if (
+				e.state.kind === 'request' &&
+				e.state.camera &&
+				(camera || e.state.camera.frames.length)
+			) {
+				const message = e.state.conversation.messages.findLast((m: any) => m.role === 'user');
+				const images =
+					message?.items.slice(e.state.camera.itemStart).filter((i: any) => i.type === 'image') ||
+					[];
+				const frames = e.state.camera.frames.map((f: any, index: number) => ({
+					...f,
+					data: images[index]?.base64 || '',
+					mime: images[index]?.mimeType || 'image/jpeg'
+				}));
+				frameRequests = [
+					...frameRequests,
+					{
+						time: ((performance.now() - started) / 1000).toFixed(2),
+						camera: e.state.camera,
+						frames
+					}
+				];
+				while (
+					frameRequests.length > 8 ||
+					frameRequests.reduce((n, r) => n + r.frames.reduce((s, f) => s + f.data.length, 0), 0) >
+						16 * 1024 * 1024
+				) {
+					frameRequests = frameRequests.slice(1);
+					droppedFrameRequests++;
+				}
+				frameRequestIndex = Math.max(0, frameRequests.length - 1);
+			}
 			if (e.state.kind === 'connected') {
 				phase = 'Listening';
 				inputRate = e.state.inputSampleRate || 24000;
@@ -154,6 +208,10 @@
 		micStatus = 'Waiting for microphone';
 		micLevel = 0;
 		entries = [];
+		frameRequests = [];
+		frameRequestIndex = 0;
+		droppedFrameRequests = 0;
+		frameId = 0;
 		transcripts = [];
 		selected = null;
 		started = performance.now();
@@ -174,6 +232,7 @@
 					offline,
 					live,
 					microphone: mic,
+					cameraContext,
 					provider,
 					model,
 					sttModel,
@@ -207,19 +266,20 @@
 	}
 	async function startMedia() {
 		if ((!mic || offline) && !camera) return;
-		media = await navigator.mediaDevices.getUserMedia({
-			audio:
-				mic && !offline
-					? { channelCount: 1, echoCancellation: true, noiseSuppression: true }
-					: false,
-			video: camera ? { width: { ideal: 640 }, height: { ideal: 360 } } : false
-		});
+		if ((mic && !offline) || cameraSource === 'webcam')
+			media = await navigator.mediaDevices.getUserMedia({
+				audio:
+					mic && !offline
+						? { channelCount: 1, echoCancellation: true, noiseSuppression: true }
+						: false,
+				video: cameraSource === 'webcam' ? { width: { ideal: 640 }, height: { ideal: 360 } } : false
+			});
 		if (!id) {
-			media.getTracks().forEach((t) => t.stop());
+			media?.getTracks().forEach((t) => t.stop());
 			return;
 		}
 		if (mic && !offline) {
-			const track = media.getAudioTracks()[0];
+			const track = media!.getAudioTracks()[0];
 			const settings = track.getSettings();
 			log('microphone-settings', {
 				echoCancellation: settings.echoCancellation ?? 'not reported',
@@ -263,7 +323,7 @@
 				}
 				if (now - lastCaptured > 2500) micLevel = 0;
 			}, 1000);
-			const source = capture.createMediaStreamSource(media);
+			const source = capture.createMediaStreamSource(media!);
 			processor = capture.createScriptProcessor(4096, 1, 1);
 			const mute = capture.createGain();
 			mute.gain.value = 0;
@@ -295,21 +355,46 @@
 			mute.connect(capture.destination);
 		}
 		if (camera) {
-			if (!video) return;
-			video.srcObject = media;
-			await video.play();
+			if (cameraSource === 'webcam') {
+				if (!video) throw new Error('Camera preview is unavailable');
+				video.srcObject = media!;
+				await video.play();
+			}
 			cameraTimer = setInterval(() => void snapshot(), 1000);
 			await snapshot();
 		}
 	}
 	async function snapshot() {
-		if (!id || !video?.videoWidth) return;
-		const canvas = document.createElement('canvas');
-		canvas.width = 640;
-		canvas.height = Math.round((640 * video.videoHeight) / video.videoWidth);
-		canvas.getContext('2d')!.drawImage(video, 0, 0, canvas.width, canvas.height);
-		const data = canvas.toDataURL('image/jpeg', 0.65).split(',')[1];
-		await command({ type: 'image', data, mime: 'image/jpeg' }).catch(fail);
+		if (!id || capturing) return;
+		const source = cameraSource === 'room' ? roomCanvas : video;
+		if (!source || (cameraSource === 'webcam' && !video?.videoWidth)) return;
+		if (cameraSource === 'room' && roomCanvas?.width !== 960) {
+			fail('Room renderer is unavailable. Check browser graphics support.');
+			return;
+		}
+		const sessionId = id;
+		capturing = true;
+		try {
+			const canvas = document.createElement('canvas');
+			canvas.width = 640;
+			const width = source instanceof HTMLVideoElement ? source.videoWidth : source.width;
+			const height = source instanceof HTMLVideoElement ? source.videoHeight : source.height;
+			canvas.height = Math.round((640 * height) / width);
+			canvas.getContext('2d')!.drawImage(source, 0, 0, canvas.width, canvas.height);
+			const data = canvas.toDataURL('image/jpeg', 0.65).split(',')[1];
+			const id = ++frameId,
+				capturedAtMs = Math.floor(performance.now() - started);
+			await command({
+				type: 'image',
+				data,
+				mime: 'image/jpeg',
+				...(!live ? { id, capturedAtMs } : {})
+			});
+		} catch (e) {
+			if (id === sessionId) fail(e);
+		} finally {
+			capturing = false;
+		}
 	}
 	async function mute() {
 		muted = !muted;
@@ -370,7 +455,7 @@
 		if (live) {
 			model = liveDefaults[provider].model;
 			voice = liveDefaults[provider].voice;
-			camera = false;
+			cameraSource = 'off';
 			return;
 		}
 		model =
@@ -381,6 +466,8 @@
 		voice = tts === 'elevenlabs' ? 'CwhRBWXzGAHq8TQ4Fs17' : 'alloy';
 	}
 	onMount(() => {
+		cameraSource = simulator ? 'room' : 'off';
+		settingsOpen = !simulator;
 		fetch('/api/cascade')
 			.then((r) => r.json())
 			.then((v) => {
@@ -397,7 +484,7 @@
 				chooseProvider();
 				if (!live && configured[provider]?.configured && keys.deepgram && keys.elevenlabs) {
 					offline = false;
-					mic = true;
+					mic = !simulator;
 				}
 			})
 			.catch(fail);
@@ -407,97 +494,132 @@
 	});
 </script>
 
-<svelte:head><title>{live ? 'Live voice' : 'Cascade'} · AIWrapper</title></svelte:head>
+<svelte:head
+	><title>{live ? 'Live voice' : simulator ? 'Visual simulator' : 'Cascade'} · AIWrapper</title
+	></svelte:head
+>
 <main class="mx-auto max-w-6xl space-y-6 p-6">
 	<div>
-		<h1 class="text-2xl font-semibold">{live ? 'Live voice' : 'Cascade'}</h1>
+		<h1 class="text-2xl font-semibold">
+			{live ? 'Live voice' : simulator ? 'Visual simulator' : 'Cascade'}
+		</h1>
 		<p class="mt-1 text-sm text-neutral-600">
 			{live
 				? 'Native audio conversation with OpenAI Realtime or Gemini Live. Session and tools run in Rust.'
-				: 'Continuous transcription → language model → streamed speech. Session and tools run in Rust.'}
+				: simulator
+					? 'Walk through the room and test what the agent sees and remembers. Connect to send one frame per second.'
+					: 'Continuous transcription → language model → streamed speech. Session and tools run in Rust.'}
 		</p>
 	</div>
-	<fieldset
-		disabled={!ready || phase !== 'Disconnected'}
-		class="space-y-4 rounded-xl border border-neutral-200 p-4"
-	>
-		<legend class="px-2 font-medium">Providers</legend>
-		{#if live}
-			<div class="grid gap-4 md:grid-cols-3">
-				<label
-					>Provider<select
-						aria-label="Live provider"
-						bind:value={provider}
-						onchange={chooseProvider}
-					>
-						<option value="openai"
-							>OpenAI Realtime{configured.openai?.configured
-								? ' · configured'
-								: ' · key missing'}</option
+	<details bind:open={settingsOpen} class="rounded-xl border border-neutral-200 p-4">
+		<summary class="cursor-pointer text-sm font-medium"
+			>Providers and input · {offline ? 'offline test' : provider} · {cameraSource === 'room'
+				? '3D room'
+				: cameraSource === 'webcam'
+					? 'webcam'
+					: 'no video'}</summary
+		>
+		<fieldset disabled={!ready || phase !== 'Disconnected'} class="mt-4 space-y-4">
+			{#if live}
+				<div class="grid gap-4 md:grid-cols-3">
+					<label
+						>Provider<select
+							aria-label="Live provider"
+							bind:value={provider}
+							onchange={chooseProvider}
 						>
-						<option value="google"
-							>Gemini Live{configured.google?.configured
-								? ' · configured'
-								: ' · key missing'}</option
+							<option value="openai"
+								>OpenAI Realtime{configured.openai?.configured
+									? ' · configured'
+									: ' · key missing'}</option
+							>
+							<option value="google"
+								>Gemini Live{configured.google?.configured
+									? ' · configured'
+									: ' · key missing'}</option
+							>
+						</select></label
+					>
+					<label>Model<input aria-label="Live model ID" bind:value={model} /></label>
+					<label>Voice<input aria-label="Voice ID" bind:value={voice} /></label>
+				</div>
+				{#if provider === 'google'}<p class="text-sm text-neutral-600">
+						Speak to interrupt Gemini. Stop playback silences local audio; it does not cancel
+						generation.
+					</p>{/if}
+			{:else}
+				<label class="flex items-center gap-2"
+					><input type="checkbox" bind:checked={offline} />Offline test — echo replies and a short
+					tone, no API calls (typed input only; microphone disabled)</label
+				>
+				<div class="grid gap-4 md:grid-cols-3">
+					<div class="space-y-2">
+						<label for="stt"
+							>Transcription · {keys.deepgram ? 'key configured' : 'key missing'}</label
+						><select id="stt" bind:value={sttModel}
+							><option value="flux-general-en">Deepgram Flux · English</option><option
+								value="flux-general-multi">Deepgram Flux · Multilingual</option
+							></select
+						>
+					</div>
+					<div class="space-y-2">
+						<label for="llm">Language model</label><select
+							id="llm"
+							bind:value={provider}
+							onchange={chooseProvider}
+							>{#each providerConfigs as p}<option value={p.id}
+									>{p.label}{configured[p.id]?.configured ? ' · configured' : ''}</option
+								>{/each}</select
+						><input aria-label="Language model ID" bind:value={model} placeholder="Model ID" />
+					</div>
+					<div class="space-y-2">
+						<label for="tts">Speech output</label><select
+							id="tts"
+							bind:value={tts}
+							onchange={chooseSpeech}
+							><option value="elevenlabs">ElevenLabs{keys.elevenlabs ? ' · configured' : ''}</option
+							><option value="openai">OpenAI{keys.openai ? ' · configured' : ''}</option></select
+						><input aria-label="Speech model ID" bind:value={ttsModel} /><input
+							aria-label="Voice ID"
+							bind:value={voice}
+						/>
+						<p class="text-xs text-neutral-500">
+							ElevenLabs default: Roger. You can paste another voice ID.
+						</p>
+					</div>
+				</div>
+			{/if}
+			<div class="grid gap-4 md:grid-cols-3">
+				<label class="self-center"
+					><input type="checkbox" bind:checked={mic} disabled={offline} /> Microphone</label
+				>
+				<label
+					>Visual input<select
+						aria-label="Visual input"
+						bind:value={cameraSource}
+						disabled={live && provider !== 'google'}
+					>
+						<option value="off">Off</option><option value="webcam">Webcam</option><option
+							value="room">3D room</option
 						>
 					</select></label
 				>
-				<label>Model<input aria-label="Live model ID" bind:value={model} /></label>
-				<label>Voice<input aria-label="Voice ID" bind:value={voice} /></label>
+				{#if !live}<label
+						>Frame selection<select aria-label="Frame selection" bind:value={cameraContext}>
+							<option value="recent">Recent history · up to 12 frames</option><option value="latest"
+								>Latest frame only</option
+							>
+						</select></label
+					>{/if}
 			</div>
-			{#if provider === 'google'}<p class="text-sm text-neutral-600">
-					Speak to interrupt Gemini. Stop playback silences local audio; it does not cancel
-					generation.
+			{#if camera}<p class="text-xs text-neutral-500">
+					Capture once per second.{!live
+						? ' Recent history keeps up to five minutes, prioritizes the last six seconds and spreads remaining frames across the earlier interval since your last turn.'
+						: ' Frames stream directly to the live provider.'}
 				</p>{/if}
-		{:else}
-			<label class="flex items-center gap-2"
-				><input type="checkbox" bind:checked={offline} />Offline test — echo replies and a short
-				tone, no API calls (typed input only; microphone disabled)</label
-			>
-			<div class="grid gap-4 md:grid-cols-3">
-				<div class="space-y-2">
-					<label for="stt">Transcription · {keys.deepgram ? 'key configured' : 'key missing'}</label
-					><select id="stt" bind:value={sttModel}
-						><option value="flux-general-en">Deepgram Flux · English</option><option
-							value="flux-general-multi">Deepgram Flux · Multilingual</option
-						></select
-					>
-				</div>
-				<div class="space-y-2">
-					<label for="llm">Language model</label><select
-						id="llm"
-						bind:value={provider}
-						onchange={chooseProvider}
-						>{#each providerConfigs as p}<option value={p.id}
-								>{p.label}{configured[p.id]?.configured ? ' · configured' : ''}</option
-							>{/each}</select
-					><input aria-label="Language model ID" bind:value={model} placeholder="Model ID" />
-				</div>
-				<div class="space-y-2">
-					<label for="tts">Speech output</label><select
-						id="tts"
-						bind:value={tts}
-						onchange={chooseSpeech}
-						><option value="elevenlabs">ElevenLabs{keys.elevenlabs ? ' · configured' : ''}</option
-						><option value="openai">OpenAI{keys.openai ? ' · configured' : ''}</option></select
-					><input aria-label="Speech model ID" bind:value={ttsModel} /><input
-						aria-label="Voice ID"
-						bind:value={voice}
-					/>
-					<p class="text-xs text-neutral-500">
-						ElevenLabs default: Roger. You can paste another voice ID.
-					</p>
-				</div>
-			</div>
-		{/if}
-		<div class="flex gap-6">
-			<label><input type="checkbox" bind:checked={mic} disabled={offline} /> Microphone</label
-			><label
-				><input type="checkbox" bind:checked={camera} disabled={live && provider !== 'google'} /> Camera
-				· latest frame once per second</label
-			>
-		</div>
-	</fieldset>
+		</fieldset>
+	</details>
+	{#if cameraSource === 'room'}<RoomSimulator bind:canvas={roomCanvas} />{/if}
 	<div class="flex items-center gap-3">
 		{#if phase === 'Connecting'}<button onclick={() => void disconnect()}>Cancel connection</button
 			>{:else if !connected}<button disabled={!ready} onclick={() => void connect()}>Connect</button
@@ -517,7 +639,7 @@
 		</div>
 	{/if}
 	{#if error}<p role="alert" class="rounded-lg bg-red-50 p-3 text-red-800">{error}</p>{/if}
-	{#if camera}<video
+	{#if cameraSource === 'webcam'}<video
 			bind:this={video}
 			autoplay
 			muted
@@ -542,6 +664,11 @@
 			class="flex-1"
 		/><button disabled={!connected || !text.trim()}>Send</button>
 	</form>
+	{#if !live && (camera || frameRequests.length)}<FrameReview
+			requests={frameRequests}
+			bind:selected={frameRequestIndex}
+			dropped={droppedFrameRequests}
+		/>{/if}
 	<div class="grid gap-6 md:grid-cols-2">
 		<section>
 			<h2 class="mb-3 font-medium">Conversation</h2>

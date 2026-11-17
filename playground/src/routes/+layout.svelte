@@ -9,6 +9,7 @@
 		{ href: '/', label: 'Chat' },
 		{ href: '/speech', label: 'Voice' },
 		{ href: '/cascade', label: 'Cascade' },
+		{ href: '/simulator', label: 'Simulator' },
 		{ href: '/speech-to-speech', label: 'Live voice' }
 	];
 </script>
@@ -19,7 +20,7 @@
 </svelte:head>
 
 <header class="border-b border-neutral-200 bg-white">
-	<div class="flex w-full items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
+	<div class="flex w-full flex-wrap items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
 		<a href="/" class="shrink-0 text-sm font-semibold tracking-tight text-neutral-900">
 			AIWrapper playground
 		</a>

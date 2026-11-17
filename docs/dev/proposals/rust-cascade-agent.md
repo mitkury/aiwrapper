@@ -74,10 +74,11 @@ invalidate affected checkpoints. Keep full durable history apart from compressed
 request projections. Preserve actual tool outcomes through interruption; unresolved
 tool groups must never be repaired with invented results.
 
-Camera frames currently use latest-at-turn-commit semantics. Extend request
-projection to prune old tool-result images as well as old camera images. Retain
-text, tool/result pairing, image provenance and durable history. Test supported
-vision models and reject unsupported image combinations explicitly.
+Camera context now supports bounded recent-frame selection and a 3D simulator;
+see the [usage and validation guide](../../native-vision.md). Future work can
+prune old tool-result images with explicit provenance and retention policies.
+Preserve text and tool/result pairing. Test more supported vision models and
+reject unsupported image combinations explicitly.
 
 ## Measurement and diagnostics
 

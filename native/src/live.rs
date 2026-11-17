@@ -9,7 +9,9 @@ use serde_json::Value;
 #[path = "live-agent.rs"]
 mod agent;
 pub use agent::*;
+mod camera;
 mod cascade;
+pub use camera::{CameraContext, CameraFrame};
 mod socket;
 pub use cascade::CascadeConfig;
 use cascade::{CascadeReceiver, CascadeSender};
@@ -94,6 +96,16 @@ impl LiveSender {
         match &self.backend {
             SenderBackend::Socket(sender) => sender.append_image(data, mime).await,
             SenderBackend::Cascade(sender) => sender.append_image(data, mime).await,
+        }
+    }
+    /// Append timestamped camera input to a Cascade session. Native live protocols
+    /// use append_image and their own streaming context policy instead.
+    pub async fn append_camera_frame(&self, frame: &CameraFrame) -> Result<()> {
+        match &self.backend {
+            SenderBackend::Cascade(sender) => sender.append_camera_frame(frame).await,
+            SenderBackend::Socket(_) => Err(Error::Invalid(
+                "timestamped camera history requires a cascade session".into(),
+            )),
         }
     }
     pub async fn send_tool_results(&self, results: &[LiveToolResult]) -> Result<()> {

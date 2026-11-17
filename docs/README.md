@@ -12,6 +12,7 @@
 - [Speech](speech.md): PCM, transcription, synthesis
 - [Realtime agents](realtime-agent.md): STT → LLM → TTS orchestration
 - [Playground](../playground/README.md): run the browser app
+- [Camera context and 3D simulator](native-vision.md): bounded frame selection and visual testing
 - [Rust cascade playground](native-cascade.md): native voice pipeline, setup and limits
 
 ## Development
@@ -26,7 +27,7 @@
 
 ## Proposals and remaining work
 
-- [Bounded visual context and room simulator](dev/proposals/visual-context.md)
+- [Visual context experiments](dev/proposals/visual-context.md)
 
 - [Rust cascade voice sessions](dev/proposals/rust-cascade-agent.md): Rust STT → LLM → TTS with browser playground validation
 - [Complete the native Rust runtime](dev/proposals/native-rust.md)

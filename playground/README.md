@@ -25,12 +25,18 @@ development app; reconnect sessions after a rebuild.
 | Chat | `/` | Language providers, ChatAgent, local tools, message inspection |
 | Voice | `/speech` | Recorded OpenAI transcription; OpenAI or ElevenLabs synthesis |
 | Cascade | `/cascade` | Deepgram Flux → selected language provider → OpenAI/ElevenLabs speech |
+| Simulator | `/simulator` | Walkable 3D room → Rust frame selection → Cascade |
 | Live voice | `/speech-to-speech` | OpenAI Realtime or Gemini Live through LiveSession/LiveAgent |
 
 `/realtime` redirects to Cascade. The duplicate TypeScript pipeline and its API
 routes are removed. xAI Voice, Azure Voice Live, Nova Sonic, and OpenAI/ElevenLabs
 realtime transcription are not exposed here until native adapters support them.
 The Voice page accepts a voice ID; the old account voice-list endpoint is removed.
+
+The [visual simulator guide](../docs/native-vision.md) covers room controls,
+latest-only versus recent frame history, exact request-frame previews, and limits.
+The simulator starts with the microphone off and provider settings collapsed.
+Connect to begin sampling; offline mode tests plumbing without recognizing objects.
 
 ## Configuration
 

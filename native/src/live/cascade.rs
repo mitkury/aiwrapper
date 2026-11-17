@@ -1,4 +1,5 @@
 //! A bounded STT → language provider → speech pipeline. LiveAgent executes tools.
+use super::camera::{CameraBuffer, prune};
 use super::*;
 use crate::speech_stream::{SpeechOutput, TranscriptionEvent, TranscriptionSession};
 use futures_util::StreamExt;
@@ -20,6 +21,7 @@ pub struct CascadeConfig {
     pub conversation: Conversation,
     pub tools: Vec<ToolDefinition>,
     pub cancellation: CancellationToken,
+    pub camera_context: CameraContext,
 }
 impl CascadeConfig {
     pub fn new(language: Arc<dyn LanguageProvider>, speech: Arc<dyn SpeechOutput>) -> Self {
@@ -27,6 +29,7 @@ impl CascadeConfig {
             language,
             speech,
             transcription: None,
+            camera_context: CameraContext::Latest,
             conversation: Conversation::default(),
             tools: vec![],
             cancellation: CancellationToken::new(),
@@ -86,6 +89,7 @@ pub(super) struct CascadeSender {
 enum Command {
     Text(String, Role, bool),
     Image(LiveImage),
+    Camera(CameraFrame),
     Results(Vec<LiveToolResult>),
     Interrupt,
     Played(String, usize, u64),
@@ -140,6 +144,10 @@ impl CascadeSender {
             return Err(Error::Invalid("camera image exceeds 2 MiB".into()));
         }
         self.request(Command::Image(image)).await
+    }
+    pub async fn append_camera_frame(&self, frame: &CameraFrame) -> Result<()> {
+        frame.validate()?;
+        self.request(Command::Camera(frame.clone())).await
     }
     pub async fn send_tool_results(&self, results: &[LiveToolResult]) -> Result<()> {
         self.request(Command::Results(results.to_vec())).await
@@ -248,7 +256,8 @@ struct Actor {
     pending: BTreeMap<String, String>,
     seen_calls: HashSet<String>,
     queued: VecDeque<Message>,
-    latest: Option<LiveImage>,
+    camera: CameraBuffer,
+    started: tokio::time::Instant,
     last_turn: Option<u64>,
     rounds: usize,
     continuation: Option<tokio::time::Instant>,
@@ -262,6 +271,8 @@ impl Actor {
     ) -> Self {
         let (work_tx, work_rx) = mpsc::channel(128);
         Self {
+            camera: CameraBuffer::new(config.camera_context),
+            started: tokio::time::Instant::now(),
             config,
             output,
             cancel,
@@ -273,7 +284,6 @@ impl Actor {
             pending: BTreeMap::new(),
             seen_calls: HashSet::new(),
             queued: VecDeque::new(),
-            latest: None,
             last_turn: None,
             rounds: 0,
             continuation: None,
@@ -358,8 +368,20 @@ impl Actor {
                 Ok(())
             }
             Command::Image(image) => {
-                self.latest = Some(image);
-                self.diagnostic(json!({"kind":"image-received"}))
+                let event = self.camera.push(
+                    None,
+                    Some(image),
+                    self.started.elapsed().as_millis() as u64,
+                )?;
+                self.diagnostic(event)
+            }
+            Command::Camera(frame) => {
+                let event = self.camera.push(
+                    Some(frame),
+                    None,
+                    self.started.elapsed().as_millis() as u64,
+                )?;
+                self.diagnostic(event)
             }
             Command::Interrupt => self.interrupt(),
             Command::Played(id, index, ms) => {
@@ -475,13 +497,8 @@ impl Actor {
             ));
         }
         self.interrupt()?;
-        if let Some(image) = &self.latest {
-            message.items.push(Item::Image {
-                url: None,
-                base64: Some(image.data.clone()),
-                mime_type: Some(image.mime_type.clone()),
-            });
-        }
+        self.camera
+            .attach(&mut message, self.started.elapsed().as_millis() as u64);
         if !self.pending.is_empty() {
             self.queued.push_back(message);
             return self.diagnostic(json!({"kind":"waiting-for-tools"}));
@@ -535,14 +552,25 @@ impl Actor {
                 "cascade conversation/round limit reached; start a new session".into(),
             ));
         }
-        // Camera frames are transient context. Strip old camera images only from the request.
-        let mut conversation = self.config.conversation.clone();
-        let last = conversation.messages.len().saturating_sub(1);
-        for (index, message) in conversation.messages.iter_mut().enumerate() {
-            if index < last && message.role == Role::User {
-                message.items.retain(|i| !matches!(i, Item::Image { .. }));
+        // Keep this turn's frozen images through tool continuations, but release
+        // camera payloads from older turns. Caller/tool images are unrelated.
+        let last_user = self
+            .config
+            .conversation
+            .messages
+            .iter()
+            .rposition(|m| m.role == Role::User);
+        for (index, message) in self.config.conversation.messages.iter_mut().enumerate() {
+            if Some(index) != last_user {
+                prune(message);
             }
         }
+        let mut conversation = self.config.conversation.clone();
+        let camera = last_user
+            .and_then(|i| conversation.messages.get(i))
+            .and_then(|m| m.meta.as_ref())
+            .and_then(|m| m.get("cascadeCamera"))
+            .cloned();
         conversation.messages.retain(|m| !m.items.is_empty());
         conversation.validate()?;
         if serde_json::to_vec(&self.config.conversation)?.len() > 8 * 1024 * 1024 {
@@ -550,7 +578,7 @@ impl Actor {
                 "conversation exceeds 8 MiB; start a new session".into(),
             ));
         }
-        self.diagnostic(json!({"kind":"request","conversation":conversation,"tools":self.config.tools,"maxTokens":1024}))?;
+        self.diagnostic(json!({"kind":"request","camera":camera,"conversation":conversation,"tools":self.config.tools,"maxTokens":1024}))?;
         let generation = self.generation.load(Ordering::SeqCst);
         self.work_cancel = self.cancel.child_token();
         let cancel = self.work_cancel.clone();

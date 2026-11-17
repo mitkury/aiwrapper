@@ -136,8 +136,21 @@ fn interactive_reply(conversation: &Conversation, options: &ChatOptions) -> Resu
         return Ok(Message::assistant(output.join("\n\n")));
     }
     let text = last.answer();
+    // A multimodal message can contain image captions after the command. Keep
+    // those separate from the explicit offline command's JSON arguments.
+    let command_text = if last.items.iter().any(|i| matches!(i, Item::Image { .. })) {
+        last.items
+            .iter()
+            .find_map(|i| match i {
+                Item::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .unwrap_or(&text)
+    } else {
+        &text
+    };
     if last.role == Role::User
-        && let Some(command) = text.trim().strip_prefix("tool:")
+        && let Some(command) = command_text.trim().strip_prefix("tool:")
     {
         let parsed =
             command

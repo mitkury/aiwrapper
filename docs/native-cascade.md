@@ -52,8 +52,11 @@ Changing `.env` restarts the development server; reconnect afterward.
 **Mute mic** disables the capture track and asks Flux to finish the active turn.
 **Finish speaking** requests a provider turn boundary. **Disconnect** stops
 capture, playback, and the native process. Camera input is opt-in: a JPEG up to
-640 pixels wide is sampled once per second; only the latest frame at turn commit
-is attached. Select a vision-capable language model for camera testing.
+640 pixels wide is sampled once per second. Choose latest-frame-only or bounded
+recent history (up to 12 frames per turn). The library defaults to latest-only;
+the playground defaults to recent history. Select a vision-capable language model.
+See [camera context and the 3D simulator](native-vision.md) for selection, retention
+and exact request-frame inspection.
 
 The microphone meter shows captured input level, independently of transcription.
 Its status distinguishes muted/unavailable input, paused or stalled capture, and

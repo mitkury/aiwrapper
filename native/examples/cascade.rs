@@ -10,6 +10,8 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 struct Config {
     offline: bool,
     #[serde(default)]
+    camera_context: CameraContext,
+    #[serde(default)]
     live: bool,
     #[serde(default)]
     microphone: bool,
@@ -23,11 +25,26 @@ struct Config {
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 enum Command {
-    Text { text: String },
-    Audio { samples: Vec<i16> },
-    Image { data: String, mime: String },
+    Text {
+        text: String,
+    },
+    Audio {
+        samples: Vec<i16>,
+    },
+    Image {
+        data: String,
+        mime: String,
+        #[serde(default)]
+        id: Option<u64>,
+        #[serde(default, rename = "capturedAtMs")]
+        captured_at_ms: Option<u64>,
+    },
     Interrupt,
-    Played { item: String, index: usize, ms: u64 },
+    Played {
+        item: String,
+        index: usize,
+        ms: u64,
+    },
     EndAudio,
     Close,
 }
@@ -131,7 +148,31 @@ async fn run() -> Result<()> {
                         })
                         .await
                 }
-                Command::Image { data, mime } => sender.append_image(&data, &mime).await,
+                Command::Image {
+                    data,
+                    mime,
+                    id,
+                    captured_at_ms,
+                } => match (id, captured_at_ms) {
+                    (Some(id), Some(captured_at_ms)) if !live => {
+                        sender
+                            .append_camera_frame(&CameraFrame {
+                                id,
+                                captured_at_ms,
+                                image: LiveImage {
+                                    data,
+                                    mime_type: mime,
+                                },
+                            })
+                            .await
+                    }
+                    (None, None) | (Some(_), Some(_)) if live || id.is_none() => {
+                        sender.append_image(&data, &mime).await
+                    }
+                    _ => Err(Error::Invalid(
+                        "camera frame requires both id and capturedAtMs".into(),
+                    )),
+                },
                 Command::Interrupt => sender.interrupt().await,
                 Command::Played { item, index, ms } => {
                     sender.truncate_audio(&item, index, ms).await
@@ -228,7 +269,8 @@ async fn connect(config: Config, tools: &[Tool], cancel: CancellationToken) -> R
     };
     let mut cascade = CascadeConfig::new(language, speech);
     cascade.cancellation = cancel.clone();
-    cascade.conversation.instructions="You are a concise voice assistant. Answer in the user's language. Keep replies short, use the latest image when relevant, and call tools when needed.".into();
+    cascade.camera_context = config.camera_context;
+    cascade.conversation.instructions="You are a concise voice assistant. Answer in the user's language. Keep replies short, use timestamped camera frames when relevant; distinguish earlier observations from the latest view and do not infer events between sampled frames, and call tools when needed.".into();
     cascade.tools = tools.iter().map(|t| t.definition.clone()).collect();
     if !config.offline && config.microphone {
         cascade.transcription = Some(

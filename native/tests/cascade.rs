@@ -586,3 +586,137 @@ async fn tool_followup_waits_for_preamble_playback_instead_of_cutting_it_off() {
     synthesized(&mut s).await;
     s.sender.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn camera_batch_is_frozen_through_tools_and_old_payloads_are_pruned() {
+    let seen = Arc::new(Mutex::new(vec![]));
+    let requests = seen.clone();
+    let language = MockLang::from_fn(move |conversation, _| {
+        let mut requests = requests.lock().unwrap();
+        requests.push(conversation.clone());
+        if requests.len() == 1 {
+            Ok(Message::new(
+                Role::Assistant,
+                vec![Item::Tool {
+                    call_id: "camera-tool".into(),
+                    name: "lookup".into(),
+                    arguments: json!({}),
+                    thought_signature: None,
+                }],
+            ))
+        } else {
+            Ok(Message::assistant("Done."))
+        }
+    });
+    let mut config = CascadeConfig::new(Arc::new(language), Arc::new(MockSpeechOutput));
+    config.camera_context = CameraContext::Recent;
+    config.conversation.messages.push(Message::new(
+        Role::User,
+        vec![Item::Image {
+            url: Some("https://example.com/reference.png".into()),
+            base64: None,
+            mime_type: None,
+        }],
+    ));
+    let mut session = config.connect().unwrap();
+    let frame = |id| CameraFrame {
+        id,
+        captured_at_ms: id * 1000,
+        image: LiveImage {
+            data: "YWJj".into(),
+            mime_type: "image/jpeg".into(),
+        },
+    };
+    for id in 1..=3 {
+        session
+            .sender
+            .append_camera_frame(&frame(id))
+            .await
+            .unwrap();
+    }
+    session
+        .sender
+        .send_realtime_text("First view")
+        .await
+        .unwrap();
+    loop {
+        if next(&mut session)
+            .await
+            .iter()
+            .any(|e| matches!(e, LiveEvent::ToolCall { .. }))
+        {
+            break;
+        }
+    }
+    // Arrives while the tool is running: this must not change its continuation.
+    session.sender.append_camera_frame(&frame(4)).await.unwrap();
+    session
+        .sender
+        .send_tool_results(&[LiveToolResult {
+            call_id: "camera-tool".into(),
+            name: "lookup".into(),
+            result: json!("actual"),
+            images: vec![],
+        }])
+        .await
+        .unwrap();
+    synthesized(&mut session).await;
+    session
+        .sender
+        .send_realtime_text("Next view")
+        .await
+        .unwrap();
+    synthesized(&mut session).await;
+    {
+        let requests = seen.lock().unwrap();
+        assert_eq!(requests.len(), 3);
+        for request in &requests[..2] {
+            let user = request
+                .messages
+                .iter()
+                .rev()
+                .find(|m| m.role == Role::User)
+                .unwrap();
+            assert_eq!(
+                user.items
+                    .iter()
+                    .filter(|i| matches!(i, Item::Image { .. }))
+                    .count(),
+                3
+            );
+            assert_eq!(
+                user.meta.as_ref().unwrap()["cascadeCamera"]["frames"][2]["id"],
+                3
+            );
+        }
+        let last = &requests[2];
+        assert!(matches!(
+            last.messages[0].items[0],
+            Item::Image { url: Some(_), .. }
+        ));
+        assert_eq!(
+            last.messages[1].items,
+            vec![Item::Text {
+                text: "First view".into()
+            }]
+        );
+        let user = last
+            .messages
+            .iter()
+            .rev()
+            .find(|m| m.role == Role::User)
+            .unwrap();
+        assert_eq!(
+            user.items
+                .iter()
+                .filter(|i| matches!(i, Item::Image { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(
+            user.meta.as_ref().unwrap()["cascadeCamera"]["frames"][0]["id"],
+            4
+        );
+    }
+    session.sender.close().await.unwrap();
+}
