@@ -28,7 +28,7 @@
 	import { TurnTimeline, type TurnTiming } from '$lib/realtime/turn-timeline';
 	import { providerConfigs, type ProviderId } from '$lib/provider-config';
 	import { resampleToPcm } from '$lib/realtime/pcm';
-	import { CascadePlayer, PlaybackQueueFull, type Cursor } from '$lib/realtime/cascade-player';
+	import { CascadePlayer, type Cursor } from '$lib/realtime/cascade-player';
 	let timelineView = $state<{ inspect: (turnId: number) => void }>();
 	let { live = false, simulator = false }: { live?: boolean; simulator?: boolean } = $props();
 	let liveDefaults: Record<string, { model: string; voice: string }> = {};
@@ -111,22 +111,27 @@
 	let timeline = new TurnTimeline((value) => (turns = value));
 	const elapsed = () => performance.now() - started;
 	function log(label: string, detail: unknown) {
+		// Full payloads belong only to the bounded request inspector. History and
+		// tool diagnostics must not retain additional copies of camera images.
+		const preview = readableRequest(detail) ?? 'null';
+		const previousLength = entries.length;
 		entries = [
 			...entries.slice(-299),
 			{
 				time: ((performance.now() - started) / 1000).toFixed(2),
 				label,
 				detail:
-					label === 'request' || label === 'provider-request'
-						? readableRequest(detail)
-						: JSON.stringify(detail, null, 2)
+					preview.length > 64 * 1024
+						? `${preview.slice(0, 64 * 1024)}\n… Event preview truncated. Inspect the request for its full payload.`
+						: preview
 			}
 		];
-		while (
-			entries.length > 1 &&
-			entries.reduce((size, e) => size + e.detail.length, 0) > 8 * 1024 * 1024
-		)
+		while (entries.reduce((size, e) => size + e.detail.length * 2, 0) > 8 * 1024 * 1024)
 			entries = entries.slice(1);
+		if (selected !== null) {
+			const dropped = previousLength + 1 - entries.length;
+			selected = selected >= dropped ? selected - dropped : null;
+		}
 	}
 	function fail(e: unknown) {
 		error =
@@ -145,17 +150,23 @@
 			throw new Error('Browser input queue overflow');
 		}
 		const target = id;
+		const session = connection;
 		const task = tail.then(async () => {
+			if (id !== target || connection !== session) return;
 			const response = await fetch(`/api/cascade/${target}`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(value)
+				body: JSON.stringify(value),
+				signal: session?.signal
 			});
 			if (!response.ok) throw new Error((await response.json()).error || 'Input failed');
 		});
 		tail = task.catch(() => {});
 		try {
 			await task;
+		} catch (error) {
+			// A retired session cannot fail (and disconnect) the current one.
+			if (id === target && connection === session) throw error;
 		} finally {
 			queued--;
 		}
@@ -174,9 +185,9 @@
 		const at = elapsed();
 		if (!live) {
 			if (e.type === 'speech-started') timeline.begin('speech', at, e.id);
-			if (e.type === 'transcript' && e.text) {
+			if (e.type === 'transcript' && (e.text || e.final_result)) {
 				if (e.input) timeline.input(e.id, e.text, e.final_result, at);
-				else timeline.mark(e.id, 'text', at);
+				else if (e.text) timeline.mark(e.id, 'text', at);
 			}
 			if (e.type === 'response-ended') timeline.mark(undefined, 'modelEnd', at);
 		}
@@ -187,14 +198,7 @@
 				const index = e.content_index ?? 0;
 				if (live && e.item_id && (liveCursor?.item !== item || liveCursor?.index !== index))
 					liveCursor = { type: 'played', item, index, ms: 0 };
-				try {
-					player?.enqueue(item, index, e.frame.samples, e.frame.sampleRate);
-				} catch (e) {
-					if (!(e instanceof PlaybackQueueFull)) throw e;
-					error = e.message;
-					log('playback-limit', { message: error });
-					void stopReply().catch(fail);
-				}
+				player?.enqueue(item, index, e.frame.samples, e.frame.sampleRate);
 			}
 			return;
 		}
@@ -508,8 +512,8 @@
 		acceptAudio = false;
 		clearPlayback();
 		if (!live) timeline.stop(elapsed(), false);
-		if (!live || provider === 'openai') await command({ type: 'interrupt' });
 		phase = 'Listening';
+		if (!live || provider === 'openai') await command({ type: 'interrupt' });
 	}
 	async function send() {
 		if (!text.trim()) return;

@@ -11,13 +11,6 @@ type Chunk = {
 	observed: boolean;
 };
 export type PlaybackMoment = { item: string; kind: 'start' | 'end' | 'stop'; at: number };
-export class PlaybackQueueFull extends Error {
-	constructor() {
-		super(
-			'Reply stopped because buffered speech reached its limit. The session is still connected.'
-		);
-	}
-}
 export class CascadePlayer {
 	private context = new AudioContext();
 	private next = 0;
@@ -58,7 +51,7 @@ export class CascadePlayer {
 			this.bufferedBytes + bytes > 16 * 1024 * 1024 ||
 			this.chunks.size >= 4096
 		)
-			throw new PlaybackQueueFull();
+			throw new Error('Playback buffer limit reached. Reconnect to start a new session.');
 		const key = `${item}:${index}`;
 		const offset = this.totals.get(key) || 0;
 		this.totals.set(key, offset + samples.length);

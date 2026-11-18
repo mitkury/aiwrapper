@@ -103,6 +103,8 @@ export class TurnTimeline {
 	stop(at: number, includePending = true, reason: StopReason = 'interrupted') {
 		for (const turn of this.turns) {
 			if (!includePending && !turn.rounds.length) continue;
+			// A finalized empty transcript has no model request to wait for or stop.
+			if (!turn.rounds.length && turn.ready !== undefined && !turn.label.trim()) continue;
 			let classified = false;
 			for (const round of turn.rounds) {
 				if (round.stopped !== undefined && round.stopReason === undefined) {

@@ -1,6 +1,19 @@
 import { describe, it, expect, vi } from 'vitest';
 import { TurnTimeline, finished } from './turn-timeline';
 describe('bounded turn timeline', () => {
+	it('finishes a sound-only turn without labeling it interrupted on later input or shutdown', () => {
+		const t = new TurnTimeline(() => {});
+		t.begin('speech', 100, 'sound');
+		t.input('sound', '', true, 500);
+		t.stop(600);
+		t.begin('typed', 601, undefined, 'next');
+		t.input(undefined, 'next', true, 610);
+		t.request('reply', 620, 0);
+		t.stop(1000, true, 'error');
+		expect(t.turns[0].ready).toBe(500);
+		expect(t.turns[0].stopped).toBeUndefined();
+		expect(t.turns[1].stopReason).toBe('error');
+	});
 	it('groups streaming input and tool rounds, without updates for each audio packet', () => {
 		const change = vi.fn();
 		const t = new TurnTimeline(change);

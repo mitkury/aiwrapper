@@ -89,7 +89,9 @@
 				: round?.play !== undefined
 					? 'Playing reply'
 					: turn?.ready !== undefined
-						? 'Processing'
+						? turn.label.trim()
+							? 'Processing'
+							: 'No words recognized'
 						: 'Receiving input'
 	);
 </script>
@@ -155,7 +157,10 @@
 								: 'Waiting for the model request. The input is still being processed.'}
 						</p>{/if}
 				{:else}
-					<p class="utterance">“{turn.label || 'Waiting for a transcript…'}”</p>
+					<p class="utterance">
+						“{turn.label ||
+							(turn.ready !== undefined ? 'No words recognized' : 'Waiting for a transcript…')}”
+					</p>
 					<div class="metrics">
 						<div>
 							<small

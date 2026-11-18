@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CascadePlayer, PlaybackQueueFull } from './cascade-player';
+import { CascadePlayer } from './cascade-player';
 
 class TestAudioContext {
 	currentTime = 0;
@@ -54,7 +54,7 @@ describe('cascade playback bursts', () => {
 	it('checks incoming duration before allocating and can play again after clearing', () => {
 		const player = new CascadePlayer(vi.fn());
 		expect(() => player.enqueue('huge', 0, Array(121 * 8000).fill(0), 8000)).toThrow(
-			PlaybackQueueFull
+			'Playback buffer limit reached'
 		);
 		expect(context.sources).toHaveLength(0);
 		player.clear();

@@ -74,8 +74,11 @@ audio; it is not proof that the transcription provider recognized speech.
 Capture status changes are retained as `microphone-status` events. A disconnected
 microphone ends the session with an explicit error.
 
-The event list retains up to 300 events / 8 MiB after disconnect. Select `request`
-to inspect the neutral conversation and tools passed to the language provider,
+The event list retains up to 300 events / 8 MiB after disconnect. Image bytes
+are shortened in every event preview; individual previews are capped at 64 Ki
+characters. Full retained requests remain available in the request inspector.
+Select `request` to inspect the neutral conversation and tools passed to the
+language provider,
 `playback-cut` to inspect an interruption, `history` to see the corrected context, `tts-input` for each exact text segment
 submitted to synthesis, or tool events to inspect results. `microphone-settings`
 shows browser-reported echo cancellation and noise suppression settings. The
@@ -241,8 +244,8 @@ cancels owned work without cancelling the caller's parent token.
 
 Browser playback accepts speech generated ahead of listening, up to 120 seconds,
 16 MiB of decoded samples, or 4,096 chunks. Reaching a playback limit stops the
-current reply, records a `playback-limit` event, and keeps the session connected.
-Only audio actually played is acknowledged. Gemini Live stops local playback;
+session with an explicit error and requires reconnecting. It is not labeled as
+a user interruption. Only audio actually played is acknowledged. Gemini Live stops local playback;
 it does not support explicit generation cancellation through this adapter.
 
 The example host uses one persistent Rust process per session over bounded
