@@ -1,132 +1,81 @@
-# Completing the native Rust runtime
+# Rust backend and thin clients
 
-Status: the first Rust implementation exists in `native/`. This proposal covers
-remaining migration work. Implemented APIs, integration examples and the current
-compatibility matrix are in the [native runtime guide](../../native.md).
+Status: proposal · updated November 17, 2026. This replaces the earlier feature-by-feature
+porting plan. Current behavior and provider coverage are in the [native guide](../../native.md).
 
-## Direction
+## Where we are
 
-Make Rust the sole agent runtime, covering the needed runtime features with a
-smaller implementation. Retire the TypeScript runtime as usable Rust replacements
-land; keep TypeScript for browser interfaces and thin clients where useful.
-Do not build new runtime features twice. Keep the existing npm package usable
-during migration, with removal decisions based on tested replacement paths.
-Embedding must not require a Node process, separate AIWrapper server, frontend
-framework or application-specific service.
+The playground already runs inference, tools, speech and agent sessions in Rust.
+It still needs a Node/SvelteKit server to read configuration, validate requests,
+launch Rust subprocesses and relay streams. Chat also imports message classes
+and types from the old TypeScript runtime, and model selection imports its catalog.
+The separate TypeScript provider/agent library still ships; removing the bridge
+alone would not retire it.
 
-The first version establishes three boundaries: neutral conversation values,
-provider protocol translation, and a tool loop. Hosts supply credentials, tools,
-persistence, networking overrides and frontend transport. An injected HTTP
-request/stream interface and an injected live JSON socket cover host-managed
-networking without a service framework. Default implementations provide HTTPS
-and WebSockets. Native Rust callers use the crate directly.
+## Proposed shape
 
-Consolidate related protocols: OpenAI-compatible providers should remain endpoint
-presets over one adapter. Keep Responses, Anthropic, Gemini, Ollama and Cohere
-translations explicit. Do not abstract away real differences in signed reasoning,
-image tool results, provider-owned tools or live interruption semantics.
+| Part | Responsibility |
+| --- | --- |
+| Rust crate | Providers, messages, tool execution, conversation state, cascade/live orchestration, cancellation and diagnostics. Embed directly in any Rust backend. |
+| Rust host example | Run the same crate behind HTTP and WebSocket endpoints. Own credentials, session lifetimes, request limits and application integration. Start with one runnable example; extract a reusable hosting crate only when needed. |
+| Thin JavaScript client | Typed requests/events, connection lifecycle, streaming and cancellation. Optional browser helpers capture media, resample audio, play output and report what actually played. |
+| Playground | UI, simulator, permissions, timeline and request inspection. Use the client as an ordinary consumer. |
 
-## Remaining feature migration
+The client owns no provider protocols, server tools, model history or provider
+keys. Keep UI/simulator code out of it. Rust applications need neither this client
+nor Node bindings or a WASM runtime.
 
-1. Add optional AWS adapters for Bedrock ConverseStream and Nova Sonic. Reuse the
-   official Rust AWS SDK for credential chains, SigV4, retries and event streams;
-   do not reproduce AWS signing. Keep this dependency out of builds that do not
-   use AWS. Translate to the same messages and live events.
-2. Port realtime STT for OpenAI and ElevenLabs (Deepgram Flux is implemented), followed by
-   incremental ElevenLabs TTS. Retain explicit sample rates, bounded buffers,
-   utterance commit rules and observable transport errors.
-3. Extend the initial continuous STT → LLM → TTS implementation following the
-   [Rust cascade proposal](rust-cascade-agent.md). Reuse `LiveSession` and
-   `LiveAgent` for session handling and tool execution; call the language provider
-   directly without nesting a second agent loop. Handle barge-in without replaying
-   tool side effects. Playback cursors remain host-owned. A turn-based
-   transcription demo alone would not be parity.
-4. Add xAI and Azure live presets/protocol differences over the shared socket
-   boundary. Preserve manual tool delivery, connection errors and truncation
-   capabilities explicitly. Test each protocol before advertising compatibility.
-5. Finish image generation's standalone facade and the patch helper.
+Existing Rust backends supply their own authentication, tools and persistence.
+The example host starts on loopback; remote hosting needs application authorization
+and tool policy. Editable prompts and raw payloads remain explicit debug features.
 
-## Tighten conversation replay
+## Small migration steps
 
-Conversation replay needs a focused follow-up before broader adoption:
+1. **Make the client boundary independent.** Use plain serializable message/event
+   values instead of importing `LangMessage`/`LangMessages` or root package types.
+   Get models/configuration from Rust. Extract the client from working playground
+   calls rather than designing an SDK framework.
+2. **Replace the development bridge.** Build one Rust host example with streamed
+   HTTP chat/speech and a WebSocket per live/cascade session. Import the crate
+   directly instead of spawning a process per request. Preserve session IDs,
+   request/frame inspection, playback acknowledgements and cancellation. Use a
+   small versioned wire protocol. Vite can proxy to Rust during development; built
+   static assets must work without a Node server.
+3. **Switch the playground and remove old paths.** Delete SvelteKit API handlers,
+   server configuration loaders, subprocess adapters and their launch plumbing
+   after the Rust host passes the same flows. Node may remain an asset-build and
+   test tool. Separately retire `src/` provider/agent code and its package build
+   once frontend imports and supported integrations no longer depend on it.
 
-Assistant messages contain both neutral items and raw provider replay data in
-`meta`. The raw form preserves signatures and encrypted reasoning, but currently
-takes precedence even after a caller edits the neutral items. This gives one
-message two competing sources of truth. First detect edited messages and reject
-stale replay data explicitly; then retain only the opaque provider fields that
-cannot be reconstructed. Cover edits, serialization and signed tool replay
-before changing the persisted format.
+Keep existing npm releases available. The client needs a new package or explicit
+major-version migration; it is not a drop-in provider-library replacement.
 
-## Compression belongs in the reusable runtime
+## Scope decisions before deletion
 
-Text history compression and native-live context management are different.
-The first Rust version adds optional text compression to the agent: full durable
-history stays intact, while model requests use a summary plus recent complete
-message groups. Hosts can persist checkpoints before they take effect. A digest
-prevents applying a checkpoint to unrelated or edited history.
+Do not port every old feature automatically. Use the [compatibility matrix](../../native.md#compatibility-and-remaining-work)
+to decide which gaps need a Rust implementation and which to retire: AWS Bedrock/
+Nova Sonic, additional live/STT adapters, incremental TTS, standalone image helpers
+and the patch helper. Document those decisions before dropping the corresponding
+TypeScript APIs. Keep existing Rust-supported Chat, Voice, Cascade, Simulator and
+Live voice working throughout.
 
-Next, support optional exact token estimators or catalog-informed budgets only
-where callers need them. Keep conservative estimation as the default. Consider
-an explicit retry after a verified context rejection, but only before any
-streamed output or tool execution. Never turn a network failure into a replay.
-
-For live sessions, preserve provider compression/resumption controls and expose
-lifecycle events. Do not run text summarization over an active audio stream or
-claim that queued audio was heard. Application playback and persistence must
-provide that evidence.
+Remove duplication and fix behavior rather than reorganizing code for appearance.
+One larger issue still needs separate work:
+raw provider replay metadata can override edited neutral messages. Detect or
+reconcile those edits before presenting persisted conversations as freely editable.
 
 ## WebRTC and frontend integration
 
-WebRTC belongs to the host media layer. It decodes microphone audio to PCM and
-encodes model PCM for playback; it also owns signaling, ICE, authentication,
-resampling and pacing. AIWrapper's live interface accepts PCM and emits events,
-so the same crate works with WebRTC, an application WebSocket or local audio.
-Adding libwebrtc or a WebRTC server to the core would make every embedding host
-pay for a transport it may not use.
+Start with HTTP/WebSocket to replace the bridge directly. WebRTC can later adapt
+the same PCM/frame session interface. Keep signaling and media routing outside
+the core. A server crate, durable recovery and remote tool execution can wait.
 
-After the cascade and browser session inspector are usable, consider an optional
-Rust executable that hosts agents and exposes client connections. It would embed
-the same runtime and own authentication, session lifecycle and transports. WebRTC
-can be added at that host boundary later. Neither hosting nor WebRTC is required
-for the first cascade implementation.
+## Done when
 
-An existing Rust server can map the serializable agent events to its own HTTP,
-SSE or WebSocket endpoints. Keep authorization and tool permissions there. A
-frontend should send a model choice and conversation input, not API keys, trusted
-instructions, arbitrary outbound URLs or executable tool definitions.
-
-## Dependency and size policy
-
-Prefer established Rust libraries for TLS, sockets, JSON, schema validation and
-AWS signing. The first version replaces the JavaScript fetch/ws/AJV stack with
-reqwest, tokio-tungstenite, serde_json and jsonschema. Use serde values or optional
-host-side schemars instead of duplicating Zod. Reject malformed structured output
-rather than carrying a permissive JSON repair layer across languages.
-
-Compare authored runtime source separately from generated catalogs, tests,
-examples, lockfiles and dependencies. The first version is already smaller than
-the TypeScript runtime, but it implements fewer features; that is not a completed
-parity benchmark. Measure release binary size, startup and concurrent sessions
-once voice parity is in place. Rust will not remove remote provider latency.
-
-Keep code size under review as ports land. Remove duplicate adapters and old
-migration scaffolding after compatibility is proven, rather than adding a generic
-provider framework. Native bindings or a thin npm client are optional future
-work; they must reuse the Rust runtime rather than preserve a parallel agent
-implementation.
-
-## Acceptance before calling the migration complete
-
-Every advertised provider needs deterministic protocol fixtures, cancellation
-and failure coverage, plus a separately run credential-backed smoke test.
-Agent tests must prove that completed side effects survive cancellation and that
-resumption cannot silently execute a tool twice. Compression tests must cover
-large histories, tool-group boundaries, persistence failures, changed history and
-oversized latest input. Voice tests must include setup rejection, binary/text
-frames, interruption, tool cancellation, disconnects and reconnect handoff.
-
-Keep npm/package and playground checks green alongside Cargo formatting, Clippy
-and tests. Exercise a separate Rust consumer through a path or Git dependency,
-and test the packaged crate without the JavaScript sources. Move each completed
-piece into normal usage documentation and remove it from this proposal.
+A separate Rust application can embed the crate without JavaScript. The built
+playground runs all five supported pages against Rust with no Node backend or
+imports from the retired runtime. Tests cover tools (including `keep_silent`),
+provider failures, cancellation/reconnect, interrupted history, bounded media and
+matching request/frame inspection. Keep deterministic protocol tests and optional
+real-provider smoke tests separate. Delete replaced code as each step passes;
+do not maintain parallel inference implementations.
