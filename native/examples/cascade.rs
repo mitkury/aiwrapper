@@ -1,8 +1,11 @@
 //! Persistent development host: one process per browser session, bounded NDJSON I/O.
+mod support;
+
 use aiwrapper::{live::*, speech::*, speech_stream::*, *};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{sync::Arc, time::Duration};
+use support::{env, language_config};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 #[derive(Deserialize)]
@@ -54,10 +57,7 @@ enum Command {
     Close,
 }
 fn key(name: &str) -> Result<String> {
-    std::env::var(name)
-        .ok()
-        .filter(|v| !v.trim().is_empty())
-        .ok_or_else(|| Error::Invalid(format!("{name} is not configured")))
+    env(name).ok_or_else(|| Error::Invalid(format!("{name} is not configured")))
 }
 async fn write(value: Value) -> Result<()> {
     let mut bytes = serde_json::to_vec(&value)?;
@@ -261,17 +261,7 @@ async fn connect(config: Config, tools: &[Tool], cancel: CancellationToken) -> R
     let language: Arc<dyn LanguageProvider> = if config.offline {
         Arc::new(MockLang::interactive())
     } else {
-        let prefix = config.provider.as_str().replace('-', "_").to_uppercase();
-        let mut provider = ProviderConfig::new(config.provider, config.model);
-        if config.provider != Provider::Ollama {
-            provider.api_key = Some(key(&format!("{prefix}_API_KEY"))?);
-        }
-        if let Ok(url) = std::env::var(format!("{prefix}_BASE_URL"))
-            && !url.trim().is_empty()
-        {
-            provider.base_url = url;
-        }
-        Arc::new(Lang::new(provider)?)
+        Arc::new(Lang::new(language_config(config.provider, config.model)?)?)
     };
     let speech: Arc<dyn SpeechOutput> = if config.offline {
         Arc::new(MockSpeechOutput)

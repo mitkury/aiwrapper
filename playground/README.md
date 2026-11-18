@@ -48,6 +48,10 @@ default. Chat preferences live in browser storage; model catalog data is used
 only for display/selection. Rust translates provider requests. See
 [provider-config.ts](src/lib/provider-config.ts) for display defaults.
 
+Chat and Cascade share Rust host provider configuration. Both accept keyless
+OpenAI-compatible endpoints and Ollama. `OLLAMA_BASE_URL` takes precedence over
+the `OLLAMA_URL` alias.
+
 - Chat: the selected provider's API key; Ollama and a configured compatible
   endpoint can operate without a key.
 - Voice: `OPENAI_API_KEY` for recorded transcription and OpenAI output;

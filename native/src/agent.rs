@@ -206,7 +206,6 @@ impl ChatAgent {
                     }
                     None => Err(Error::Tool(format!("unknown or disabled tool: {name}"))),
                 };
-                // A cancellation result is still explicit history; previously completed tools remain intact.
                 let cancelled = matches!(outcome, Err(Error::Cancelled));
                 let result = match outcome {
                     Ok(value) => value,
@@ -217,18 +216,13 @@ impl ChatAgent {
                     name,
                     result,
                 };
-                if self
+                if let Some(message) = self
                     .conversation
                     .messages
-                    .last()
-                    .is_some_and(|m| m.role == Role::ToolResults)
+                    .last_mut()
+                    .filter(|m| m.role == Role::ToolResults)
                 {
-                    self.conversation
-                        .messages
-                        .last_mut()
-                        .unwrap()
-                        .items
-                        .push(item);
+                    message.items.push(item);
                 } else {
                     self.conversation
                         .messages

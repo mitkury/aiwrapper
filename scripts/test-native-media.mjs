@@ -13,7 +13,17 @@ const http = createServer(async (request, response) => {
   const chunks = [];
   for await (const chunk of request) chunks.push(chunk);
   const body = Buffer.concat(chunks);
-  if (request.url === '/v1/audio/transcriptions') {
+  if (request.url === '/v1/chat/completions' || request.url === '/v1/api/chat') {
+    assert.equal(request.headers.authorization, undefined, 'Local language endpoints may be keyless');
+    const call = { function: { name: 'keep_silent', arguments: {} } };
+    if (request.url === '/v1/api/chat') {
+      response.setHeader('Content-Type', 'application/x-ndjson');
+      response.end(JSON.stringify({ message: { role: 'assistant', content: '', tool_calls: [call] }, done: true }) + '\n');
+    } else {
+      response.setHeader('Content-Type', 'text/event-stream');
+      response.end('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'quiet', function: { name: 'keep_silent', arguments: '{}' } }] }, finish_reason: 'tool_calls' }] }) + '\n\ndata: [DONE]\n\n');
+    }
+  } else if (request.url === '/v1/audio/transcriptions') {
     assert(body.includes(Buffer.from('RIFF')));
     response.setHeader('Content-Type', 'application/json');
     response.end(JSON.stringify({ text: 'Recorded speech.' }));
@@ -41,6 +51,33 @@ async function speech(body) {
   child.stdin.end(JSON.stringify(body));
   try { await once(child, 'close'); return output.trim().split('\n').map(JSON.parse); }
   finally { clearTimeout(timeout); child.kill(); }
+}
+async function localCascade(provider) {
+  const child = spawn(binary('cascade'), [], {
+    env: { ...process.env, OPENAI_API_KEY: 'fixture', OPENAI_COMPATIBLE_API_KEY: '', OPENAI_COMPATIBLE_BASE_URL: base, OLLAMA_API_KEY: '', OLLAMA_BASE_URL: '', OLLAMA_URL: base },
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+  child.stderr.resume();
+  const closed = once(child, 'close');
+  const timeout = setTimeout(() => child.kill(), 10_000);
+  const send = value => child.stdin.write(JSON.stringify(value) + '\n');
+  send({ offline: false, provider, model: 'fixture', sttModel: '', tts: 'openai', ttsModel: 'fixture', voice: 'voice' });
+  let completed = false;
+  try {
+    for await (const line of createInterface({ input: child.stdout })) {
+      const packet = JSON.parse(line);
+      assert.notEqual(packet.type, 'error', packet.message);
+      if (packet.event?.state?.kind === 'connected') send({ type: 'text', text: 'Please wait.' });
+      if (packet.type === 'tool-result') {
+        assert.equal(packet.result.name, 'keep_silent');
+        assert.equal(packet.status, 'success');
+        completed = true;
+        send({ type: 'close' });
+      }
+    }
+    assert.equal((await closed)[0], 0);
+    assert(completed, `${provider} did not reach the configured keyless endpoint`);
+  } finally { clearTimeout(timeout); child.kill(); }
 }
 async function live(provider) {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
@@ -116,7 +153,9 @@ try {
     assert.deepEqual(Buffer.concat(events.filter(e => e.audio).map(e => Buffer.from(e.audio, 'base64'))), pcm);
   }
   assert.match((await speech({ operation: 'speak', provider: 'openai', text: 'fail', model: 'fixture', voice: 'voice' })).at(-1).error, /429.*fixture rate limit/);
+  await localCascade('openai-compatible');
+  await localCascade('ollama');
   await live('google');
   await live('openai');
-  console.log('Native media: transcription, both speech providers, errors, both live protocols, Rust tools and PCM passed.');
+  console.log('Native media: transcription, speech, keyless Cascade endpoints, Ollama URL alias, live protocols, tools, PCM and errors passed.');
 } finally { http.closeAllConnections(); http.close(); }

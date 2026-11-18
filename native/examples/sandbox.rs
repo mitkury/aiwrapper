@@ -1,5 +1,7 @@
 //! Development host adapter. One JSON request on stdin, NDJSON snapshots on stdout.
 //! This example is not a server and is not needed when embedding the crate.
+mod support;
+
 use aiwrapper::*;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -7,6 +9,7 @@ use std::{
     io::{Read, Write},
     sync::Arc,
 };
+use support::{env, language_config};
 
 #[derive(Deserialize)]
 struct Request {
@@ -17,9 +20,6 @@ struct Request {
 fn emit(value: Value) {
     println!("{value}");
     let _ = std::io::stdout().flush();
-}
-fn env(key: &str) -> Option<String> {
-    std::env::var(key).ok().filter(|v| !v.trim().is_empty())
 }
 #[tokio::main]
 async fn main() {
@@ -38,36 +38,14 @@ async fn run() -> Result<()> {
         return Err(Error::Invalid("sandbox request exceeds 8 MiB".into()));
     }
     let request: Request = serde_json::from_str(&input)?;
-    let prefix = match request.provider {
-        Provider::Openai => "OPENAI",
-        Provider::OpenaiCompatible => "OPENAI_COMPATIBLE",
-        Provider::Anthropic => "ANTHROPIC",
-        Provider::Google => "GOOGLE",
-        Provider::Ollama => "OLLAMA",
-        Provider::Groq => "GROQ",
-        Provider::Deepseek => "DEEPSEEK",
-        Provider::Kimi => "KIMI",
-        Provider::Xai => "XAI",
-        Provider::Cohere => "COHERE",
-        Provider::Mistral => "MISTRAL",
-        Provider::Openrouter => "OPENROUTER",
-    };
-    let mut config = ProviderConfig::new(request.provider, request.model);
-    config.api_key = env(&format!("{prefix}_API_KEY"));
-    if let Some(url) = env(&format!("{prefix}_BASE_URL")).or_else(|| {
-        if request.provider == Provider::Ollama {
-            env("OLLAMA_URL")
-        } else {
-            None
-        }
-    }) {
-        config.base_url = url;
-    }
     let provider: Arc<dyn LanguageProvider> =
         if env("AIWRAPPER_NATIVE_MOCK").as_deref() == Some("1") {
             Arc::new(MockLang::interactive())
         } else {
-            Arc::new(Lang::new(config)?)
+            Arc::new(Lang::new(language_config(
+                request.provider,
+                request.model,
+            )?)?)
         };
     let mut agent = ChatAgent::new(provider);
     agent.conversation.messages = request.messages;
