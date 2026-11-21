@@ -37,7 +37,13 @@ miss a brief view; the inspector makes that failure visible.
 **Offline test** runs real Rust selection and tools with mock language output and
 a short tone. It does not recognize objects. Use a configured vision model for
 actual visual understanding. `tool: add {"a":2,"b":3}` also works with frames.
-The room requires WebGL; no downloaded models or external image assets are used.
+When `DEEPGRAM_API_KEY` is missing, Cascade starts in typed offline mode. To
+speak in the same room using `GOOGLE_API_KEY`, select **Talk in this room with
+Gemini Live**, then **Start session** and allow microphone access. Gemini handles
+voice and room images on its live connection. For the Cascade pipeline, configure
+Deepgram for transcription and either OpenAI or ElevenLabs for speech output.
+
+The room requires WebGL 2; no downloaded models or external image assets are used.
 
 The same visual-input selector offers a webcam on `/cascade`. Gemini Live can
 also receive room images, but sends them continuously through the provider's live

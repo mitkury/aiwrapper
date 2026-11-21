@@ -3,7 +3,16 @@
 	import { RotateCcw } from 'lucide-svelte';
 	import * as THREE from 'three';
 
-	let { canvas = $bindable<HTMLCanvasElement>(), active = false } = $props();
+	let {
+		canvas = $bindable(),
+		active = false,
+		onfailure
+	}: {
+		canvas?: HTMLCanvasElement;
+		active?: boolean;
+		onfailure: (message: string) => void;
+	} = $props();
+	let surface: HTMLCanvasElement;
 	let failure = $state('');
 	let reset = () => {};
 	let step = (_forward: number, _side: number, _turn: number) => {};
@@ -11,12 +20,17 @@
 	const keys = new Set<string>();
 	let dragging = false;
 	onMount(() => {
-		if (!canvas) return;
 		let renderer: THREE.WebGLRenderer;
 		try {
-			renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+			renderer = new THREE.WebGLRenderer({
+				canvas: surface,
+				antialias: true,
+				preserveDrawingBuffer: true
+			});
 		} catch {
-			failure = 'The room needs WebGL. Enable browser graphics acceleration or use the webcam.';
+			failure =
+				'The room needs WebGL 2. Enable browser graphics acceleration and reload, or change Visual input in Session settings.';
+			onfailure(failure);
 			return;
 		}
 		renderer.setSize(960, 540, false);
@@ -149,21 +163,40 @@
 			render();
 		};
 		reset();
+		canvas = surface;
+		function contextLost() {
+			canvas = undefined;
+			keys.clear();
+			failure =
+				'The browser lost the room’s graphics context. Reload the simulator or change Visual input in Session settings.';
+			onfailure(failure);
+		}
+		function contextRestored() {
+			render();
+			canvas = surface;
+			failure = '';
+		}
+		surface.addEventListener('webglcontextlost', contextLost);
+		surface.addEventListener('webglcontextrestored', contextRestored);
 		let last = performance.now(),
 			animation = 0;
 		function tick(now: number) {
 			const dt = Math.min((now - last) / 1000, 0.05);
 			last = now;
-			step(
-				((keys.has('w') ? 1 : 0) - (keys.has('s') ? 1 : 0)) * dt * 2.4,
-				((keys.has('d') ? 1 : 0) - (keys.has('a') ? 1 : 0)) * dt * 2.4,
-				((keys.has('arrowleft') ? 1 : 0) - (keys.has('arrowright') ? 1 : 0)) * dt * 1.5
-			);
+			if (canvas && keys.size)
+				step(
+					((keys.has('w') ? 1 : 0) - (keys.has('s') ? 1 : 0)) * dt * 2.4,
+					((keys.has('d') ? 1 : 0) - (keys.has('a') ? 1 : 0)) * dt * 2.4,
+					((keys.has('arrowleft') ? 1 : 0) - (keys.has('arrowright') ? 1 : 0)) * dt * 1.5
+				);
 			animation = requestAnimationFrame(tick);
 		}
 		animation = requestAnimationFrame(tick);
 		return () => {
 			cancelAnimationFrame(animation);
+			surface.removeEventListener('webglcontextlost', contextLost);
+			surface.removeEventListener('webglcontextrestored', contextRestored);
+			canvas = undefined;
 			keys.clear();
 			scene.traverse((object) => {
 				if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments) {
@@ -186,15 +219,17 @@
 	<div class="room-heading">
 		<div><h2>Agent view <span>3D room</span></h2></div>
 		<div class="view-status">
-			<span class:active class="capture-dot"></span>{active
-				? 'Sending · 1 frame / s'
-				: 'Preview only'}
+			<span class:active class="capture-dot"></span>{failure
+				? 'Room unavailable'
+				: active
+					? 'Sending · 1 frame / s'
+					: 'Preview only'}
 		</div>
 	</div>
 	{#if failure}<p role="alert">{failure}</p>{/if}
 	<div class="viewport">
 		<canvas
-			bind:this={canvas}
+			bind:this={surface}
 			class="room-canvas"
 			aria-label="Walkable gallery"
 			tabindex="0"
@@ -211,9 +246,9 @@
 				dragging = false;
 			}}
 			onpointerdown={(e) => {
-				canvas?.focus();
+				surface.focus();
 				dragging = true;
-				canvas?.setPointerCapture(e.pointerId);
+				surface.setPointerCapture(e.pointerId);
 			}}
 			onpointerup={() => (dragging = false)}
 			onpointercancel={() => (dragging = false)}

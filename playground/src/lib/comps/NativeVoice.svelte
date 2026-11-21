@@ -209,7 +209,14 @@
 			fail(e.reason || 'Provider closed the live session');
 			return;
 		}
-		if (e.type === 'transcription-failed') log('error', e.error);
+		if (e.type === 'transcription-failed') {
+			error =
+				'Transcription failed. ' +
+				(e.error?.message ||
+					(typeof e.error === 'string' && e.error) ||
+					'Try speaking again or type a message.');
+			log('error', e.error);
+		}
 		if (
 			live &&
 			provider === 'google' &&
@@ -331,13 +338,24 @@
 				signal: current.signal
 			});
 			if (current.signal.aborted || connection !== current) return;
-			if (!response.ok) throw new Error((await response.json()).error);
+			if (!response.ok) {
+				const detail = await response.json().catch(() => null);
+				throw new Error(detail?.error || `Could not start session (HTTP ${response.status}).`);
+			}
 			id = response.headers.get('X-Session-Id') || '';
-			const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
+			if (!id || !response.body)
+				throw new Error(
+					'The session host returned an incomplete response. Restart the playground and try again.'
+				);
+			const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
 			let pending = '';
 			while (true) {
 				const { value, done } = await reader.read();
-				if (done || current.signal.aborted || connection !== current) break;
+				if (current.signal.aborted || connection !== current) return;
+				if (done)
+					throw new Error(
+						'The session connection closed unexpectedly. Check that the playground is running, then start a new session.'
+					);
 				pending += value;
 				let end;
 				while ((end = pending.indexOf('\n')) >= 0) {
@@ -347,7 +365,6 @@
 				}
 				if (pending.length > 8 * 1024 * 1024) throw new Error('Runtime event exceeded 8 MiB');
 			}
-			if (id && connection === current) await disconnect();
 		} catch (e) {
 			if (!current.signal.aborted && connection === current) fail(e);
 		}
@@ -462,10 +479,6 @@
 		if (!id || capturing) return;
 		const source = cameraSource === 'room' ? roomCanvas : video;
 		if (!source || (cameraSource === 'webcam' && !video?.videoWidth)) return;
-		if (cameraSource === 'room' && roomCanvas?.width !== 960) {
-			fail('Room renderer is unavailable. Check browser graphics support.');
-			return;
-		}
 		const sessionId = id;
 		capturing = true;
 		try {
@@ -584,15 +597,22 @@
 				keys = v;
 				if (live) {
 					liveDefaults = v.live;
-					provider = 'openai';
+					provider = simulator ? 'google' : 'openai';
 					offline = false;
 					mic = true;
 				}
-				if (!live && v.voice) voice = v.voice;
 				chooseProvider();
-				if (!live && configured[provider]?.configured && keys.deepgram && keys.elevenlabs) {
-					offline = false;
-					mic = true;
+				if (live && simulator) cameraSource = 'room';
+				if (!live) {
+					if (!keys.elevenlabs && keys.openai) {
+						tts = 'openai';
+						chooseSpeech();
+					} else if (v.voice) voice = v.voice;
+					offline = !(
+						configured[provider]?.configured &&
+						keys.deepgram &&
+						(keys.elevenlabs || keys.openai)
+					);
 				}
 			})
 			.catch(fail);
@@ -636,9 +656,10 @@
 			{:else if !connected}
 				<button
 					class="primary"
-					disabled={!ready || phase !== 'Disconnected'}
+					disabled={!ready || phase !== 'Disconnected' || (cameraSource === 'room' && !roomCanvas)}
 					onclick={() => void connect()}
-					><Play size={16} fill="currentColor" /> Start session</button
+					><Play size={16} fill="currentColor" />
+					{offline ? 'Start offline test' : 'Start session'}</button
 				>
 			{:else}
 				<button class="primary end" onclick={() => void disconnect()}
@@ -689,7 +710,9 @@
 							: 'Loading'
 					: playing && connected
 						? 'Speaking'
-						: phase}</span
+						: connected && phase === 'Listening' && (offline || !mic)
+							? 'Ready for text'
+							: phase}</span
 			>
 		</div>
 		<div class="input-status">
@@ -701,7 +724,9 @@
 				></meter>{/if}
 			<span
 				>{offline
-					? 'Offline test uses typed messages. Microphone and AI providers are disabled.'
+					? ready && !keys.deepgram
+						? 'Microphone off. Cascade voice needs DEEPGRAM_API_KEY in the root .env. The offline test accepts typed messages.'
+						: 'Microphone off. The offline test accepts typed messages and gives mock replies.'
 					: !mic
 						? connected
 							? 'Microphone is off. End the session to enable it, or type a message.'
@@ -714,7 +739,12 @@
 								? 'The session stopped. Resolve the error below, then start again.'
 								: 'Microphone is on for this session. Your browser will ask for access when you start.'}</span
 			>
-			{#if offline}<button
+			{#if simulator && offline && !connected && configured.google?.configured}
+				<a class="text-button" href="/speech-to-speech?input=room"
+					>Talk in this room with Gemini Live</a
+				>
+			{/if}
+			{#if offline && !connected}<button
 					class="text-button"
 					onclick={() => {
 						settingsOpen = true;
@@ -731,6 +761,9 @@
 		{#if cameraSource === 'room'}<RoomSimulator
 				bind:canvas={roomCanvas}
 				active={connected && frameId > 0}
+				onfailure={(message) => {
+					if (connection) fail(message);
+				}}
 			/>
 		{:else if cameraSource === 'webcam'}
 			<section class="camera-card" aria-label="Camera preview">
