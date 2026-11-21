@@ -27,6 +27,7 @@
 
 ## Proposals and remaining work
 
+- [Self-hosted simulator voice on Runpod](dev/proposals/self-hosted-voice.md)
 - [Visual context experiments](dev/proposals/visual-context.md)
 
 - [Rust cascade voice sessions](dev/proposals/rust-cascade-agent.md): Rust STT → LLM → TTS with browser playground validation
