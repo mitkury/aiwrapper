@@ -512,8 +512,7 @@ impl Actor {
                     .segments
                     .get_mut(index)
                     .ok_or_else(|| Error::Invalid("unknown audio segment".into()))?;
-                let duration = segment.samples * 1000 / u64::from(segment.rate.max(1));
-                if ms > duration {
+                if ms > segment.duration_ms() {
                     return Err(Error::Invalid(
                         "playback cursor exceeds generated audio".into(),
                     ));
@@ -587,11 +586,15 @@ impl Actor {
                                 })
                         });
                     if !self.queued.is_empty() {
+                        // Keep queued input in history even when Stop cancelled its reply.
                         self.config
                             .conversation
                             .messages
                             .extend(self.queued.drain(..));
-                        self.start()?;
+                        self.rounds = 0;
+                        if self.start_pending {
+                            self.start()?;
+                        }
                     } else if !silent && !self.round.as_ref().is_some_and(|r| r.cut) {
                         self.continuation = Some(tokio::time::Instant::now());
                         self.advance()?;
@@ -615,6 +618,7 @@ impl Actor {
             .attach(&mut message, self.started.elapsed().as_millis() as u64);
         if !self.pending.is_empty() {
             self.queued.push_back(message);
+            self.start_pending = true;
             return self.diagnostic(json!({"kind":"waiting-for-tools"}));
         }
         self.config.conversation.messages.push(message);
@@ -622,6 +626,7 @@ impl Actor {
         self.start()
     }
     fn interrupt(&mut self) -> Result<()> {
+        self.start_pending = false;
         self.continuation = None;
         self.cancel_work();
         if let Some(round) = self.round.as_mut().filter(|r| !r.cut) {
@@ -644,7 +649,6 @@ impl Actor {
         Ok(())
     }
     fn finish_cut(&mut self, confirmed: bool) -> Result<()> {
-        self.cut_wait = None;
         if let Some(round) = &self.round {
             let cut = round.playback_cut(confirmed);
             let message = &mut self.config.conversation.messages[round.message];
@@ -659,7 +663,8 @@ impl Actor {
             }
             self.diagnostic(json!({"kind":"history","conversation":self.config.conversation}))?;
         }
-        if std::mem::take(&mut self.start_pending) {
+        self.cut_wait = None;
+        if self.start_pending && self.pending.is_empty() {
             self.start()?;
         }
         Ok(())
@@ -668,9 +673,9 @@ impl Actor {
         if self.continuation.is_some()
             && self.round.as_ref().is_some_and(|r| {
                 r.synthesis_done
-                    && r.segments.iter().all(|s| {
-                        s.done && s.played_ms >= s.samples * 1000 / u64::from(s.rate.max(1))
-                    })
+                    && r.segments
+                        .iter()
+                        .all(|s| s.done && s.played_ms >= s.duration_ms())
             })
         {
             self.continuation = None;
@@ -683,6 +688,7 @@ impl Actor {
             self.start_pending = true;
             return Ok(());
         }
+        self.start_pending = false;
         self.continuation = None;
         self.cancel_work();
         self.rounds += 1;
@@ -961,7 +967,7 @@ impl Actor {
                 if segment.samples == 0 {
                     return Err(Error::Protocol("speech provider returned no audio".into()));
                 }
-                let state = json!({"kind":"segment-done","itemId":round.id.to_string(),"contentIndex":index,"durationMs":segment.samples*1000/u64::from(segment.rate.max(1))});
+                let state = json!({"kind":"segment-done","itemId":round.id.to_string(),"contentIndex":index,"durationMs":segment.duration_ms()});
                 self.diagnostic(state)
             }
             Work::Synthesized => {
@@ -982,7 +988,7 @@ impl Actor {
             if end == 0 {
                 break;
             }
-            let text = remaining[..end].to_string();
+            let text = &remaining[..end];
             let start = round.segmented;
             round.segmented += end;
             if text.trim().is_empty() {
@@ -993,7 +999,7 @@ impl Actor {
                 .synthesis
                 .as_ref()
                 .unwrap()
-                .try_send((index, text.clone()))
+                .try_send((index, text.to_owned()))
                 .map_err(|_| Error::Protocol("speech text queue overflow".into()))?;
             round.segments.push(Segment {
                 start,
@@ -1062,9 +1068,11 @@ fn replace_visible_text(message: &mut Message, text: &str) -> Result<()> {
         for key in ["anthropicContent", "googleParts", "openaiOutput"] {
             if let Some(blocks) = meta.get_mut(key).and_then(Value::as_array_mut) {
                 if key == "googleParts"
-                    && blocks
-                        .iter()
-                        .any(|b| b.get("text").is_some() && b.get("thoughtSignature").is_some())
+                    && blocks.iter().any(|b| {
+                        b["thought"] != true
+                            && b.get("text").is_some()
+                            && b.get("thoughtSignature").is_some()
+                    })
                 {
                     return Err(Error::Invalid(
                         "cannot truncate signed Gemini text; reconnect the session".into(),
@@ -1117,7 +1125,7 @@ mod tests {
             ),
             (
                 "googleParts",
-                json!([{"thought":true,"text":"private"},{"functionCall":{"id":"a","name":"f","args":{}},"thoughtSignature":"opaque"},{"text":"unplayed"}]),
+                json!([{"thought":true,"text":"private","thoughtSignature":"signed reasoning"},{"functionCall":{"id":"a","name":"f","args":{}},"thoughtSignature":"opaque"},{"text":"unplayed"}]),
             ),
         ] {
             let mut message = Message::assistant("unplayed");
@@ -1125,6 +1133,9 @@ mod tests {
             replace_visible_text(&mut message, "heard").unwrap();
             let serialized = message.meta.unwrap().to_string();
             assert!(serialized.contains("opaque"));
+            if key == "googleParts" {
+                assert!(serialized.contains("signed reasoning"));
+            }
             assert!(serialized.contains("heard"));
             assert!(!serialized.contains("unplayed"));
         }

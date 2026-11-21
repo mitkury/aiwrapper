@@ -1,9 +1,12 @@
 //! Persistent development host: one process per browser session, bounded NDJSON I/O.
+#[path = "support/speech.rs"]
+mod speech_config;
 mod support;
 
 use aiwrapper::{live::*, speech::*, speech_stream::*, *};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use speech_config::SpeechProvider;
 use std::{sync::Arc, time::Duration};
 use support::{env, language_config};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -21,7 +24,7 @@ struct Config {
     provider: Provider,
     model: String,
     stt_model: String,
-    tts: String,
+    tts: SpeechProvider,
     tts_model: String,
     voice: String,
     #[serde(default)]
@@ -177,9 +180,7 @@ async fn run() -> Result<()> {
                             })
                             .await
                     }
-                    (None, None) | (Some(_), Some(_)) if live || id.is_none() => {
-                        sender.append_image(&data, &mime).await
-                    }
+                    (None, None) | (Some(_), Some(_)) => sender.append_image(&data, &mime).await,
                     _ => Err(Error::Invalid(
                         "camera frame requires both id and capturedAtMs".into(),
                     )),
@@ -266,19 +267,14 @@ async fn connect(config: Config, tools: &[Tool], cancel: CancellationToken) -> R
     let speech: Arc<dyn SpeechOutput> = if config.offline {
         Arc::new(MockSpeechOutput)
     } else {
-        let elevenlabs = config.tts == "elevenlabs";
-        let (credential, url) = if elevenlabs {
-            ("ELEVENLABS_API_KEY", "https://api.elevenlabs.io/v1")
-        } else {
-            ("OPENAI_API_KEY", "https://api.openai.com/v1")
-        };
+        let elevenlabs = config.tts == SpeechProvider::Elevenlabs;
         let voice = if elevenlabs && config.voice.trim().is_empty() {
             key("ELEVENLABS_VOICE_ID")?
         } else {
             config.voice
         };
         Arc::new(HttpSpeechOutput {
-            speech: Speech::new(key(credential)?, url)?,
+            speech: config.tts.client()?,
             model: config.tts_model,
             voice,
             elevenlabs,

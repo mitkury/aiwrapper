@@ -39,6 +39,9 @@ and synthesis providers; no transcription connection is opened. Keys stay in the
 | ElevenLabs output | `ELEVENLABS_API_KEY`; a voice ID in the page or `ELEVENLABS_VOICE_ID` |
 | OpenAI output | `OPENAI_API_KEY`; model and voice in the page |
 
+Cascade and the Voice page both honor `OPENAI_BASE_URL` and `ELEVENLABS_BASE_URL`
+for speech requests.
+
 “Configured” means a value is present, not that the provider has validated it.
 Provider authentication/model errors appear in the page. There is no automatic
 provider fallback. Errors are also retained in the session event list after
@@ -57,7 +60,9 @@ the next session; an active session keeps the instructions it started with.
 Reloading the page restores defaults. An empty field sends empty instructions.
 The Rust host and editor share defaults from `native/examples/voice-instructions.json`.
 
-**Stop reply** clears local playback and cancels current inference/synthesis.
+**Stop reply** clears playback and cancels current inference, synthesis, and any reply
+waiting for a playback acknowledgement or tool result. The next turn can still use
+the earlier input and completed tool results.
 The microphone button mutes or unmutes capture. Muting also asks Flux to finish the active turn.
 **Finish speaking manually** in Session events requests a provider turn boundary. **End session** stops
 capture, playback, and the native process. Camera input is opt-in: a JPEG up to

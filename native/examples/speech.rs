@@ -1,9 +1,13 @@
 //! Development bridge for recorded transcription and streamed synthesis.
-use aiwrapper::{speech::*, *};
+#[path = "support/speech.rs"]
+mod speech_config;
+
+use aiwrapper::{speech::PcmFrame, *};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::StreamExt;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use speech_config::SpeechProvider;
 use std::io::{Read, Write};
 
 #[derive(Deserialize)]
@@ -15,7 +19,7 @@ enum Request {
         sample_rate: u32,
     },
     Speak {
-        provider: String,
+        provider: SpeechProvider,
         text: String,
         model: String,
         voice: String,
@@ -26,15 +30,6 @@ fn environment(name: &str, fallback: &str) -> String {
         .ok()
         .filter(|v| !v.trim().is_empty())
         .unwrap_or_else(|| fallback.into())
-}
-fn speech(prefix: &str, base: &str) -> Result<Speech> {
-    let key = environment(&format!("{prefix}_API_KEY"), "");
-    if key.is_empty() {
-        return Err(Error::Invalid(format!(
-            "{prefix}_API_KEY is not configured"
-        )));
-    }
-    Speech::new(key, environment(&format!("{prefix}_BASE_URL"), base))
 }
 fn emit(value: Value) -> Result<()> {
     let mut output = std::io::stdout().lock();
@@ -78,7 +73,8 @@ async fn run() -> Result<()> {
                     .collect(),
                 sample_rate,
             };
-            let text = speech("OPENAI", "https://api.openai.com/v1")?
+            let text = SpeechProvider::Openai
+                .client()?
                 .transcribe(
                     &frame,
                     &environment("OPENAI_TRANSCRIPTION_MODEL", "gpt-4o-mini-transcribe"),
@@ -99,18 +95,14 @@ async fn run() -> Result<()> {
                     "speech text requires 1–5000 characters".into(),
                 ));
             }
-            let mut frames = match provider.as_str() {
-                "openai" => {
-                    speech("OPENAI", "https://api.openai.com/v1")?
-                        .speak(&text, &model, &voice, cancellation)
-                        .await?
-                }
-                "elevenlabs" => {
-                    speech("ELEVENLABS", "https://api.elevenlabs.io/v1")?
+            let speech = provider.client()?;
+            let mut frames = match provider {
+                SpeechProvider::Openai => speech.speak(&text, &model, &voice, cancellation).await?,
+                SpeechProvider::Elevenlabs => {
+                    speech
                         .speak_elevenlabs(&text, &model, &voice, 24000, cancellation)
                         .await?
                 }
-                _ => return Err(Error::Invalid("unsupported speech provider".into())),
             };
             while let Some(frame) = frames.next().await {
                 let frame = frame?;

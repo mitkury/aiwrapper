@@ -28,6 +28,7 @@
 	import { TurnTimeline, type TurnTiming } from '$lib/realtime/turn-timeline';
 	import { providerConfigs, type ProviderId } from '$lib/provider-config';
 	import { resampleToPcm } from '$lib/realtime/pcm';
+	import { updateTranscript, type TranscriptRow, type PlaybackCut } from '$lib/realtime/transcript';
 	import { CascadePlayer, type Cursor } from '$lib/realtime/cascade-player';
 	let timelineView = $state<{ inspect: (turnId: number) => void }>();
 	let { live = false, simulator = false }: { live?: boolean; simulator?: boolean } = $props();
@@ -78,21 +79,11 @@
 			return frames ? [frames] : [];
 		})
 	);
+	const frameCount = $derived(frameRequests.reduce((count, r) => count + r.frames.length, 0));
 	let configured = $state<Record<string, { configured: boolean; model: string }>>({});
 	let keys = $state({ deepgram: false, elevenlabs: false, openai: false });
 	let entries = $state<{ time: string; label: string; detail: string }[]>([]);
-	type PlaybackCut = {
-		itemId: string;
-		playedMs: number;
-		generatedMs: number;
-		retainedText: string;
-		unplayedText: string;
-		accuracy: 'provider-timed' | 'estimated' | 'segment-boundary';
-		playbackConfirmed: boolean;
-	};
-	let transcripts = $state<
-		{ id: string; input: boolean; text: string; turnId?: number; cut?: PlaybackCut }[]
-	>([]);
+	let transcripts = $state<TranscriptRow[]>([]);
 	let selected = $state<number | null>(null);
 	let video = $state<HTMLVideoElement>();
 	let connection: AbortController | undefined,
@@ -219,21 +210,24 @@
 			return;
 		}
 		if (e.type === 'transcription-failed') log('error', e.error);
+		if (
+			live &&
+			provider === 'google' &&
+			(e.type === 'response-ended' || e.type === 'interrupted')
+		) {
+			for (const row of transcripts) row.finished = true;
+		}
 		if (e.type === 'transcript') {
-			if (!e.text) return;
-			const key = `${e.input ? 'in' : 'out'}:${e.id ?? entries.length}`;
-			const previous = transcripts.findIndex((t) => t.id === key);
-			const value = {
-				id: key,
-				input: e.input,
-				text: e.text,
-				turnId: e.input
-					? (turns.find((t) => e.id && t.inputId === e.id) ?? turns.at(-1))?.id
-					: undefined
-			};
-			if (previous < 0) transcripts = [...transcripts.slice(-99), value];
-			else transcripts[previous] = value;
-			if (!e.final_result) return;
+			const turnId = e.input
+				? (turns.find((t) => e.id && t.inputId === e.id) ?? turns.at(-1))?.id
+				: undefined;
+			transcripts = updateTranscript(
+				transcripts,
+				e,
+				live ? (provider === 'google' ? 'gemini' : 'openai') : 'cascade',
+				turnId
+			);
+			if (!e.final_result || !e.text) return;
 		}
 		if (e.type === 'provider-state') {
 			if (!live) {
@@ -1002,14 +996,12 @@
 					End the session to change providers or visual input.
 				</p>{/if}
 		</details>
-		{#if !live && (camera || frameRequests.length)}
+		{#if !live && (camera || frameCount)}
 			<details class="panel">
 				<summary
 					><Images size={19} /><span
-						><strong
-							>Frames sent to the model <span class="count">{frameRequests.length}</span></strong
-						><small
-							>{frameRequests.length
+						><strong>Frames sent to the model <span class="count">{frameCount}</span></strong><small
+							>{frameCount
 								? 'Review exact images and capture times'
 								: 'Selected images appear after your first question'}</small
 						></span

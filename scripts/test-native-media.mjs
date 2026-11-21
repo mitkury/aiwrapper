@@ -15,13 +15,20 @@ const http = createServer(async (request, response) => {
   const body = Buffer.concat(chunks);
   if (request.url === '/v1/chat/completions' || request.url === '/v1/api/chat') {
     assert.equal(request.headers.authorization, undefined, 'Local language endpoints may be keyless');
+    const messages = JSON.parse(body).messages;
+    const speak = messages.some(message => message.role === 'tool') && messages.at(-1).role === 'user';
     const call = { function: { name: 'keep_silent', arguments: {} } };
     if (request.url === '/v1/api/chat') {
       response.setHeader('Content-Type', 'application/x-ndjson');
-      response.end(JSON.stringify({ message: { role: 'assistant', content: '', tool_calls: [call] }, done: true }) + '\n');
+      const reply = speak ? { content: 'Hello.' } : { content: '', tool_calls: [call] };
+      response.end(JSON.stringify({ message: { role: 'assistant', ...reply }, done: true }) + '\n');
     } else {
       response.setHeader('Content-Type', 'text/event-stream');
-      response.end('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'quiet', function: { name: 'keep_silent', arguments: '{}' } }] }, finish_reason: 'tool_calls' }] }) + '\n\ndata: [DONE]\n\n');
+      const delta = speak ? { content: 'Hello.' } : {
+        tool_calls: [{ index: 0, id: 'quiet', function: { name: 'keep_silent', arguments: '{}' } }]
+      };
+      const choice = { delta, finish_reason: speak ? 'stop' : 'tool_calls' };
+      response.end('data: ' + JSON.stringify({ choices: [choice] }) + '\n\ndata: [DONE]\n\n');
     }
   } else if (request.url === '/v1/audio/transcriptions') {
     assert(body.includes(Buffer.from('RIFF')));
@@ -32,6 +39,8 @@ const http = createServer(async (request, response) => {
     if (input.input === 'fail') {
       response.writeHead(429);
       response.end('fixture rate limit');
+    } else if (request.url.startsWith('/v1/text-to-speech/voice/stream/with-timestamps?')) {
+      response.end(JSON.stringify({ audio_base64: pcm.toString('base64') }) + '\n');
     } else {
       assert(request.url.startsWith('/v1/audio/speech') || request.url.startsWith('/v1/text-to-speech/voice/stream'));
       response.write(pcm.subarray(0, 3));
@@ -52,17 +61,18 @@ async function speech(body) {
   try { await once(child, 'close'); return output.trim().split('\n').map(JSON.parse); }
   finally { clearTimeout(timeout); child.kill(); }
 }
-async function localCascade(provider) {
+async function localCascade(provider, tts) {
   const child = spawn(binary('cascade'), [], {
-    env: { ...process.env, OPENAI_API_KEY: 'fixture', OPENAI_COMPATIBLE_API_KEY: '', OPENAI_COMPATIBLE_BASE_URL: base, OLLAMA_API_KEY: '', OLLAMA_BASE_URL: '', OLLAMA_URL: base },
+    env: { ...process.env, OPENAI_API_KEY: 'fixture', OPENAI_BASE_URL: base, ELEVENLABS_API_KEY: 'fixture', ELEVENLABS_BASE_URL: base, OPENAI_COMPATIBLE_API_KEY: '', OPENAI_COMPATIBLE_BASE_URL: base, OLLAMA_API_KEY: '', OLLAMA_BASE_URL: '', OLLAMA_URL: base },
     stdio: ['pipe', 'pipe', 'pipe']
   });
   child.stderr.resume();
   const closed = once(child, 'close');
   const timeout = setTimeout(() => child.kill(), 10_000);
   const send = value => child.stdin.write(JSON.stringify(value) + '\n');
-  send({ offline: false, provider, model: 'fixture', sttModel: '', tts: 'openai', ttsModel: 'fixture', voice: 'voice' });
+  send({ offline: false, provider, model: 'fixture', sttModel: '', tts, ttsModel: 'fixture', voice: 'voice' });
   let completed = false;
+  const samples = [];
   try {
     for await (const line of createInterface({ input: child.stdout })) {
       const packet = JSON.parse(line);
@@ -72,10 +82,15 @@ async function localCascade(provider) {
         assert.equal(packet.result.name, 'keep_silent');
         assert.equal(packet.status, 'success');
         completed = true;
+        send({ type: 'text', text: 'Please speak.' });
+      }
+      if (packet.event?.type === 'audio') samples.push(...packet.event.frame.samples);
+      if (completed && samples.length && packet.event?.state?.kind === 'synthesis-complete') {
         send({ type: 'close' });
       }
     }
     assert.equal((await closed)[0], 0);
+    assert.deepEqual(samples, [0, 1, 32767, -32768], tts + ' should synthesize through its configured endpoint');
     assert(completed, `${provider} did not reach the configured keyless endpoint`);
   } finally { clearTimeout(timeout); child.kill(); }
 }
@@ -153,8 +168,8 @@ try {
     assert.deepEqual(Buffer.concat(events.filter(e => e.audio).map(e => Buffer.from(e.audio, 'base64'))), pcm);
   }
   assert.match((await speech({ operation: 'speak', provider: 'openai', text: 'fail', model: 'fixture', voice: 'voice' })).at(-1).error, /429.*fixture rate limit/);
-  await localCascade('openai-compatible');
-  await localCascade('ollama');
+  await localCascade('openai-compatible', 'openai');
+  await localCascade('ollama', 'elevenlabs');
   await live('google');
   await live('openai');
   console.log('Native media: transcription, speech, keyless Cascade endpoints, Ollama URL alias, live protocols, tools, PCM and errors passed.');

@@ -14,14 +14,20 @@ async fn next(session: &mut LiveSession) -> Vec<LiveEvent> {
         .unwrap()
         .unwrap()
 }
-async fn synthesized(session: &mut LiveSession) {
+async fn next_state(session: &mut LiveSession, kind: &str) -> serde_json::Value {
     loop {
-        if next(session).await.iter().any(
-            |e| matches!(e,LiveEvent::ProviderState{state} if state["kind"]=="synthesis-complete"),
-        ) {
-            break;
+        for event in next(session).await {
+            if let LiveEvent::ProviderState { state } = event
+                && state["kind"] == kind
+            {
+                return state;
+            }
         }
     }
+}
+
+async fn synthesized(session: &mut LiveSession) {
+    next_state(session, "synthesis-complete").await;
 }
 
 #[tokio::test]
@@ -436,6 +442,69 @@ async fn a_cut_waits_for_actual_tool_results_before_requesting_the_next_turn() {
     synthesized(&mut s).await;
     s.sender.close().await.unwrap();
 }
+#[tokio::test]
+async fn stop_cancels_a_deferred_reply_but_preserves_history() {
+    for with_tool in [false, true] {
+        let mut first = Message::assistant("One moment.");
+        if with_tool {
+            first.items.push(Item::Tool {
+                call_id: "lookup-1".into(),
+                name: "lookup".into(),
+                arguments: json!({}),
+                thought_signature: None,
+            });
+        }
+        let mut session = CascadeConfig::new(
+            Arc::new(MockLang::new([first, Message::assistant("Ready.")])),
+            Arc::new(MockSpeechOutput),
+        )
+        .connect()
+        .unwrap();
+        session.sender.send_realtime_text("first").await.unwrap();
+        synthesized(&mut session).await;
+        session.sender.send_realtime_text("second").await.unwrap();
+        session.sender.interrupt().await.unwrap();
+
+        let stop = next_state(&mut session, "playback-stop-requested").await;
+        session
+            .sender
+            .playback_stopped(stop["itemId"].as_str().unwrap())
+            .await
+            .unwrap();
+        if with_tool {
+            session
+                .sender
+                .send_tool_results(&[LiveToolResult {
+                    call_id: "lookup-1".into(),
+                    name: "lookup".into(),
+                    result: json!("actual result"),
+                    images: vec![],
+                }])
+                .await
+                .unwrap();
+        }
+        session.sender.send_realtime_text("third").await.unwrap();
+        let request = next_state(&mut session, "request").await;
+        let conversation: Conversation =
+            serde_json::from_value(request["conversation"].clone()).unwrap();
+        let inputs: Vec<_> = conversation
+            .messages
+            .iter()
+            .filter(|m| m.role == Role::User)
+            .map(Message::answer)
+            .collect();
+        assert_eq!(inputs, ["first", "second", "third"]);
+        assert_eq!(
+            conversation
+                .messages
+                .iter()
+                .any(|m| m.role == Role::ToolResults),
+            with_tool
+        );
+        session.sender.close().await.unwrap();
+    }
+}
+
 #[tokio::test]
 async fn invalid_result_batch_is_atomic() {
     let first = Message::new(
