@@ -21,8 +21,10 @@ example binaries. All playground AI operations use Rust. `/realtime` redirects
 to this page; the duplicate TypeScript pipeline has been removed. Native
 OpenAI/Gemini audio models are available at `/speech-to-speech`.
 
-When the default language, Deepgram, and ElevenLabs keys are configured, the page
-starts with real speech and Microphone selected. Capture begins only on **Start session**.
+When the default language provider, Deepgram, and either ElevenLabs or OpenAI
+speech output are configured, the page starts with real speech and Microphone
+selected. It selects ElevenLabs when configured and otherwise uses OpenAI.
+Capture begins only on **Start session**.
 Otherwise it starts in **Offline test** mode. Start a session and send
 `tool: add {"a":2,"b":3}` to exercise real local tool execution and PCM playback.
 Offline output is a tone, not synthesized speech. No microphone transcription or
@@ -38,6 +40,28 @@ and synthesis providers; no transcription connection is opened. Keys stay in the
 | Language | The selected provider's key, such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `GROQ_API_KEY`, or `OPENROUTER_API_KEY` |
 | ElevenLabs output | `ELEVENLABS_API_KEY`; a voice ID in the page or `ELEVENLABS_VOICE_ID` |
 | OpenAI output | `OPENAI_API_KEY`; model and voice in the page |
+
+## Compare cloud voice in the simulator
+
+| Experiment | Playground route | Server keys |
+| --- | --- | --- |
+| Talk to Gemini about the current room view | `/speech-to-speech?input=room` | `GOOGLE_API_KEY` |
+| Talk to OpenAI Realtime, audio only in the current UI | `/speech-to-speech` | `OPENAI_API_KEY` |
+| Talk to a selected vision model about recent room views | `/simulator` with Microphone enabled and Offline test disabled | `DEEPGRAM_API_KEY`, the selected language provider's key, and either `OPENAI_API_KEY` or `ELEVENLABS_API_KEY` for synthesis |
+
+For example, choose OpenRouter and enter `thinkingmachines/inkling-2-mini` to
+use Inkling for room understanding. Deepgram Flux handles microphone input.
+Keep the language model, frame selection and prompt fixed and switch only the
+synthesis provider to compare voices. To compare a native live model with the
+cascade, include interruption and visual recall tests because the routes handle
+turns and images differently. [Room and camera behavior](native-vision.md)
+
+The Rust simulator currently offers Deepgram Flux for streaming cascade
+transcription. The JavaScript package also has OpenAI Realtime and ElevenLabs
+realtime transcription adapters. Making either selectable in this playground
+requires a Rust speech-input adapter and a session setting. [Speech interfaces](speech.md)
+
+## Provider setup
 
 Cascade and the Voice page both honor `OPENAI_BASE_URL` and `ELEVENLABS_BASE_URL`
 for speech requests.
