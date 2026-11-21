@@ -1340,6 +1340,37 @@ var models = {
     ],
     "creatorId": "deepseek"
   },
+  "genie-4": {
+    "id": "genie-4",
+    "name": "Genie 4",
+    "license": "proprietary",
+    "capabilities": [
+      "txt-in",
+      "img-in",
+      "txt-out",
+      "video-out",
+      "audio-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": null,
+      "maxOutput": null
+    },
+    "aliases": [
+      "models/genie-4"
+    ],
+    "releasedAt": "2026-11-19",
+    "creatorId": "google"
+  },
+  "gemini-4-neon": {
+    "id": "gemini-4-neon",
+    "extends": "gemini-4-carbon",
+    "overrides": {
+      "name": "Gemini 4 Neon"
+    },
+    "releasedAt": "2026-11-18",
+    "creatorId": "google"
+  },
   "gemini-4-carbon": {
     "id": "gemini-4-carbon",
     "name": "Gemini 4 Carbon",
@@ -4006,6 +4037,33 @@ var models = {
     "releasedAt": "2026-04-28",
     "creatorId": "nvidia"
   },
+  "gpt-live-1.1": {
+    "id": "gpt-live-1.1",
+    "extends": "gpt-live-1",
+    "overrides": {
+      "name": "GPT-Live-1.1"
+    },
+    "releasedAt": "2026-11-19",
+    "creatorId": "openai"
+  },
+  "gpt-6.2-astra": {
+    "id": "gpt-6.2-astra",
+    "extends": "gpt-6-astra",
+    "overrides": {
+      "name": "GPT-6.2 Astra"
+    },
+    "releasedAt": "2026-11-17",
+    "creatorId": "openai"
+  },
+  "gpt-6.2-sol": {
+    "id": "gpt-6.2-sol",
+    "extends": "gpt-6-astra",
+    "overrides": {
+      "name": "GPT-6.2 Sol"
+    },
+    "releasedAt": "2026-11-17",
+    "creatorId": "openai"
+  },
   "gpt-6-cyber": {
     "id": "gpt-6-cyber",
     "extends": "gpt-6-astra",
@@ -5762,7 +5820,7 @@ var models = {
   "hy4-flash": {
     "id": "hy4-flash",
     "name": "Tencent Hy4 Flash",
-    "license": "proprietary",
+    "license": "tencent-hy-license",
     "capabilities": [
       "chat",
       "txt-in",
@@ -5798,7 +5856,7 @@ var models = {
   "hy4": {
     "id": "hy4",
     "name": "Tencent Hy4",
-    "license": "proprietary",
+    "license": "tencent-hy-license",
     "capabilities": [
       "chat",
       "txt-in",
@@ -6917,6 +6975,14 @@ var providers = {
         "include": "all"
       },
       {
+        "creator": "openai",
+        "include": [
+          "gpt-6.2-astra",
+          "gpt-6.2-sol"
+        ],
+        "idPrefix": "us.openai."
+      },
+      {
         "creator": "anthropic",
         "include": [
           "claude-mythos-5-2",
@@ -7310,6 +7376,8 @@ var providers = {
       {
         "creator": "openai",
         "include": [
+          "gpt-6.2-astra",
+          "gpt-6.2-sol",
           "gpt-image-2.6-sunburst",
           "gpt-image-2.6-flare",
           "gpt-6-luna",
@@ -7379,6 +7447,7 @@ var providers = {
       {
         "creator": "google",
         "include": [
+          "gemini-4-neon",
           "gemini-decision-1",
           "gemini-4-carbon",
           "gemini-4-hydrogen",
@@ -7844,6 +7913,24 @@ var providers = {
     "apiDocsUrl": "https://docs.together.ai/docs/inference/chat/overview",
     "pricing": {},
     "models": [
+      {
+        "creator": "tencent",
+        "include": [
+          "hy4"
+        ],
+        "idOverrides": {
+          "hy4": "tencent/Hy4"
+        }
+      },
+      {
+        "creator": "qwen",
+        "include": [
+          "qwen4-max"
+        ],
+        "idOverrides": {
+          "qwen4-max": "Qwen/Qwen4-Max"
+        }
+      },
       {
         "creator": "thinkingmachines",
         "include": [
