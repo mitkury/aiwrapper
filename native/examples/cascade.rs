@@ -283,6 +283,7 @@ async fn connect(config: Config, tools: &[Tool], cancel: CancellationToken) -> R
     let mut cascade = CascadeConfig::new(language, speech);
     cascade.cancellation = cancel.clone();
     cascade.camera_context = config.camera_context;
+    cascade.capture_requests = true;
     cascade.conversation.instructions = instructions;
     cascade.tools = tools.iter().map(|t| t.definition.clone()).collect();
     if !config.offline && config.microphone {

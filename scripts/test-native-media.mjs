@@ -72,12 +72,19 @@ async function localCascade(provider, tts) {
   const send = value => child.stdin.write(JSON.stringify(value) + '\n');
   send({ offline: false, provider, model: 'fixture', sttModel: '', tts, ttsModel: 'fixture', voice: 'voice' });
   let completed = false;
+  let inspectedRequest = false;
   const samples = [];
   try {
     for await (const line of createInterface({ input: child.stdout })) {
       const packet = JSON.parse(line);
       assert.notEqual(packet.type, 'error', packet.message);
       if (packet.event?.state?.kind === 'connected') send({ type: 'text', text: 'Please wait.' });
+      if (packet.event?.state?.kind === 'provider-request') {
+        const { request } = packet.event.state;
+        assert.equal(request.provider, provider);
+        assert.ok(request.body.messages.length);
+        inspectedRequest = true;
+      }
       if (packet.type === 'tool-result') {
         assert.equal(packet.result.name, 'keep_silent');
         assert.equal(packet.status, 'success');
@@ -91,6 +98,7 @@ async function localCascade(provider, tts) {
     }
     assert.equal((await closed)[0], 0);
     assert.deepEqual(samples, [0, 1, 32767, -32768], tts + ' should synthesize through its configured endpoint');
+    assert.ok(inspectedRequest, "The playground host should emit the provider request");
     assert(completed, `${provider} did not reach the configured keyless endpoint`);
   } finally { clearTimeout(timeout); child.kill(); }
 }

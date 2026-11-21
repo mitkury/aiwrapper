@@ -111,7 +111,8 @@ Runtime receipt age also expires stale frames, independently of host timestamps.
 
 Each image is preceded in model input by its frame ID and session-relative time.
 `image-received` events carry capture/receipt provenance. `request.camera` carries
-selection metadata; `request.conversation` holds the exact neutral message
+selection metadata when `config.capture_requests` is enabled.
+`request.conversation` holds the exact neutral message
 projection with images. This is not the provider's final wire encoding. Frame
 metadata is stored under the reserved `Message.meta.cascadeCamera` key.
 

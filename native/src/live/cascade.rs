@@ -24,6 +24,9 @@ pub struct CascadeConfig {
     pub tools: Vec<ToolDefinition>,
     pub cancellation: CancellationToken,
     pub camera_context: CameraContext,
+    /// Emit request, provider-request, history and tts-input snapshots for inspection.
+    /// These can include full conversations, tool results and camera images. Defaults to false.
+    pub capture_requests: bool,
 }
 impl CascadeConfig {
     pub fn new(language: Arc<dyn LanguageProvider>, speech: Arc<dyn SpeechOutput>) -> Self {
@@ -32,6 +35,7 @@ impl CascadeConfig {
             speech,
             transcription: None,
             camera_context: CameraContext::Latest,
+            capture_requests: false,
             conversation: Conversation::default(),
             tools: vec![],
             cancellation: CancellationToken::new(),
@@ -399,6 +403,12 @@ impl Actor {
     fn diagnostic(&self, state: Value) -> Result<()> {
         self.emit(None, vec![LiveEvent::ProviderState { state }])
     }
+    fn report_history(&self) -> Result<()> {
+        if self.config.capture_requests {
+            self.diagnostic(json!({"kind":"history","conversation":self.config.conversation}))?;
+        }
+        Ok(())
+    }
     fn cancel_work(&mut self) {
         self.generation.fetch_add(1, Ordering::SeqCst);
         self.work_cancel.cancel();
@@ -599,9 +609,7 @@ impl Actor {
                         self.continuation = Some(tokio::time::Instant::now());
                         self.advance()?;
                     }
-                    self.diagnostic(
-                        json!({"kind":"history","conversation":self.config.conversation}),
-                    )?;
+                    self.report_history()?;
                 }
                 Ok(())
             }
@@ -661,7 +669,7 @@ impl Actor {
                     json!({"itemId":cut.item_id,"playedMs":cut.played_ms,"accuracy":cut.accuracy});
                 self.diagnostic(json!({"kind":"playback-cut","cut":cut}))?;
             }
-            self.diagnostic(json!({"kind":"history","conversation":self.config.conversation}))?;
+            self.report_history()?;
         }
         self.cut_wait = None;
         if self.start_pending && self.pending.is_empty() {
@@ -727,11 +735,6 @@ impl Actor {
                 .collect();
             conversation.instructions.push_str(&format!("\nPlayback context: the user interrupted an earlier assistant reply. User interruptions include speech or microphone sounds detected as speech, a new typed message, or an explicit stop action; they may occur without recognized words. This is normal turn-taking, not a provider or playback failure, and does not imply deliberate intent. The retained assistant text ends with {}. Any generated continuation was not played and has been removed. The cutoff may be approximate. Respond to the latest user input without claiming they heard the full reply. Mention the interruption only when relevant; do not routinely apologize or announce that you were cut off.", serde_json::to_string(&quote)?));
         }
-        let camera = last_user
-            .and_then(|i| conversation.messages.get(i))
-            .and_then(|m| m.meta.as_ref())
-            .and_then(|m| m.get("cascadeCamera"))
-            .cloned();
         conversation.messages.retain(|m| !m.items.is_empty());
         conversation.validate()?;
         if serde_json::to_vec(&self.config.conversation)?.len() > 8 * 1024 * 1024 {
@@ -740,23 +743,28 @@ impl Actor {
             ));
         }
         let generation = self.generation.load(Ordering::SeqCst);
-        self.diagnostic(json!({"kind":"request","itemId":generation.to_string(),"camera":camera,"conversation":conversation,"tools":self.config.tools,"maxTokens":1024}))?;
         self.work_cancel = self.cancel.child_token();
         let cancel = self.work_cancel.clone();
         let language = self.config.language.clone();
         let tx = self.work_tx.clone();
-        let request_tx = tx.clone();
-        let options = ChatOptions {
-            on_request: Some(Arc::new(move |request| {
-                // Diagnostics use the same bounded, generation-checked queue as model updates.
-                let _ = request_tx.try_send((generation, Work::ProviderRequest(request)));
-            })),
+        let mut options = ChatOptions {
             cancellation: cancel.clone(),
             tools: Some(self.config.tools.clone()),
             max_tokens: Some(1024),
             max_retries: 0,
             ..Default::default()
         };
+        let capture_requests = self.config.capture_requests;
+        if capture_requests {
+            let camera = last_user
+                .and_then(|i| self.config.conversation.messages[i].meta.as_ref())
+                .and_then(|meta| meta.get("cascadeCamera"));
+            self.diagnostic(json!({"kind":"request","itemId":generation.to_string(),"camera":camera,"conversation":conversation,"tools":options.tools,"maxTokens":options.max_tokens}))?;
+            let request_tx = tx.clone();
+            options.on_request = Some(Arc::new(move |request| {
+                let _ = request_tx.try_send((generation, Work::ProviderRequest(request)));
+            }));
+        }
         tokio::spawn(async move {
             let mut overflow = false;
             let mut update = |m: &Message| {
@@ -781,9 +789,11 @@ impl Actor {
         let synthesis_work = async move {
             let result: Result<()> = async {
                 while let Some((index, text)) = segments.recv().await {
-                    tx.send((generation, Work::SynthesisText(index, text.clone())))
-                        .await
-                        .map_err(|_| Error::Cancelled)?;
+                    if capture_requests {
+                        tx.send((generation, Work::SynthesisText(index, text.clone())))
+                            .await
+                            .map_err(|_| Error::Cancelled)?;
+                    }
                     let mut stream = tokio::time::timeout(
                         Duration::from_secs(15),
                         speech.synthesize_timed(&text, cancel.clone()),
@@ -922,7 +932,7 @@ impl Actor {
                 self.config.conversation.messages[round.message] = message;
                 events.push(LiveEvent::ResponseEnded);
                 self.emit(None, events)?;
-                self.diagnostic(json!({"kind":"history","conversation":self.config.conversation}))
+                self.report_history()
             }
             Work::Audio(index, frame) => {
                 let round = self.round.as_mut().unwrap();

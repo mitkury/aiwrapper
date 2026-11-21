@@ -31,6 +31,36 @@ async fn synthesized(session: &mut LiveSession) {
 }
 
 #[tokio::test]
+async fn embedded_sessions_deliver_audio_without_request_capture_by_default() {
+    let language = MockLang::from_fn(|_, options| {
+        assert!(options.on_request.is_none());
+        Ok(Message::assistant("Hello."))
+    });
+    let mut session = CascadeConfig::new(Arc::new(language), Arc::new(MockSpeechOutput))
+        .connect()
+        .unwrap();
+    session.sender.send_realtime_text("hi").await.unwrap();
+    let mut heard_audio = false;
+    'session: loop {
+        for event in next(&mut session).await {
+            match event {
+                LiveEvent::Audio { .. } => heard_audio = true,
+                LiveEvent::ProviderState { state } => match state["kind"].as_str() {
+                    Some("request" | "provider-request" | "history" | "tts-input") => {
+                        panic!("unexpected capture event: {}", state["kind"])
+                    }
+                    Some("synthesis-complete") => break 'session,
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
+    }
+    assert!(heard_audio);
+    session.sender.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn playback_cut_keeps_only_fully_heard_segments_and_cannot_replay_raw_text() {
     let seen = Arc::new(Mutex::new(vec![]));
     let requests = seen.clone();
@@ -122,12 +152,12 @@ impl SpeechOutput for RecordedSpeech {
 async fn timer_streams_complete_words_and_reports_exact_synthesis_input() {
     let gate = CancellationToken::new();
     let inputs = Arc::new(Mutex::new(vec![]));
-    let mut session = CascadeConfig::new(
+    let mut config = CascadeConfig::new(
         Arc::new(PartialWordLanguage(gate.clone())),
         Arc::new(RecordedSpeech(inputs.clone())),
-    )
-    .connect()
-    .unwrap();
+    );
+    config.capture_requests = true;
+    let mut session = config.connect().unwrap();
     session.sender.send_realtime_text("hi").await.unwrap();
     let mut reported = vec![];
     loop {
@@ -454,12 +484,12 @@ async fn stop_cancels_a_deferred_reply_but_preserves_history() {
                 thought_signature: None,
             });
         }
-        let mut session = CascadeConfig::new(
+        let mut config = CascadeConfig::new(
             Arc::new(MockLang::new([first, Message::assistant("Ready.")])),
             Arc::new(MockSpeechOutput),
-        )
-        .connect()
-        .unwrap();
+        );
+        config.capture_requests = true;
+        let mut session = config.connect().unwrap();
         session.sender.send_realtime_text("first").await.unwrap();
         synthesized(&mut session).await;
         session.sender.send_realtime_text("second").await.unwrap();

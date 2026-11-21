@@ -179,6 +179,13 @@ contracts. `DeepgramFlux` supplies the initial persistent STT adapter;
 `HttpSpeechOutput` wraps the existing speech clients. `MockSpeechOutput` emits a
 tone for offline tests.
 
+For a request inspector, set `config.capture_requests = true` before calling
+`connect()`. The playground host enables this option. It emits the normalized
+model input (`request`), provider JSON (`provider-request`), conversation
+snapshots (`history`), and speech synthesis text (`tts-input`). These may
+contain tool results and camera images. Embedded sessions default to capture off
+and still deliver audio, transcripts, tool calls, and playback acknowledgements.
+
 Speech segmentation prefers sentence and clause boundaries. A 200 ms timer can
 release a complete-word prefix of at least 40 characters; the 160-character
 target also splits only at whitespace. Unfinished words wait for a boundary or
