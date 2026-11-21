@@ -613,6 +613,38 @@ var models = {
     "releasedAt": "2026-01-22",
     "creatorId": "baidu"
   },
+  "decision-models/baseten-bison-latest": {
+    "id": "decision-models/baseten-bison-latest",
+    "name": "Bison 1",
+    "license": "mit-and-apache-2.0",
+    "capabilities": [
+      "txt-in",
+      "img-in"
+    ],
+    "context": {
+      "type": "token",
+      "total": 131072,
+      "maxOutput": 0
+    },
+    "releasedAt": "2026-11-20",
+    "creatorId": "baseten"
+  },
+  "decision-models/baseten-groundhog-latest": {
+    "id": "decision-models/baseten-groundhog-latest",
+    "name": "Groundhog 1",
+    "license": "mit-and-apache-2.0",
+    "capabilities": [
+      "txt-in",
+      "img-in"
+    ],
+    "context": {
+      "type": "token",
+      "total": 131072,
+      "maxOutput": 0
+    },
+    "releasedAt": "2026-11-20",
+    "creatorId": "baseten"
+  },
   "doubao-seedance-2-5-flash-261115": {
     "id": "doubao-seedance-2-5-flash-261115",
     "name": "Seedance 2.5 Flash",
@@ -5667,6 +5699,26 @@ var models = {
     },
     "creatorId": "qwen"
   },
+  "RadixArk/DaisyRose-27B": {
+    "id": "RadixArk/DaisyRose-27B",
+    "name": "DaisyRose 27B",
+    "license": "apache-2.0",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "img-in",
+      "fn-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 262144,
+      "maxOutput": null
+    },
+    "releasedAt": "2026-11-18",
+    "creatorId": "radixark"
+  },
   "recraftv4_1_flash_v2": {
     "id": "recraftv4_1_flash_v2",
     "name": "Recraft V4.1 Flash V2",
@@ -5923,6 +5975,26 @@ var models = {
     },
     "releasedAt": "2026-04-23",
     "creatorId": "tencent"
+  },
+  "thinkingmachines/Inkling-2-Mini": {
+    "id": "thinkingmachines/Inkling-2-Mini",
+    "name": "Inkling 2 Mini",
+    "license": "apache-2.0",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "img-in",
+      "fn-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 1048576,
+      "maxOutput": null
+    },
+    "releasedAt": "2026-11-20",
+    "creatorId": "thinkingmachines"
   },
   "thinkingmachines/Inkling-2-Small": {
     "id": "thinkingmachines/Inkling-2-Small",
@@ -6963,6 +7035,22 @@ var providers = {
       }
     ]
   },
+  "baseten": {
+    "id": "baseten",
+    "name": "Baseten",
+    "apiUrl": "https://inference.baseten.co/v1",
+    "apiDocsUrl": "https://www.baseten.co/resources/changelog/bison-1-and-groundhog-1-available-on-baseten/",
+    "pricing": {},
+    "models": [
+      {
+        "creator": "baseten",
+        "include": [
+          "decision-models/baseten-bison-latest",
+          "decision-models/baseten-groundhog-latest"
+        ]
+      }
+    ]
+  },
   "bedrock": {
     "id": "bedrock",
     "name": "AWS Bedrock",
@@ -7326,6 +7414,15 @@ var providers = {
     "name": "Ollama",
     "models": [
       {
+        "creator": "thinkingmachines",
+        "include": [
+          "thinkingmachines/Inkling-2-Mini"
+        ],
+        "idOverrides": {
+          "thinkingmachines/Inkling-2-Mini": "inkling-2-mini"
+        }
+      },
+      {
         "creator": "openbmb",
         "include": [
           "openbmb/MiniCPM5-2B"
@@ -7607,12 +7704,34 @@ var providers = {
       {
         "creator": "thinkingmachines",
         "include": [
+          "thinkingmachines/Inkling-2-Mini",
           "thinkingmachines/Inkling-2-Small",
           "thinkingmachines/Inkling-Small"
         ],
         "idOverrides": {
+          "thinkingmachines/Inkling-2-Mini": "thinkingmachines/inkling-2-mini",
           "thinkingmachines/Inkling-2-Small": "thinkingmachines/inkling-2-small",
           "thinkingmachines/Inkling-Small": "thinkingmachines/inkling-small"
+        }
+      },
+      {
+        "creator": "baseten",
+        "include": [
+          "decision-models/baseten-bison-latest",
+          "decision-models/baseten-groundhog-latest"
+        ],
+        "idOverrides": {
+          "decision-models/baseten-bison-latest": "baseten/bison-1",
+          "decision-models/baseten-groundhog-latest": "baseten/groundhog-1"
+        }
+      },
+      {
+        "creator": "radixark",
+        "include": [
+          "RadixArk/DaisyRose-27B"
+        ],
+        "idOverrides": {
+          "RadixArk/DaisyRose-27B": "radixark/daisyrose-27b"
         }
       },
       {
@@ -8018,6 +8137,7 @@ var providers = {
         "exclude": [
           "grok-imagine-image-quality",
           "grok-code-fast-1",
+          "grok-build-0.1",
           "grok-4-fast-non-reasoning",
           "grok-4-1-fast-non-reasoning"
         ]
@@ -8247,6 +8367,18 @@ var organizations = {
     "websiteUrl": "https://www.liquid.ai",
     "country": "USA",
     "founded": 2023
+  },
+  "baseten": {
+    "name": "Baseten",
+    "websiteUrl": "https://www.baseten.co",
+    "country": "USA",
+    "founded": 2019
+  },
+  "radixark": {
+    "name": "RadixArk",
+    "websiteUrl": "https://www.radixark.com",
+    "country": "USA",
+    "founded": 2026
   },
   "together": {
     "name": "Together AI",
