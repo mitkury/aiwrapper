@@ -295,6 +295,36 @@ impl Speech {
             .await?;
         Ok(pcm_stream(response, 24000, cancellation))
     }
+    /// Deepgram Aura chooses the voice through its model ID and streams raw mono PCM.
+    pub async fn speak_deepgram(
+        &self,
+        text: &str,
+        model: &str,
+        cancellation: CancellationToken,
+    ) -> Result<BoxStream<'static, Result<PcmFrame>>> {
+        let headers = BTreeMap::from([
+            ("authorization".into(), format!("Token {}", self.api_key)),
+            ("content-type".into(), "application/json".into()),
+        ]);
+        if model.is_empty()
+            || !model
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || c == b'-')
+        {
+            return Err(Error::Invalid("invalid Deepgram voice model ID".into()));
+        }
+        let path =
+            format!("/speak?model={model}&encoding=linear16&sample_rate=24000&container=none");
+        let response = self
+            .send(
+                &path,
+                serde_json::to_vec(&json!({"text":text}))?,
+                headers,
+                &cancellation,
+            )
+            .await?;
+        Ok(pcm_stream(response, 24000, cancellation))
+    }
     pub async fn speak_elevenlabs(
         &self,
         text: &str,

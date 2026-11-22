@@ -7,11 +7,13 @@ use serde::Deserialize;
 pub enum SpeechProvider {
     Openai,
     Elevenlabs,
+    Deepgram,
 }
 
 impl SpeechProvider {
     pub fn client(self) -> Result<Speech> {
         let (prefix, default_url) = match self {
+            Self::Deepgram => ("DEEPGRAM", "https://api.deepgram.com/v1"),
             Self::Openai => ("OPENAI", "https://api.openai.com/v1"),
             Self::Elevenlabs => ("ELEVENLABS", "https://api.elevenlabs.io/v1"),
         };

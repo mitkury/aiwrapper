@@ -97,6 +97,9 @@ async fn run() -> Result<()> {
             }
             let speech = provider.client()?;
             let mut frames = match provider {
+                SpeechProvider::Deepgram => {
+                    speech.speak_deepgram(&text, &model, cancellation).await?
+                }
                 SpeechProvider::Openai => speech.speak(&text, &model, &voice, cancellation).await?,
                 SpeechProvider::Elevenlabs => {
                     speech

@@ -45,6 +45,27 @@ fn wav_is_mono_little_endian_with_accurate_lengths() {
 }
 
 mod common;
+
+#[tokio::test]
+async fn deepgram_aura_requests_raw_pcm_in_the_selected_voice() {
+    let fixture = common::Fixture::new(vec![(200, "AB".into())]);
+    let speech = Speech::with_transport("key", "https://test/v1", fixture.clone());
+    let mut frames = speech
+        .speak_deepgram("Hello", "aura-2-thalia-en", CancellationToken::new())
+        .await
+        .unwrap();
+    let frame = frames.next().await.unwrap().unwrap();
+    assert_eq!(frame.sample_rate, 24000);
+    assert_eq!(frame.samples, vec![i16::from_le_bytes(*b"AB")]);
+    let requests = fixture.requests.lock().unwrap();
+    assert_eq!(
+        requests[0].0,
+        "https://test/v1/speak?model=aura-2-thalia-en&encoding=linear16&sample_rate=24000&container=none"
+    );
+    assert_eq!(requests[0].2["authorization"], "Token key");
+    assert_eq!(requests[0].1, serde_json::json!({"text":"Hello"}));
+}
+
 #[tokio::test]
 async fn gemini_transcription_preserves_encoded_audio_and_uses_the_injected_proxy() {
     let fixture = common::Fixture::new(vec![(

@@ -42,9 +42,14 @@
 		provider = $state<ProviderId>('anthropic'),
 		model = $state(''),
 		sttModel = $state('flux-general-en');
-	let tts = $state('elevenlabs'),
-		ttsModel = $state('eleven_flash_v2_5'),
-		voice = $state('CwhRBWXzGAHq8TQ4Fs17');
+	const speechDefaults = {
+		elevenlabs: { label: 'ElevenLabs', model: 'eleven_flash_v2_5', voice: 'CwhRBWXzGAHq8TQ4Fs17' },
+		openai: { label: 'OpenAI', model: 'gpt-4o-mini-tts', voice: 'alloy' },
+		deepgram: { label: 'Deepgram Aura', model: 'aura-2-thalia-en', voice: '' }
+	};
+	let tts = $state<keyof typeof speechDefaults>('elevenlabs'),
+		ttsModel = $state(speechDefaults.elevenlabs.model),
+		voice = $state(speechDefaults.elevenlabs.voice);
 	let muted = $state(false);
 	let micStatus = $state('Waiting for microphone'),
 		micLevel = $state(0);
@@ -582,8 +587,8 @@
 			configured[provider]?.model || providerConfigs.find((p) => p.id === provider)!.defaultModel;
 	}
 	function chooseSpeech() {
-		ttsModel = tts === 'elevenlabs' ? 'eleven_flash_v2_5' : 'gpt-4o-mini-tts';
-		voice = tts === 'elevenlabs' ? 'CwhRBWXzGAHq8TQ4Fs17' : 'alloy';
+		ttsModel = speechDefaults[tts].model;
+		voice = speechDefaults[tts].voice;
 	}
 	onMount(() => {
 		cameraSource = simulator ? 'room' : 'off';
@@ -604,15 +609,15 @@
 				chooseProvider();
 				if (live && simulator) cameraSource = 'room';
 				if (!live) {
-					if (!keys.elevenlabs && keys.openai) {
-						tts = 'openai';
-						chooseSpeech();
-					} else if (v.voice) voice = v.voice;
-					offline = !(
-						configured[provider]?.configured &&
-						keys.deepgram &&
-						(keys.elevenlabs || keys.openai)
-					);
+					const requested = new URLSearchParams(window.location.search).get('tts');
+					if (requested === 'deepgram' || requested === 'openai' || requested === 'elevenlabs') {
+						tts = requested;
+					} else if (!keys.elevenlabs && (keys.openai || keys.deepgram)) {
+						tts = keys.openai ? 'openai' : 'deepgram';
+					}
+					chooseSpeech();
+					if (tts === 'elevenlabs' && v.voice) voice = v.voice;
+					offline = !(configured[provider]?.configured && keys.deepgram && keys[tts]);
 				}
 			})
 			.catch(fail);
@@ -642,7 +647,7 @@
 			>{offline
 				? 'Offline test'
 				: providerConfigs.find((p) => p.id === provider)?.label}{!offline && !live
-				? ` · ${tts === 'elevenlabs' ? 'ElevenLabs' : 'OpenAI'} voice`
+				? ` · ${speechDefaults[tts].label} voice`
 				: ''}</span
 		>
 	</div>
@@ -986,16 +991,26 @@
 								id="tts"
 								bind:value={tts}
 								onchange={chooseSpeech}
-								><option value="elevenlabs"
-									>ElevenLabs{keys.elevenlabs ? ' · configured' : ''}</option
-								><option value="openai">OpenAI{keys.openai ? ' · configured' : ''}</option></select
-							><input aria-label="Speech model ID" bind:value={ttsModel} /><input
-								aria-label="Voice ID"
-								bind:value={voice}
-							/>
-							<p class="text-xs text-neutral-500">
-								ElevenLabs default: Roger. You can paste another voice ID.
-							</p>
+							>
+								{#each Object.entries(speechDefaults) as [id, defaults]}
+									<option value={id}
+										>{defaults.label}{keys[id as keyof typeof speechDefaults]
+											? ' · configured'
+											: ''}</option
+									>
+								{/each}
+							</select>
+							<input aria-label="Speech model ID" bind:value={ttsModel} />
+							{#if tts === 'deepgram'}
+								<p class="text-xs text-neutral-500">
+									The Aura model ID selects the voice and language.
+								</p>
+							{:else}
+								<input aria-label="Voice ID" bind:value={voice} />
+								{#if tts === 'elevenlabs'}<p class="text-xs text-neutral-500">
+										ElevenLabs defaults to Roger. You can paste another voice ID.
+									</p>{/if}
+							{/if}
 						</div>
 					</div>
 				{/if}

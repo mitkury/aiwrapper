@@ -45,14 +45,15 @@ export function startCascade(value: unknown, signal: AbortSignal): Response {
 		(typeof v.instructions !== 'string' || v.instructions.length > 16000)
 	)
 		throw new Error('System instructions must be text, up to 16000 characters');
-	if (v.tts !== 'openai' && v.tts !== 'elevenlabs') throw new Error('Invalid speech provider');
+	if (v.tts !== 'openai' && v.tts !== 'elevenlabs' && v.tts !== 'deepgram')
+		throw new Error('Invalid speech provider');
 	if (v.live !== undefined && typeof v.live !== 'boolean') throw new Error('Invalid live mode');
 	if (v.live && (v.offline || !['openai', 'google'].includes(v.provider)))
 		throw new Error('Rust live voice requires OpenAI or Google');
 	if (!v.offline) {
 		if (!languageConfig()[v.provider].configured)
 			throw new Error(`${v.provider} key is not configured`);
-		if (!v.live && v.microphone && !env.DEEPGRAM_API_KEY)
+		if (!v.live && (v.microphone || v.tts === 'deepgram') && !env.DEEPGRAM_API_KEY)
 			throw new Error('DEEPGRAM_API_KEY is not configured');
 		if (!v.live && v.tts === 'openai' && !env.OPENAI_API_KEY)
 			throw new Error('OPENAI_API_KEY is not configured');

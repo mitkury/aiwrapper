@@ -41,7 +41,8 @@ When `DEEPGRAM_API_KEY` is missing, Cascade starts in typed offline mode. To
 speak in the same room using `GOOGLE_API_KEY`, select **Talk in this room with
 Gemini Live**, then **Start session** and allow microphone access. Gemini handles
 voice and room images on its live connection. For the Cascade pipeline, configure
-Deepgram for transcription and either OpenAI or ElevenLabs for speech output.
+Deepgram for transcription and choose Deepgram Aura, OpenAI or ElevenLabs for speech output.
+Open `/simulator?tts=deepgram` to select Flux input and Aura output with the same key.
 
 The room requires WebGL 2; no downloaded models or external image assets are used.
 

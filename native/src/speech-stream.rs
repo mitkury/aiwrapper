@@ -258,6 +258,22 @@ impl SpeechOutput for HttpSpeechOutput {
         }
     }
 }
+pub struct DeepgramAura {
+    pub speech: Speech,
+    pub model: String,
+}
+#[async_trait]
+impl SpeechOutput for DeepgramAura {
+    async fn synthesize(
+        &self,
+        text: &str,
+        cancellation: CancellationToken,
+    ) -> Result<BoxStream<'static, Result<PcmFrame>>> {
+        self.speech
+            .speak_deepgram(text, &self.model, cancellation)
+            .await
+    }
+}
 /// A short audible tone per segment; deliberately does not pretend to synthesize speech.
 pub struct MockSpeechOutput;
 #[async_trait]

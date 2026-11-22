@@ -1,7 +1,7 @@
 # Rust cascade playground
 
 The first cascade runs Deepgram Flux transcription, a Rust `LanguageProvider`,
-and OpenAI or ElevenLabs HTTP streaming synthesis. Speech starts from bounded
+and Deepgram Aura, OpenAI or ElevenLabs HTTP streaming synthesis. Speech starts from bounded
 text segments while the language model continues. `LiveAgent` is the only tool
 executor. TypeScript handles browser media and the development process bridge.
 
@@ -21,9 +21,9 @@ example binaries. All playground AI operations use Rust. `/realtime` redirects
 to this page; the duplicate TypeScript pipeline has been removed. Native
 OpenAI/Gemini audio models are available at `/speech-to-speech`.
 
-When the default language provider, Deepgram, and either ElevenLabs or OpenAI
-speech output are configured, the page starts with real speech and Microphone
-selected. It selects ElevenLabs when configured and otherwise uses OpenAI.
+When the default language provider and Deepgram are configured, the page starts
+with real speech and Microphone selected. The initial synthesis choice prefers
+ElevenLabs, then OpenAI, then Deepgram Aura, according to configured keys.
 Capture begins only on **Start session**.
 Otherwise it starts in **Offline test** mode. Start a session and send
 `tool: add {"a":2,"b":3}` to exercise real local tool execution and PCM playback.
@@ -39,6 +39,7 @@ and synthesis providers; no transcription connection is opened. Keys stay in the
 | Transcription | `DEEPGRAM_API_KEY`; select English or multilingual Flux |
 | Language | The selected provider's key, such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `GROQ_API_KEY`, or `OPENROUTER_API_KEY` |
 | ElevenLabs output | `ELEVENLABS_API_KEY`; a voice ID in the page or `ELEVENLABS_VOICE_ID` |
+| Deepgram Aura output | `DEEPGRAM_API_KEY`; the model ID selects the voice, e.g. `aura-2-thalia-en` |
 | OpenAI output | `OPENAI_API_KEY`; model and voice in the page |
 
 ## Compare cloud voice in the simulator
@@ -47,10 +48,12 @@ and synthesis providers; no transcription connection is opened. Keys stay in the
 | --- | --- | --- |
 | Talk to Gemini about the current room view | `/speech-to-speech?input=room` | `GOOGLE_API_KEY` |
 | Talk to OpenAI Realtime, audio only in the current UI | `/speech-to-speech` | `OPENAI_API_KEY` |
-| Talk to a selected vision model about recent room views | `/simulator` with Microphone enabled and Offline test disabled | `DEEPGRAM_API_KEY`, the selected language provider's key, and either `OPENAI_API_KEY` or `ELEVENLABS_API_KEY` for synthesis |
+| Talk to a selected vision model about recent room views | `/simulator` with Microphone enabled and Offline test disabled | `DEEPGRAM_API_KEY`, the selected language provider's key, and the output provider's key (Aura reuses the Deepgram key) |
 
 For example, choose OpenRouter and enter `thinkingmachines/inkling-2-mini` to
-use Inkling for room understanding. Deepgram Flux handles microphone input.
+use Inkling for room understanding. Select **Deepgram Aura** under **Speech output**
+to use the same Deepgram key for Flux microphone input and spoken replies.
+The link `/simulator?tts=deepgram` preselects Aura.
 Keep the language model, frame selection and prompt fixed and switch only the
 synthesis provider to compare voices. To compare a native live model with the
 cascade, include interruption and visual recall tests because the routes handle

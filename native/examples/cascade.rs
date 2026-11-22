@@ -266,6 +266,11 @@ async fn connect(config: Config, tools: &[Tool], cancel: CancellationToken) -> R
     };
     let speech: Arc<dyn SpeechOutput> = if config.offline {
         Arc::new(MockSpeechOutput)
+    } else if config.tts == SpeechProvider::Deepgram {
+        Arc::new(DeepgramAura {
+            speech: config.tts.client()?,
+            model: config.tts_model,
+        })
     } else {
         let elevenlabs = config.tts == SpeechProvider::Elevenlabs;
         let voice = if elevenlabs && config.voice.trim().is_empty() {
