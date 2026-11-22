@@ -1871,6 +1871,29 @@ var models = {
     },
     "creatorId": "google"
   },
+  "gemini-2.5-flash-preview-tts": {
+    "id": "gemini-2.5-flash-preview-tts",
+    "name": "Gemini 2.5 Flash TTS Preview",
+    "license": "proprietary",
+    "capabilities": [
+      "txt-in",
+      "audio-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": 8192,
+      "maxOutput": 16384
+    },
+    "creatorId": "google"
+  },
+  "gemini-2.5-pro-preview-tts": {
+    "id": "gemini-2.5-pro-preview-tts",
+    "extends": "gemini-2.5-flash-preview-tts",
+    "overrides": {
+      "name": "Gemini 2.5 Pro TTS Preview"
+    },
+    "creatorId": "google"
+  },
   "gemini-3-pro-preview": {
     "id": "gemini-3-pro-preview",
     "name": "Gemini 3 Pro Preview",
@@ -5113,6 +5136,42 @@ var models = {
     "releasedAt": "2026-11-12",
     "creatorId": "perplexity"
   },
+  "perplexity-ai/pplx-embed-v2-context-9b": {
+    "id": "perplexity-ai/pplx-embed-v2-context-9b",
+    "name": "Perplexity Embed V2 Context 9B",
+    "license": "mit",
+    "capabilities": [
+      "txt-in",
+      "img-in",
+      "vec-out"
+    ],
+    "context": {
+      "type": "embedding",
+      "total": null,
+      "dimensions": 2048,
+      "embeddingType": "multimodal",
+      "normalized": false
+    },
+    "creatorId": "perplexity"
+  },
+  "perplexity-ai/pplx-embed-v2-context-0.6b": {
+    "id": "perplexity-ai/pplx-embed-v2-context-0.6b",
+    "name": "Perplexity Embed V2 Context 0.6B",
+    "license": "mit",
+    "capabilities": [
+      "txt-in",
+      "img-in",
+      "vec-out"
+    ],
+    "context": {
+      "type": "embedding",
+      "total": null,
+      "dimensions": 1024,
+      "embeddingType": "multimodal",
+      "normalized": false
+    },
+    "creatorId": "perplexity"
+  },
   "qwen4-max": {
     "id": "qwen4-max",
     "name": "Qwen 4 Max",
@@ -7571,6 +7630,8 @@ var providers = {
           "gemini-2.5-pro-preview-06-05",
           "gemini-2.5-flash",
           "gemini-2.5-flash-lite",
+          "gemini-2.5-flash-preview-tts",
+          "gemini-2.5-pro-preview-tts",
           "gemini-3.1-flash-lite-preview",
           "gemma-3-4b-it",
           "gemma-3-12b-it",
@@ -7579,7 +7640,9 @@ var providers = {
         ],
         "idPrefix": "google/",
         "idOverrides": {
-          "gemini-2.5-pro-preview-06-05": "google/gemini-2.5-pro-preview"
+          "gemini-2.5-pro-preview-06-05": "google/gemini-2.5-pro-preview",
+          "gemini-2.5-flash-preview-tts": "google/gemini-2.5-flash-tts",
+          "gemini-2.5-pro-preview-tts": "google/gemini-2.5-pro-tts"
         }
       },
       {
@@ -7853,11 +7916,15 @@ var providers = {
         "creator": "perplexity",
         "include": [
           "pplx-decider-v1.3",
-          "pplx-decider-flash-v1.3"
+          "pplx-decider-flash-v1.3",
+          "perplexity-ai/pplx-embed-v2-context-9b",
+          "perplexity-ai/pplx-embed-v2-context-0.6b"
         ],
         "idOverrides": {
           "pplx-decider-v1.3": "perplexity/pplx-decider-v1.3:free",
-          "pplx-decider-flash-v1.3": "perplexity/pplx-decider-flash-v1.3:free"
+          "pplx-decider-flash-v1.3": "perplexity/pplx-decider-flash-v1.3:free",
+          "perplexity-ai/pplx-embed-v2-context-9b": "perplexity/pplx-embed-v2-context-9b",
+          "perplexity-ai/pplx-embed-v2-context-0.6b": "perplexity/pplx-embed-v2-context-0.6b"
         }
       },
       {
