@@ -5276,6 +5276,21 @@ var models = {
     },
     "creatorId": "qwen"
   },
+  "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice": {
+    "id": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+    "name": "Qwen3 TTS 12Hz 1.7B CustomVoice",
+    "license": "apache-2.0",
+    "capabilities": [
+      "txt-in",
+      "audio-out"
+    ],
+    "context": {
+      "type": "audio-out",
+      "total": null,
+      "maxOutput": null
+    },
+    "creatorId": "qwen"
+  },
   "qwen3.8-max": {
     "id": "qwen3.8-max",
     "name": "Qwen 3.8 Max",
@@ -7689,12 +7704,14 @@ var providers = {
           "qwen3.8-omni-flash",
           "qwen3.8-max-0902",
           "qwen3.8-flash",
+          "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
           "Qwen/Qwen3.8-27B",
           "Qwen/Qwen3.6-35B-A3B",
           "Qwen/Qwen3.8-2.4T-A95B"
         ],
         "idPrefix": "qwen/",
         "idOverrides": {
+          "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice": "qwen/qwen3-tts-1.7b",
           "Qwen/Qwen3.6-35B-A3B": "qwen/qwen3.6-35b-a3b",
           "Qwen/Qwen3.8-27B": "qwen/qwen3.8-27b",
           "Qwen/Qwen3.8-2.4T-A95B": "qwen/qwen3.8-2.4t-a95b"
@@ -7986,7 +8003,8 @@ var providers = {
           "Qwen/Qwen3.8-2.4T-A95B",
           "Qwen/Qwen3.8-27B",
           "Qwen/Qwen3.6-35B-A3B",
-          "Qwen/Qwen3.8-Flash-Next"
+          "Qwen/Qwen3.8-Flash-Next",
+          "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
         ]
       }
     ]
@@ -8111,10 +8129,12 @@ var providers = {
       {
         "creator": "qwen",
         "include": [
-          "qwen4-max"
+          "qwen4-max",
+          "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
         ],
         "idOverrides": {
-          "qwen4-max": "Qwen/Qwen4-Max"
+          "qwen4-max": "Qwen/Qwen4-Max",
+          "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice": "Qwen/Qwen3-TTS-12Hz-1.7B"
         }
       },
       {
