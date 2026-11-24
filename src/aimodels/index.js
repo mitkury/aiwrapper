@@ -5276,6 +5276,43 @@ var models = {
     },
     "creatorId": "qwen"
   },
+  "qwen-audio-3.1-live": {
+    "id": "qwen-audio-3.1-live",
+    "name": "Qwen Audio 3.1 Live",
+    "license": "proprietary",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "audio-in",
+      "audio-out",
+      "fn-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": null,
+      "maxOutput": null
+    },
+    "releasedAt": "2026-11-23",
+    "creatorId": "qwen"
+  },
+  "qwen-audio-3.1-captioner": {
+    "id": "qwen-audio-3.1-captioner",
+    "name": "Qwen Audio 3.1 Captioner",
+    "license": "proprietary",
+    "capabilities": [
+      "audio-in",
+      "video-in",
+      "txt-out"
+    ],
+    "context": {
+      "type": "audio-in",
+      "total": null,
+      "maxOutput": null
+    },
+    "releasedAt": "2026-11-23",
+    "creatorId": "qwen"
+  },
   "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice": {
     "id": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
     "name": "Qwen3 TTS 12Hz 1.7B CustomVoice",
@@ -5838,6 +5875,62 @@ var models = {
       "maxOutput": null
     },
     "creatorId": "salesforce"
+  },
+  "sarvam-105b": {
+    "id": "sarvam-105b",
+    "name": "Sarvam 105B",
+    "license": "apache-2.0",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "fn-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 131072,
+      "maxOutput": null
+    },
+    "creatorId": "sarvam"
+  },
+  "sarvam-105b-conversations": {
+    "id": "sarvam-105b-conversations",
+    "extends": "sarvam-105b",
+    "overrides": {
+      "name": "Sarvam 105B Conversations",
+      "capabilities": [
+        "chat",
+        "txt-in",
+        "txt-out",
+        "fn-out"
+      ],
+      "context": {
+        "type": "token",
+        "total": 32768,
+        "maxOutput": null
+      }
+    },
+    "creatorId": "sarvam"
+  },
+  "sarvamai/sarvam-105b-1711": {
+    "id": "sarvamai/sarvam-105b-1711",
+    "name": "Sarvam 105B 1711",
+    "license": "apache-2.0",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "fn-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 131072,
+      "maxOutput": null
+    },
+    "releasedAt": "2026-11-22",
+    "creatorId": "sarvam"
   },
   "step-5-preview": {
     "id": "step-5-preview",
@@ -8038,6 +8131,22 @@ var providers = {
       }
     ]
   },
+  "sarvam": {
+    "id": "sarvam",
+    "name": "Sarvam AI",
+    "apiUrl": "https://api.sarvam.ai/v1",
+    "apiDocsUrl": "https://docs.sarvam.ai/api/token-factory/chat-completions",
+    "pricing": {},
+    "models": [
+      {
+        "creator": "sarvam",
+        "include": [
+          "sarvam-105b",
+          "sarvam-105b-conversations"
+        ]
+      }
+    ]
+  },
   "stepfun": {
     "id": "stepfun",
     "name": "StepFun",
@@ -8333,6 +8442,12 @@ var organizations = {
     "name": "Qwen",
     "websiteUrl": "https://qwenlm.ai",
     "country": "CHN",
+    "founded": 2023
+  },
+  "sarvam": {
+    "name": "Sarvam AI",
+    "websiteUrl": "https://www.sarvam.ai",
+    "country": "IND",
     "founded": 2023
   },
   "kimi": {
