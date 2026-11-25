@@ -494,6 +494,7 @@ var models = {
   "ernie-5.5-flash-preview": {
     "id": "ernie-5.5-flash-preview",
     "name": "ERNIE 5.5 Flash Preview",
+    "license": "apache-2.0",
     "capabilities": [
       "chat",
       "txt-in",
@@ -507,6 +508,9 @@ var models = {
       "total": 1e6,
       "maxOutput": 1e6
     },
+    "aliases": [
+      "baidu/ERNIE-5.5-Flash-Preview"
+    ],
     "releasedAt": "2026-11-11",
     "creatorId": "baidu"
   },
@@ -1401,6 +1405,15 @@ var models = {
       "name": "Gemini 4 Neon"
     },
     "releasedAt": "2026-11-18",
+    "creatorId": "google"
+  },
+  "gemini-4-neon-cyber-permissive": {
+    "id": "gemini-4-neon-cyber-permissive",
+    "extends": "gemini-4-neon",
+    "overrides": {
+      "name": "Gemini 4 Neon for Cyber"
+    },
+    "releasedAt": "2026-11-23",
     "creatorId": "google"
   },
   "gemini-4-carbon": {
@@ -4092,6 +4105,42 @@ var models = {
     "releasedAt": "2026-04-28",
     "creatorId": "nvidia"
   },
+  "gpt-6.2-astra-healthcare": {
+    "id": "gpt-6.2-astra-healthcare",
+    "extends": "gpt-6.2-astra",
+    "overrides": {
+      "name": "GPT-6.2 Astra Healthcare"
+    },
+    "releasedAt": "2026-11-24",
+    "creatorId": "openai"
+  },
+  "gpt-6.2-sol-healthcare": {
+    "id": "gpt-6.2-sol-healthcare",
+    "extends": "gpt-6.2-sol",
+    "overrides": {
+      "name": "GPT-6.2 Sol Healthcare"
+    },
+    "releasedAt": "2026-11-24",
+    "creatorId": "openai"
+  },
+  "gpt-6-astra-healthcare": {
+    "id": "gpt-6-astra-healthcare",
+    "extends": "gpt-6-astra",
+    "overrides": {
+      "name": "GPT-6 Astra Healthcare"
+    },
+    "releasedAt": "2026-11-24",
+    "creatorId": "openai"
+  },
+  "gpt-6.1-sol-healthcare": {
+    "id": "gpt-6.1-sol-healthcare",
+    "extends": "gpt-6.1-sol",
+    "overrides": {
+      "name": "GPT-6.1 Sol Healthcare"
+    },
+    "releasedAt": "2026-11-24",
+    "creatorId": "openai"
+  },
   "gpt-live-1.1": {
     "id": "gpt-live-1.1",
     "extends": "gpt-live-1",
@@ -6036,6 +6085,40 @@ var models = {
     "releasedAt": "2026-05-29",
     "creatorId": "stepfun"
   },
+  "tencent/Hy-MT3-30B-A3B": {
+    "id": "tencent/Hy-MT3-30B-A3B",
+    "name": "Tencent Hy-MT3 30B A3B",
+    "license": "apache-2.0",
+    "capabilities": [
+      "txt-in",
+      "txt-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": 8192,
+      "maxOutput": null
+    },
+    "releasedAt": "2026-11-24",
+    "creatorId": "tencent"
+  },
+  "tencent/Hy-MT3-7B": {
+    "id": "tencent/Hy-MT3-7B",
+    "extends": "tencent/Hy-MT3-30B-A3B",
+    "overrides": {
+      "name": "Tencent Hy-MT3 7B"
+    },
+    "releasedAt": "2026-11-24",
+    "creatorId": "tencent"
+  },
+  "tencent/Hy-MT3-1.8B": {
+    "id": "tencent/Hy-MT3-1.8B",
+    "extends": "tencent/Hy-MT3-30B-A3B",
+    "overrides": {
+      "name": "Tencent Hy-MT3 1.8B"
+    },
+    "releasedAt": "2026-11-24",
+    "creatorId": "tencent"
+  },
   "hy4-flash": {
     "id": "hy4-flash",
     "name": "Tencent Hy4 Flash",
@@ -6224,6 +6307,53 @@ var models = {
     },
     "releasedAt": "2026-07-15",
     "creatorId": "thinkingmachines"
+  },
+  "solar-mini-4-5-preview": {
+    "id": "solar-mini-4-5-preview",
+    "name": "Solar Mini 4.5 Preview",
+    "license": "proprietary",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "json-out",
+      "fn-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 524288,
+      "maxOutput": 131072
+    },
+    "releasedAt": "2026-11-23",
+    "creatorId": "upstage"
+  },
+  "solar-pro-4": {
+    "id": "solar-pro-4",
+    "name": "Solar Pro 4",
+    "license": "proprietary",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "json-out",
+      "fn-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 524288,
+      "maxOutput": 131072
+    },
+    "aliases": [
+      "solar-pro4",
+      "solar-pro-4-260806",
+      "solar-pro4-260806",
+      "solar-pro-4-contributor",
+      "solar-pro-4-260806-contributor"
+    ],
+    "releasedAt": "2026-08-20",
+    "creatorId": "upstage"
   },
   "grok-4.7": {
     "id": "grok-4.7",
@@ -6911,6 +7041,14 @@ var models = {
     "releasedAt": "2026-06-16",
     "creatorId": "xai"
   },
+  "XiaomiMiMo/MiMo-V2.6-Flash-MOPD": {
+    "id": "XiaomiMiMo/MiMo-V2.6-Flash-MOPD",
+    "extends": "mimo-v2.6-flash",
+    "overrides": {
+      "name": "Xiaomi MiMo-V2.6-Flash-MOPD"
+    },
+    "creatorId": "xiaomi"
+  },
   "XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B": {
     "id": "XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B",
     "name": "MiMo V2.6 Distill Qwen 9B",
@@ -7326,6 +7464,21 @@ var providers = {
       }
     ]
   },
+  "google-enterprise": {
+    "id": "google-enterprise",
+    "name": "Gemini Enterprise Agent Platform",
+    "apiUrl": "https://aiplatform.googleapis.com/v1",
+    "apiDocsUrl": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/overview",
+    "pricing": {},
+    "models": [
+      {
+        "creator": "google",
+        "include": [
+          "gemini-4-neon-cyber-permissive"
+        ]
+      }
+    ]
+  },
   "google": {
     "id": "google",
     "name": "Google",
@@ -7359,7 +7512,8 @@ var providers = {
           "veo-3.1-generate-preview",
           "veo-3.1-fast-generate-preview",
           "veo-3.1-lite-generate-preview",
-          "gemini-omni-flash-preview"
+          "gemini-omni-flash-preview",
+          "gemini-4-neon-cyber-permissive"
         ]
       }
     ]
@@ -7950,13 +8104,28 @@ var providers = {
         }
       },
       {
+        "creator": "upstage",
+        "include": [
+          "solar-mini-4-5-preview",
+          "solar-pro-4"
+        ],
+        "idOverrides": {
+          "solar-mini-4-5-preview": "upstage/solar-mini-4-5",
+          "solar-pro-4": "upstage/solar-pro-4-contributor"
+        }
+      },
+      {
         "creator": "xiaomi",
         "include": [
+          "XiaomiMiMo/MiMo-V2.6-Flash-MOPD",
           "mimo-v2.6-pro-ultraspeed",
           "mimo-v2.6-flash",
           "mimo-v2.6-pro"
         ],
-        "idPrefix": "xiaomi/"
+        "idPrefix": "xiaomi/",
+        "idOverrides": {
+          "XiaomiMiMo/MiMo-V2.6-Flash-MOPD": "xiaomi/mimo-v2.6-flash-mopd"
+        }
       },
       {
         "creator": "stepfun",
@@ -8106,13 +8275,13 @@ var providers = {
     "id": "qwen-token-plan",
     "name": "Qwen Token Plan",
     "apiUrl": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
-    "apiDocsUrl": "https://help.aliyun.com/en/model-studio/qwen4-max-preview",
+    "apiDocsUrl": "https://www.alibabacloud.com/help/en/model-studio/token-plan-product-updates",
     "pricing": {},
     "models": [
       {
         "creator": "qwen",
         "include": [
-          "qwen4-max-preview"
+          "qwen4-max"
         ]
       }
     ]
@@ -8258,6 +8427,19 @@ var providers = {
       }
     ]
   },
+  "upstage": {
+    "id": "upstage",
+    "name": "Upstage",
+    "apiUrl": "https://api.upstage.ai/v1",
+    "apiDocsUrl": "https://console.upstage.ai/docs",
+    "pricing": {},
+    "models": [
+      {
+        "creator": "upstage",
+        "include": "all"
+      }
+    ]
+  },
   "vercel-ai-gateway": {
     "id": "vercel-ai-gateway",
     "name": "Vercel AI Gateway",
@@ -8351,6 +8533,7 @@ var providers = {
         "creator": "xiaomi",
         "include": "all",
         "exclude": [
+          "XiaomiMiMo/MiMo-V2.6-Flash-MOPD",
           "XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B",
           "mimo-v2.5-pro",
           "mimo-v2.5"
@@ -8485,6 +8668,12 @@ var organizations = {
     "websiteUrl": "https://www.tencent.com",
     "country": "CHN",
     "founded": 1998
+  },
+  "upstage": {
+    "name": "Upstage",
+    "websiteUrl": "https://www.upstage.ai",
+    "country": "KOR",
+    "founded": 2020
   },
   "xiaomi": {
     "name": "Xiaomi",
