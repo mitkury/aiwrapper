@@ -1,5 +1,59 @@
 // src/data.js
 var models = {
+  "Aleph-Alpha/Kolibri-1.1": {
+    "id": "Aleph-Alpha/Kolibri-1.1",
+    "name": "Kolibri 1.1",
+    "license": "apache-2.0",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "reason",
+      "fn-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": 262144,
+      "maxOutput": null
+    },
+    "creatorId": "aleph-alpha"
+  },
+  "decision-model": {
+    "id": "decision-model",
+    "name": "Alibaba Cloud Decision Model",
+    "license": "proprietary",
+    "capabilities": [
+      "txt-in",
+      "img-in"
+    ],
+    "context": {
+      "type": "token",
+      "total": 268288,
+      "maxOutput": 0
+    },
+    "releasedAt": "2026-11-25",
+    "creatorId": "alibaba-cloud"
+  },
+  "inclusionAI/Ling-3.2-air": {
+    "id": "inclusionAI/Ling-3.2-air",
+    "name": "Ling 3.2 Air",
+    "license": "mit",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "img-in",
+      "video-in",
+      "txt-out",
+      "reason",
+      "fn-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": null,
+      "maxOutput": null
+    },
+    "creatorId": "antgroup"
+  },
   "Ling-3.2-flash": {
     "id": "Ling-3.2-flash",
     "name": "Ling 3.2 Flash",
@@ -648,6 +702,21 @@ var models = {
     },
     "releasedAt": "2026-11-20",
     "creatorId": "baseten"
+  },
+  "doubao-seed-tts-3.0": {
+    "id": "doubao-seed-tts-3.0",
+    "name": "Seed-TTS 3.0",
+    "license": "proprietary",
+    "capabilities": [
+      "txt-in",
+      "audio-out"
+    ],
+    "context": {
+      "type": "audio-out",
+      "total": null,
+      "maxOutput": null
+    },
+    "creatorId": "bytedance"
   },
   "doubao-seedance-2-5-flash-261115": {
     "id": "doubao-seedance-2-5-flash-261115",
@@ -2793,6 +2862,29 @@ var models = {
     },
     "creatorId": "ibm"
   },
+  "illuin/IVE-4B": {
+    "id": "illuin/IVE-4B",
+    "name": "IVE 4B",
+    "license": "apache-2.0",
+    "capabilities": [
+      "txt-in",
+      "img-in"
+    ],
+    "context": {
+      "type": "token",
+      "total": null,
+      "maxOutput": 0
+    },
+    "creatorId": "illuin"
+  },
+  "illuin/Ivonnet-0.8B": {
+    "id": "illuin/Ivonnet-0.8B",
+    "extends": "illuin/IVE-4B",
+    "overrides": {
+      "name": "Ivonnet 0.8B"
+    },
+    "creatorId": "illuin"
+  },
   "internlm/Sage-S2.1-Flash": {
     "id": "internlm/Sage-S2.1-Flash",
     "name": "Sage S2.1 Flash",
@@ -2810,6 +2902,23 @@ var models = {
       "maxOutput": null
     },
     "creatorId": "internlm"
+  },
+  "JetBrains/Mellum2.1-12B-A2.5B-Instruct": {
+    "id": "JetBrains/Mellum2.1-12B-A2.5B-Instruct",
+    "name": "Mellum2.1 Instruct",
+    "license": "apache-2.0",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "fn-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": 131072,
+      "maxOutput": null
+    },
+    "creatorId": "jetbrains"
   },
   "kimi-k3.1-pro": {
     "id": "kimi-k3.1-pro",
@@ -3025,6 +3134,25 @@ var models = {
       "maxOutput": null
     },
     "creatorId": "kittenml"
+  },
+  "raon-1-mini": {
+    "id": "raon-1-mini",
+    "name": "Raon-1 mini",
+    "license": "apache-2.0",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "reason",
+      "fn-out",
+      "json-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": 262144,
+      "maxOutput": null
+    },
+    "creatorId": "krafton"
   },
   "k-exaone_v2.5": {
     "id": "k-exaone_v2.5",
@@ -3966,6 +4094,25 @@ var models = {
       "mistral-medium-2025"
     ],
     "creatorId": "mistral"
+  },
+  "nvidia/Nemotron-Labs-Image-30B-A3B": {
+    "id": "nvidia/Nemotron-Labs-Image-30B-A3B",
+    "name": "Nemotron Labs Image 30B A3B",
+    "license": "nvidia-license",
+    "capabilities": [
+      "txt-in",
+      "img-out"
+    ],
+    "context": {
+      "maxOutput": 1,
+      "sizes": [
+        "1024x1024",
+        "1184x880",
+        "1248x832",
+        "880x1184"
+      ]
+    },
+    "creatorId": "nvidia"
   },
   "nvidia/nemotron-3.5-super-vl-120b-a12b": {
     "id": "nvidia/nemotron-3.5-super-vl-120b-a12b",
@@ -6085,6 +6232,111 @@ var models = {
     "releasedAt": "2026-05-29",
     "creatorId": "stepfun"
   },
+  "hy-mt3-pro": {
+    "id": "hy-mt3-pro",
+    "name": "Hy-MT3 Pro",
+    "aliases": [
+      "hy-mt2-pro"
+    ],
+    "capabilities": [
+      "txt-in",
+      "txt-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": null,
+      "maxOutput": null
+    },
+    "releasedAt": "2026-11-25",
+    "creatorId": "tencent"
+  },
+  "hy-mt3-plus": {
+    "id": "hy-mt3-plus",
+    "name": "Hy-MT3 Plus",
+    "aliases": [
+      "hy-mt2-plus"
+    ],
+    "capabilities": [
+      "txt-in",
+      "txt-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": null,
+      "maxOutput": null
+    },
+    "releasedAt": "2026-11-25",
+    "creatorId": "tencent"
+  },
+  "hy-mt3-lite": {
+    "id": "hy-mt3-lite",
+    "name": "Hy-MT3 Lite",
+    "aliases": [
+      "hy-mt2-lite"
+    ],
+    "capabilities": [
+      "txt-in",
+      "txt-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": null,
+      "maxOutput": null
+    },
+    "releasedAt": "2026-11-25",
+    "creatorId": "tencent"
+  },
+  "tencent/WeMM-Ecom-35B-A3B": {
+    "id": "tencent/WeMM-Ecom-35B-A3B",
+    "name": "WeMM-Ecom 35B-A3B",
+    "license": "apache-2.0",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "img-in",
+      "video-in",
+      "txt-out",
+      "reason"
+    ],
+    "context": {
+      "type": "token",
+      "total": 262144,
+      "maxOutput": null
+    },
+    "creatorId": "tencent"
+  },
+  "tencent/WeMM-Ecom-9B": {
+    "id": "tencent/WeMM-Ecom-9B",
+    "extends": "tencent/WeMM-Ecom-35B-A3B",
+    "overrides": {
+      "name": "WeMM-Ecom 9B"
+    },
+    "creatorId": "tencent"
+  },
+  "tencent/WeMM-Ecom-4B": {
+    "id": "tencent/WeMM-Ecom-4B",
+    "extends": "tencent/WeMM-Ecom-35B-A3B",
+    "overrides": {
+      "name": "WeMM-Ecom 4B"
+    },
+    "creatorId": "tencent"
+  },
+  "tencent/WeMM-Ecom-2B": {
+    "id": "tencent/WeMM-Ecom-2B",
+    "extends": "tencent/WeMM-Ecom-35B-A3B",
+    "overrides": {
+      "name": "WeMM-Ecom 2B"
+    },
+    "creatorId": "tencent"
+  },
+  "tencent/WeMM-Ecom-0.8B": {
+    "id": "tencent/WeMM-Ecom-0.8B",
+    "extends": "tencent/WeMM-Ecom-35B-A3B",
+    "overrides": {
+      "name": "WeMM-Ecom 0.8B"
+    },
+    "creatorId": "tencent"
+  },
   "tencent/Hy-MT3-30B-A3B": {
     "id": "tencent/Hy-MT3-30B-A3B",
     "name": "Tencent Hy-MT3 30B A3B",
@@ -7259,12 +7511,34 @@ var models = {
   }
 };
 var providers = {
+  "alibaba-cloud": {
+    "id": "alibaba-cloud",
+    "name": "Alibaba Cloud Model Studio Decisions",
+    "apiDocsUrl": "https://help.aliyun.com/en/model-studio/decision-model-api",
+    "models": [
+      {
+        "creator": "alibaba-cloud",
+        "include": [
+          "decision-model"
+        ]
+      }
+    ]
+  },
   "antgroup": {
     "id": "antgroup",
     "name": "Ant Ling",
     "apiUrl": "https://api.ant-ling.com/v1",
     "apiDocsUrl": "https://developer.ant-ling.com/en/docs/api-reference/chat/openai",
-    "pricing": {}
+    "pricing": {},
+    "models": [
+      {
+        "creator": "antgroup",
+        "include": "all",
+        "exclude": [
+          "inclusionAI/Ling-3.2-air"
+        ]
+      }
+    ]
   },
   "anthropic": {
     "id": "anthropic",
@@ -7578,6 +7852,20 @@ var providers = {
       }
     ]
   },
+  "krafton": {
+    "id": "krafton",
+    "name": "KRAFTON Raon",
+    "apiUrl": "https://raon-api.krafton.ai/v1",
+    "apiDocsUrl": "https://raon-mini.krafton.ai/en/docs/models",
+    "models": [
+      {
+        "creator": "krafton",
+        "include": [
+          "raon-1-mini"
+        ]
+      }
+    ]
+  },
   "lgai": {
     "id": "lgai",
     "name": "EXAONE API Platform",
@@ -7707,6 +7995,7 @@ var providers = {
         "creator": "nvidia",
         "include": "all",
         "exclude": [
+          "nvidia/Nemotron-Labs-Image-30B-A3B",
           "nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB",
           "nvidia/NVIDIA-Nemotron-Labs-Dory1.0-4B-BF16"
         ]
@@ -7719,6 +8008,12 @@ var providers = {
     "apiUrl": "https://ollama.com/api",
     "apiDocsUrl": "https://docs.ollama.com/cloud",
     "models": [
+      {
+        "creator": "tencent",
+        "include": [
+          "hy4"
+        ]
+      },
       {
         "creator": "thinkingmachines",
         "include": [
@@ -8183,10 +8478,12 @@ var providers = {
       {
         "creator": "bytedance",
         "include": [
+          "doubao-seed-tts-3.0",
           "doubao-seedance-2-5-flash-261115",
           "doubao-seedream-5-5-261028"
         ],
         "idOverrides": {
+          "doubao-seed-tts-3.0": "bytedance-seed/seed-tts-3-0",
           "doubao-seedream-5-5-261028": "bytedance-seed/seedream-5-5",
           "doubao-seedance-2-5-flash-261115": "bytedance/seedance-2.5-flash"
         }
@@ -8332,7 +8629,17 @@ var providers = {
     "models": [
       {
         "creator": "tencent",
-        "include": "all"
+        "include": "all",
+        "exclude": [
+          "tencent/WeMM-Ecom-35B-A3B",
+          "tencent/WeMM-Ecom-9B",
+          "tencent/WeMM-Ecom-4B",
+          "tencent/WeMM-Ecom-2B",
+          "tencent/WeMM-Ecom-0.8B",
+          "tencent/Hy-MT3-30B-A3B",
+          "tencent/Hy-MT3-7B",
+          "tencent/Hy-MT3-1.8B"
+        ]
       },
       {
         "creator": "deepseek",
@@ -8502,6 +8809,20 @@ var providers = {
       }
     ]
   },
+  "volcengine-voice": {
+    "id": "volcengine-voice",
+    "name": "Volcengine Doubao Voice",
+    "apiUrl": "https://voice.cn-beijing.volces.com/api/v3",
+    "apiDocsUrl": "https://docs.volcengine.com/docs/doubao-voice/seed-tts-3-0-intro?lang=zh",
+    "models": [
+      {
+        "creator": "bytedance",
+        "include": [
+          "doubao-seed-tts-3.0"
+        ]
+      }
+    ]
+  },
   "xai": {
     "id": "xai",
     "name": "X.AI",
@@ -8567,6 +8888,36 @@ var providers = {
   }
 };
 var organizations = {
+  "alibaba-cloud": {
+    "name": "Alibaba Cloud",
+    "websiteUrl": "https://www.alibabacloud.com",
+    "country": "CHN",
+    "founded": 2009
+  },
+  "aleph-alpha": {
+    "name": "Aleph Alpha",
+    "websiteUrl": "https://aleph-alpha.com",
+    "country": "DEU",
+    "founded": 2019
+  },
+  "jetbrains": {
+    "name": "JetBrains",
+    "websiteUrl": "https://www.jetbrains.com",
+    "country": "CZE",
+    "founded": 2e3
+  },
+  "illuin": {
+    "name": "ILLUIN Technology",
+    "websiteUrl": "https://www.illuin.tech",
+    "country": "FRA",
+    "founded": 2017
+  },
+  "krafton": {
+    "name": "KRAFTON",
+    "websiteUrl": "https://www.krafton.com",
+    "country": "KOR",
+    "founded": 2007
+  },
   "openai": {
     "name": "OpenAI",
     "websiteUrl": "https://openai.com",
