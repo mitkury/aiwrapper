@@ -34,6 +34,101 @@ var models = {
     "releasedAt": "2026-11-25",
     "creatorId": "alibaba-cloud"
   },
+  "AminiTech/Soma-1X-lite": {
+    "id": "AminiTech/Soma-1X-lite",
+    "name": "Soma-1X Lite",
+    "license": "apache-2.0",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "img-in",
+      "txt-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": 262144,
+      "maxOutput": null
+    },
+    "creatorId": "amini"
+  },
+  "lingdt-decision-fast-1.0": {
+    "id": "lingdt-decision-fast-1.0",
+    "name": "LingDT Decision Fast 1.0",
+    "capabilities": [
+      "txt-in"
+    ],
+    "context": {
+      "type": "token",
+      "total": null,
+      "maxOutput": 0
+    },
+    "creatorId": "antgroup"
+  },
+  "lingsante-medguard-4b": {
+    "id": "lingsante-medguard-4b",
+    "name": "LingSante MedGuard 4B",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": 64e3,
+      "maxOutput": null
+    },
+    "creatorId": "antgroup"
+  },
+  "inclusionAI/Ming-Image-0.2-Design": {
+    "id": "inclusionAI/Ming-Image-0.2-Design",
+    "name": "Ming Image 0.2 Design",
+    "license": "mit",
+    "capabilities": [
+      "txt-in",
+      "img-out"
+    ],
+    "context": {
+      "maxOutput": 1,
+      "sizes": [
+        "1K",
+        "2K"
+      ]
+    },
+    "creatorId": "antgroup"
+  },
+  "inclusionAI/LingSante-3.1-air-VL": {
+    "id": "inclusionAI/LingSante-3.1-air-VL",
+    "name": "LingSante 3.1 Air VL",
+    "license": "mit",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "img-in",
+      "txt-out",
+      "reason",
+      "fn-out",
+      "json-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": 131072,
+      "maxOutput": null
+    },
+    "creatorId": "antgroup"
+  },
+  "inclusionAI/LingSante-3.1-flash": {
+    "id": "inclusionAI/LingSante-3.1-flash",
+    "extends": "Ling-3.1-flash",
+    "overrides": {
+      "name": "LingSante 3.1 Flash",
+      "context": {
+        "type": "token",
+        "total": 262144,
+        "maxOutput": null
+      }
+    },
+    "creatorId": "antgroup"
+  },
   "inclusionAI/Ling-3.2-air": {
     "id": "inclusionAI/Ling-3.2-air",
     "name": "Ling 3.2 Air",
@@ -1319,6 +1414,21 @@ var models = {
       "maxOutput": 4096
     },
     "creatorId": "cohere"
+  },
+  "decagon-ai/Decibel-30B-A3B-v0": {
+    "id": "decagon-ai/Decibel-30B-A3B-v0",
+    "name": "Decibel 30B A3B v0",
+    "license": "apache-2.0",
+    "capabilities": [
+      "txt-in",
+      "audio-in"
+    ],
+    "context": {
+      "type": "token",
+      "total": null,
+      "maxOutput": 0
+    },
+    "creatorId": "decagon"
   },
   "deepseek-ai/DeepSeek-V4.1-Flash-1017": {
     "id": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
@@ -5368,6 +5478,25 @@ var models = {
     },
     "creatorId": "perplexity"
   },
+  "prism-ml/Ternary-Bonsai-2.5-27B-GGUF": {
+    "id": "prism-ml/Ternary-Bonsai-2.5-27B-GGUF",
+    "name": "Ternary Bonsai 2.5 27B",
+    "license": "apache-2.0",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "img-in",
+      "txt-out",
+      "reason",
+      "fn-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": 262144,
+      "maxOutput": null
+    },
+    "creatorId": "prismml"
+  },
   "qwen4-max": {
     "id": "qwen4-max",
     "name": "Qwen 4 Max",
@@ -6127,6 +6256,102 @@ var models = {
     },
     "releasedAt": "2026-11-22",
     "creatorId": "sarvam"
+  },
+  "ai-sage/GigaChat4-708B-A41B": {
+    "id": "ai-sage/GigaChat4-708B-A41B",
+    "name": "GigaChat 4 708B A41B",
+    "license": "mit",
+    "capabilities": [
+      "chat",
+      "txt-in",
+      "txt-out",
+      "reason",
+      "fn-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": 1048576,
+      "maxOutput": null
+    },
+    "creatorId": "sber"
+  },
+  "ai-sage/GigaChat4-708B-A41B-base": {
+    "id": "ai-sage/GigaChat4-708B-A41B-base",
+    "extends": "ai-sage/GigaChat4-708B-A41B",
+    "overrides": {
+      "name": "GigaChat 4 708B A41B Base",
+      "capabilities": [
+        "txt-in",
+        "txt-out"
+      ]
+    },
+    "creatorId": "sber"
+  },
+  "ai-sage/GigaChat4-37B-A4B": {
+    "id": "ai-sage/GigaChat4-37B-A4B",
+    "extends": "ai-sage/GigaChat4-708B-A41B",
+    "overrides": {
+      "name": "GigaChat 4 37B A4B",
+      "license": "noncommercial-license-for-individuals-1.0"
+    },
+    "creatorId": "sber"
+  },
+  "ai-sage/GigaChat4-37B-A4B-base": {
+    "id": "ai-sage/GigaChat4-37B-A4B-base",
+    "extends": "ai-sage/GigaChat4-37B-A4B",
+    "overrides": {
+      "name": "GigaChat 4 37B A4B Base",
+      "capabilities": [
+        "txt-in",
+        "txt-out"
+      ]
+    },
+    "creatorId": "sber"
+  },
+  "kandinskylab/Kandinsky-ImageSR-2.0": {
+    "id": "kandinskylab/Kandinsky-ImageSR-2.0",
+    "name": "Kandinsky ImageSR 2.0",
+    "license": "mit",
+    "capabilities": [
+      "img-in",
+      "img-out"
+    ],
+    "context": {
+      "maxOutput": 1,
+      "sizes": []
+    },
+    "creatorId": "sber"
+  },
+  "kandinskylab/Kandinsky-6.0-VSR-2.0-distilled2steps-Diffusers": {
+    "id": "kandinskylab/Kandinsky-6.0-VSR-2.0-distilled2steps-Diffusers",
+    "name": "Kandinsky 6.0 Video SR 2.0",
+    "license": "mit",
+    "capabilities": [
+      "video-in",
+      "video-out"
+    ],
+    "context": {
+      "type": "token",
+      "total": null,
+      "maxOutput": null
+    },
+    "creatorId": "sber"
+  },
+  "sensenova/SenseNova-U1.6-8B-MoT": {
+    "id": "sensenova/SenseNova-U1.6-8B-MoT",
+    "name": "SenseNova U1.6 8B MoT",
+    "license": "apache-2.0",
+    "capabilities": [
+      "txt-in",
+      "img-in",
+      "txt-out",
+      "img-out"
+    ],
+    "context": {
+      "maxOutput": 1,
+      "sizes": []
+    },
+    "creatorId": "sensetime"
   },
   "step-5-preview": {
     "id": "step-5-preview",
@@ -7524,6 +7749,21 @@ var providers = {
       }
     ]
   },
+  "antdigital": {
+    "id": "antdigital",
+    "name": "Ant Digital DTMaaS",
+    "apiUrl": "https://maas-api.antdigital.com/v1",
+    "apiDocsUrl": "https://maas.antdigital.com/models",
+    "models": [
+      {
+        "creator": "antgroup",
+        "include": [
+          "lingdt-decision-fast-1.0",
+          "lingsante-medguard-4b"
+        ]
+      }
+    ]
+  },
   "antgroup": {
     "id": "antgroup",
     "name": "Ant Ling",
@@ -7535,6 +7775,11 @@ var providers = {
         "creator": "antgroup",
         "include": "all",
         "exclude": [
+          "lingdt-decision-fast-1.0",
+          "lingsante-medguard-4b",
+          "inclusionAI/Ming-Image-0.2-Design",
+          "inclusionAI/LingSante-3.1-air-VL",
+          "inclusionAI/LingSante-3.1-flash",
           "inclusionAI/Ling-3.2-air"
         ]
       }
@@ -7718,6 +7963,34 @@ var providers = {
         "include": "all",
         "exclude": [
           "CohereLabs/North-Micro-Vision-Instruct"
+        ]
+      }
+    ]
+  },
+  "computrix": {
+    "id": "computrix",
+    "name": "Computrix",
+    "apiUrl": "https://maas-api.computrix.ai/v1",
+    "apiDocsUrl": "https://github.com/inclusionAI/LingSante-MedGuard#single-api-call",
+    "models": [
+      {
+        "creator": "antgroup",
+        "include": [
+          "lingsante-medguard-4b"
+        ]
+      }
+    ]
+  },
+  "deepinfra": {
+    "id": "deepinfra",
+    "name": "DeepInfra",
+    "apiUrl": "https://api.deepinfra.com/v1/openai",
+    "apiDocsUrl": "https://deepinfra.com/inclusionAI/LingSante-3.1-air-VL/api",
+    "models": [
+      {
+        "creator": "antgroup",
+        "include": [
+          "inclusionAI/LingSante-3.1-air-VL"
         ]
       }
     ]
@@ -8275,12 +8548,16 @@ var providers = {
       {
         "creator": "antgroup",
         "include": [
+          "lingdt-decision-fast-1.0",
+          "inclusionAI/LingSante-3.1-air-VL",
           "Ling-3.2-flash",
           "Ling-3.1-flash",
           "Ling-3.0-flash-VL",
           "Ling-3.0-tiny"
         ],
         "idOverrides": {
+          "lingdt-decision-fast-1.0": "antdigital/lingdt-decision-fast-1.0:free",
+          "inclusionAI/LingSante-3.1-air-VL": "inclusionai/lingsante-3.1-air-vl",
           "Ling-3.1-flash": "inclusionai/ling-3.1-flash",
           "Ling-3.0-flash-VL": "inclusionai/ling-3.0-flash-vl",
           "Ling-3.0-tiny": "inclusionai/ling-3.0-tiny",
@@ -8888,6 +9165,36 @@ var providers = {
   }
 };
 var organizations = {
+  "amini": {
+    "name": "Amini",
+    "websiteUrl": "https://www.amini.ai",
+    "country": "KEN",
+    "founded": 2022
+  },
+  "decagon": {
+    "name": "Decagon",
+    "websiteUrl": "https://decagon.ai",
+    "country": "USA",
+    "founded": 2023
+  },
+  "prismml": {
+    "name": "PrismML",
+    "websiteUrl": "https://prismml.com",
+    "country": "USA",
+    "founded": 2025
+  },
+  "sensetime": {
+    "name": "SenseTime",
+    "websiteUrl": "https://www.sensetime.com",
+    "country": "CHN",
+    "founded": 2014
+  },
+  "sber": {
+    "name": "Sber",
+    "websiteUrl": "https://www.sberbank.com",
+    "country": "RUS",
+    "founded": 1841
+  },
   "alibaba-cloud": {
     "name": "Alibaba Cloud",
     "websiteUrl": "https://www.alibabacloud.com",
